@@ -43,37 +43,48 @@ docker build -t ghcr.io/justamply/asa-linux-server:beta .
 
 ## Table of Contents
 
-* [Hardware Requirements](#hardware-requirements)
-* [Installation](#installation)
-  * [Install Docker & Docker Compose](#1-install-docker--docker-compose)
-  * [Start docker daemon](#2-start-docker-daemon)
-  * [Create the Docker Compose config](#3-create-the-docker-compose-config)
-  * [First server start](#4-first-server-start)
-  * [Server configuration](#5-server-configuration)
-  * [Changing the start parameters AND the player limit](#6-changing-the-start-parameters-and-the-player-limit)
-* [Port forwarding?](#port-forwarding)
-* [Changing the game port and RCON port](#changing-the-game-port-and-rcon-port)
-* [Start/Restart/Stop](#startrestartstop)
-* [Server Administration](#server-administration)
-  * [Debug Mode](#debug-mode)
-  * [Applying server updates](#applying-server-updates)
-  * [Daily restarts](#daily-restarts)
-  * [Executing RCON commands](#executing-rcon-commands)
-* [Setting up a second server / cluster](#setting-up-a-second-server--cluster)
-* [Adding Mods](#adding-mods)
-  * [Adding Mod Maps](#adding-mod-maps)
-* [Adding Plugins](#adding-plugins)
-* [Map Names](#map-names)
-* [Updating the Container Image](#updating-the-container-image)
-* [Common Issues](#common-issues)
-  * [Server is not visible in server browser](#server-is-not-visible-in-server-browser)
-* [Addressing "Connection Timeout" issues](#addressing-connection-timeout-issues)
-  * [Your server has multiple IPv4 addresses](#your-server-has-multiple-ipv4-addresses)
-    * [Debugging with curl](#debugging-with-curl)
-    * [How to customize your routing?](#how-to-customize-your-routing)
-    * [Making your iptable rules persistent](#making-your-iptable-rules-persistent)
-* [Found an Issue or Bug?](#found-an-issue-or-bug)
-* [Credits](#credits)
+- [ARK: Survival Ascended - Dedicated Linux Server - Docker Image](#ark-survival-ascended---dedicated-linux-server---docker-image)
+  - [Version 2.0 - Python Migration](#version-20---python-migration)
+    - [What's New in 2.0:](#whats-new-in-20)
+    - [Additional Refactor Improvements (post 2.0 minor update)](#additional-refactor-improvements-post-20-minor-update)
+    - [Migration Notes:](#migration-notes)
+    - [Building from Source:](#building-from-source)
+  - [Table of Contents](#table-of-contents)
+  - [Hardware Requirements](#hardware-requirements)
+  - [Installation](#installation)
+    - [1. Install Docker \& Docker Compose](#1-install-docker--docker-compose)
+      - [openSUSE Leap 15.6:](#opensuse-leap-156)
+      - [Debian 12](#debian-12)
+      - [Ubuntu (24.04.x):](#ubuntu-2404x)
+    - [2. Start docker daemon](#2-start-docker-daemon)
+    - [3. Create the Docker Compose config](#3-create-the-docker-compose-config)
+    - [4. First server start](#4-first-server-start)
+      - [Note on Proton download and checksum verification](#note-on-proton-download-and-checksum-verification)
+    - [5. Server configuration](#5-server-configuration)
+    - [6. Changing the start parameters AND the player limit](#6-changing-the-start-parameters-and-the-player-limit)
+  - [Port forwarding?](#port-forwarding)
+  - [Changing the game port and RCON port](#changing-the-game-port-and-rcon-port)
+  - [Start/Restart/Stop](#startrestartstop)
+  - [Server Administration](#server-administration)
+    - [Debug Mode](#debug-mode)
+    - [Applying server updates](#applying-server-updates)
+    - [Daily restarts](#daily-restarts)
+    - [Executing RCON commands](#executing-rcon-commands)
+  - [Setting up a second server / cluster](#setting-up-a-second-server--cluster)
+  - [Adding Mods](#adding-mods)
+    - [Adding Mod Maps](#adding-mod-maps)
+  - [Adding Plugins](#adding-plugins)
+  - [Map Names](#map-names)
+  - [Updating the Container Image](#updating-the-container-image)
+  - [Common Issues](#common-issues)
+    - [Server is not visible in server browser](#server-is-not-visible-in-server-browser)
+  - [Addressing "Connection Timeout" issues](#addressing-connection-timeout-issues)
+    - [Your server has multiple IPv4 addresses](#your-server-has-multiple-ipv4-addresses)
+      - [Debugging with curl](#debugging-with-curl)
+      - [How to customize your routing?](#how-to-customize-your-routing)
+      - [Making your iptable rules persistent](#making-your-iptable-rules-persistent)
+  - [Found an Issue or Bug?](#found-an-issue-or-bug)
+  - [Credits](#credits)
 
 ## Hardware Requirements
 
@@ -166,10 +177,8 @@ Starting the ARK: Survival Ascended dedicated server...
 
 #### Note on Proton download and checksum verification
 
-On first run, the container downloads a GE-Proton release from the official repository to run the Windows server under Linux. The script verifies the download using one of these methods:
-
-1) GitHub response header `X-Checksum-Sha256` (preferred)
-2) If the header is missing or mismatched, the script downloads the release's `GE-Proton<version>.sha512sum` file and verifies with `sha512sum -c`
+On first run, the container downloads a GE-Proton release from the official repository to run the Windows server under Linux.
+The script downloads the release's `GE-Proton<version>.sha512sum` file and verifies with `sha512sum -c`
 
 If both checks are unavailable or fail and you still want to proceed, you may set `PROTON_SKIP_CHECKSUM=1` in the container environment as a last resort. This is not recommended; use it only temporarily if the release assets are in flux.
 
