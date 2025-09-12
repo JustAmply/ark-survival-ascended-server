@@ -97,62 +97,43 @@ LAUNCH_BINARY_NAME="$ASA_BINARY_NAME"
 
 # install proton if necessary
 if [ ! -d "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME" ]; then
-  mkdir -p $STEAM_COMPAT_DIR
-  echo "Downloading Proton version $PROTON_VERSION... This might take a while"
-  ASSET_URL="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton$PROTON_VERSION/GE-Proton$PROTON_VERSION.tar.gz"
+  mkdir -p "$STEAM_COMPAT_DIR"
+  echo "Downloading Proton GE-Proton$PROTON_VERSION... This might take a while"
+  ASSET_BASE="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton$PROTON_VERSION"
+  ARCHIVE_URL="$ASSET_BASE/GE-Proton$PROTON_VERSION.tar.gz"
+  SUM_URL="$ASSET_BASE/GE-Proton$PROTON_VERSION.sha512sum"
   LOCAL_ARCHIVE="/tmp/$PROTON_ARCHIVE_NAME"
-  LOCAL_HEADERS="/tmp/$PROTON_ARCHIVE_NAME.headers"
-  # Download asset and capture final response headers (which include X-Checksum-Sha256)
-  wget --server-response -O "$LOCAL_ARCHIVE" "$ASSET_URL" 2> "$LOCAL_HEADERS"
-  EXIT_CODE=$?
+  LOCAL_SUM_FILE="/tmp/GE-Proton$PROTON_VERSION.sha512sum"
 
-  if [ $EXIT_CODE -ne 0 ]; then
-    echo "Error: Error while downloading Proton ($EXIT_CODE)"
+  if ! wget -q -O "$LOCAL_ARCHIVE" "$ARCHIVE_URL"; then
+    echo "Error: failed to download Proton archive."
     exit 200
   fi
 
-  echo "Verifying checksum via GitHub header (sha256)..."
-  LOCAL_SUM=$(sha256sum "$LOCAL_ARCHIVE" | awk '{print $1}')
-  # Extract the last X-Checksum-Sha256 header from the response chain
-  EXPECTED_SUM=$(awk 'BEGIN{IGNORECASE=1} tolower($1)=="x-checksum-sha256:"{last=$2} END{print last}' "$LOCAL_HEADERS" | tr -d '\r')
-  # Strip optional prefix if present
-  EXPECTED_SUM=${EXPECTED_SUM#sha256:}
-
-  if [ -n "$EXPECTED_SUM" ] && [ "$EXPECTED_SUM" = "$LOCAL_SUM" ]; then
-    echo "Checksum verified using GitHub X-Checksum-Sha256 header."
-  else
-    echo "Warning: Proton checksum header missing or mismatch. Attempting fallback verification via release .sha512sum file..."
-
-    # Fallback: download official sha512sum file from the same release and verify
-    SUM_FILE_URL="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton$PROTON_VERSION/GE-Proton$PROTON_VERSION.sha512sum"
-    LOCAL_SUM_FILE="/tmp/GE-Proton$PROTON_VERSION.sha512sum"
-    if wget -q -O "$LOCAL_SUM_FILE" "$SUM_FILE_URL"; then
-      # The .sha512sum file contains a line like: <sha512>  GE-Proton<ver>.tar.gz
-      # Ensure the filename matches our downloaded archive when checking
-      # Use a subshell to avoid messing with IFS in main script
-      if (cd /tmp && sha512sum -c "$(basename "$LOCAL_SUM_FILE")" 2>/dev/null | grep -E "GE-Proton$PROTON_VERSION.tar.gz: OK" >/dev/null); then
-        echo "Checksum verified using release .sha512sum file."
-      else
-        echo "Error: sha512 checksum verification failed."
-        if [ "${PROTON_SKIP_CHECKSUM:-0}" = "1" ]; then
-          echo "PROTON_SKIP_CHECKSUM=1 is set; proceeding without verification (NOT RECOMMENDED)."
-        else
-          exit 201
-        fi
-      fi
-      rm -f "$LOCAL_SUM_FILE" || true
+  echo "Verifying sha512 checksum..."
+  if wget -q -O "$LOCAL_SUM_FILE" "$SUM_URL"; then
+    if (cd /tmp && sha512sum -c "$(basename "$LOCAL_SUM_FILE")" 2>/dev/null | grep -q "GE-Proton$PROTON_VERSION.tar.gz: OK"); then
+      echo "Checksum OK."
     else
-      echo "Error: Could not download .sha512sum file for Proton $PROTON_VERSION."
+      echo "Error: sha512 checksum verification failed."
       if [ "${PROTON_SKIP_CHECKSUM:-0}" = "1" ]; then
-        echo "PROTON_SKIP_CHECKSUM=1 is set; proceeding without verification (NOT RECOMMENDED)."
+        echo "PROTON_SKIP_CHECKSUM=1 set; continuing WITHOUT verification."
       else
         exit 201
       fi
     fi
+    rm -f "$LOCAL_SUM_FILE" || true
+  else
+    echo "Warning: could not download checksum file." 
+    if [ "${PROTON_SKIP_CHECKSUM:-0}" = "1" ]; then
+      echo "PROTON_SKIP_CHECKSUM=1 set; continuing WITHOUT verification."
+    else
+      exit 201
+    fi
   fi
 
-  tar -xf /tmp/$PROTON_ARCHIVE_NAME -C $STEAM_COMPAT_DIR
-  rm /tmp/$PROTON_ARCHIVE_NAME
+  tar -xf "$LOCAL_ARCHIVE" -C "$STEAM_COMPAT_DIR"
+  rm -f "$LOCAL_ARCHIVE"
 fi
 
 # install proton compat game data
