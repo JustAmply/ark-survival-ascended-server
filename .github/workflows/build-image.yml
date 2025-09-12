@@ -28,12 +28,14 @@ jobs:
 
       - name: Build Docker image (stable)
         run: |
+          BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
+          echo "Building image $BASE with tags: latest, ${{ env.VERSION }}"
           docker build \
             --build-arg VERSION=${{ env.VERSION }} \
             --build-arg GIT_COMMIT=${{ env.GIT_COMMIT }} \
             --build-arg BUILD_DATE=${{ env.BUILD_DATE }} \
-            -t ghcr.io/${{ env.IMAGE_BASENAME }}:latest \
-            -t ghcr.io/${{ env.IMAGE_BASENAME }}:${{ env.VERSION }} \
+            -t "$BASE:latest" \
+            -t "$BASE:${{ env.VERSION }}" \
             .
 
       - name: Log in to GHCR
@@ -55,8 +57,9 @@ jobs:
         run: |
           DEST_BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
           VERSION_TAG="${GITHUB_REF_NAME#v}"
+          echo "Tagging $DEST_BASE:$VERSION_TAG (from latest)"
+          docker tag "$DEST_BASE:latest" "$DEST_BASE:$VERSION_TAG"
           echo "Pushing $DEST_BASE:$VERSION_TAG"
-          docker tag "ghcr.io/${{ env.IMAGE_BASENAME }}:latest" "$DEST_BASE:$VERSION_TAG"
           docker push "$DEST_BASE:$VERSION_TAG"
 
   build-development:
@@ -75,11 +78,13 @@ jobs:
 
       - name: Build Docker image (development)
         run: |
+          BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
+          echo "Building image $BASE with tag: development"
           docker build \
             --build-arg VERSION=${{ env.VERSION }} \
             --build-arg GIT_COMMIT=${{ env.GIT_COMMIT }} \
             --build-arg BUILD_DATE=${{ env.BUILD_DATE }} \
-            -t ghcr.io/${{ env.IMAGE_BASENAME }}:development \
+            -t "$BASE:development" \
             .
 
       - name: Log in to GHCR
