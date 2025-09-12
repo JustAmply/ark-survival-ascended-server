@@ -14,6 +14,18 @@ This repository provides a step by step guide for Linux administrators to host A
 - **Same functionality**: All RCON commands, mod management, and server features remain identical
 - **Ubuntu-based**: Switched from OpenSUSE to Ubuntu for better compatibility and simpler package management
 
+### Additional Refactor Improvements (post 2.0 minor update)
+The internal Python package `asa_ctrl` has been refactored for maintainability:
+
+* Added structured logging (enable debug with `ASA_LOG_LEVEL=DEBUG`)
+* Added environment overrides for config paths:
+  * `ASA_GAME_USER_SETTINGS_PATH`
+  * `ASA_GAME_INI_PATH`
+* Added `parse_start_params()` helper for programmatic access to the parsed `ASA_START_PARAMS`
+* `mods.json` handling now thread-safe & uses a dataclass model
+* Public API consolidated in `asa_ctrl.__init__` for easier imports
+* Zero external dependencies preserved
+
 ### Migration Notes:
 - **For end users**: No changes required - all docker commands and configurations remain the same
 - **For developers**: Build system now uses direct Docker commands instead of make/KIWI-NG
