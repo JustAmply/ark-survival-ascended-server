@@ -91,12 +91,12 @@ systemctl enable docker
 
 ### 3. Create the Docker Compose config
 
-Create a directory called `asa-server` wherever you like and download [my docker-compose.yml](https://github.com/mschnitzer/ark-survival-ascended-linux-container-image/blob/main/docker-compose.yml) example.
+Create a directory called `asa-server` wherever you like and download [my docker-compose.yml](https://github.com/justamply/ark-survival-ascended-linux-container-image/blob/main/docker-compose.yml) example.
 
 ```
 mkdir asa-server
 cd asa-server
-wget https://raw.githubusercontent.com/mschnitzer/ark-survival-ascended-linux-container-image/main/docker-compose.yml
+wget https://raw.githubusercontent.com/justamply/ark-survival-ascended-linux-container-image/main/docker-compose.yml
 ```
 
 ### 4. First server start
@@ -136,7 +136,7 @@ SessionName=ARK #334850
 ```
 
 Now try to find the server by its name. Just search in the "Unofficial" section in ASA for the number of the server. In my case it is `334850`. If you are not able to connect to it right away, wait up to 5 more minutes and
-try it again. If it's still not possible, [open an issue on GitHub](https://github.com/mschnitzer/ark-survival-ascended-linux-container-image/issues/new) to get help.
+try it again. If it's still not possible, [open an issue on GitHub](https://github.com/justamply/ark-survival-ascended-linux-container-image/issues/new) to get help.
 
 Once confirmed that you are able to connect, stop the server again:
 
@@ -270,7 +270,7 @@ services:
     hostname: asa-server-1
     entrypoint: "/usr/bin/start_server"
     user: gameserver
-    image: "mschnitzer/asa-linux-server:latest"
+    image: "justamply/asa-linux-server:latest"
     environment:
       - ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50
       - ENABLE_DEBUG=1
@@ -454,16 +454,16 @@ This is a list of all official map names with their map id. The map id is used a
 
 The container image will be updated from time to time. In general, we try to not break previous installations by an update, but to add certain features, it might be necessary to introduce backward incompatibilities.
 The default `docker-compose.yml` file suggests to use the `latest` branch of the container image. If you want to stay on one specific version, you can force the container image to launch with that said version, by
-changing `image: "mschnitzer/asa-linux-server:latest"` in your `docker-compose.yml` file (as outlined below) to whatever version suits you. A list of all versions can be
-found [here](https://hub.docker.com/r/mschnitzer/asa-linux-server/tags).
+changing `image: "justamply/asa-linux-server:latest"` in your `docker-compose.yml` file (as outlined below) to whatever version suits you. A list of all versions can be
+found [here](https://hub.docker.com/r/justamply/asa-linux-server/tags).
 
 For example:
 
-If you want to stay on version `1.4.0` for your ASA server, you must change `image: "mschnitzer/asa-linux-server:latest"` to `image: "mschnitzer/asa-linux-server:1.4.0"`.
+If you want to stay on version `1.4.0` for your ASA server, you must change `image: "justamply/asa-linux-server:latest"` to `image: "justamply/asa-linux-server:1.4.0"`.
 
-Even if you stay on branch `latest`, your container image won't be updated automatically if we roll out an update. You explicitly need to run `docker pull mschnitzer/asa-linux-server:latest` to obtain the newest version.
+Even if you stay on branch `latest`, your container image won't be updated automatically if we roll out an update. You explicitly need to run `docker pull justamply/asa-linux-server:latest` to obtain the newest version.
 
-We strongly suggest to read through the [releases page](https://github.com/mschnitzer/ark-survival-ascended-linux-container-image/releases) of this repository to see what has changed between versions. If there's
+We strongly suggest to read through the [releases page](https://github.com/justamply/ark-survival-ascended-linux-container-image/releases) of this repository to see what has changed between versions. If there's
 a backward incompatibility being introduced, it will be mentioned there with an explanation what to change.
 
 ## Common Issues
@@ -475,7 +475,7 @@ If you cannot discover your server in the server browser, it's most likely due t
 * Your server is still booting up, give it ~5 minutes
 * You are not looking at the "Unofficial" server browser list
 * Your filter settings in the server browser exclude your server
-* You forgot clicking the "Show player server settings". ([view screenshot](https://raw.githubusercontent.com/mschnitzer/ark-survival-ascended-linux-container-image/main/assets/show-player-servers.jpg)) By default, only Nitrado servers are shown to players when searching for unofficial servers, unfortunately.
+* You forgot clicking the "Show player server settings". ([view screenshot](https://raw.githubusercontent.com/justamply/ark-survival-ascended-linux-container-image/main/assets/show-player-servers.jpg)) By default, only Nitrado servers are shown to players when searching for unofficial servers, unfortunately.
 
 ## Addressing "Connection Timeout" issues
 
