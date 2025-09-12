@@ -35,7 +35,7 @@ RUN mkdir -p /home/gameserver/{Steam,steamcmd,server-files,cluster-shared} && \
 # Copy Python application
 COPY asa_ctrl /usr/share/asa_ctrl
 COPY setup.py requirements.txt /usr/share/
-COPY cli-asa-mods /usr/bin/cli-asa-mods
+COPY scripts/cli-asa-mods /usr/bin/cli-asa-mods
 
 # Install Python application
 WORKDIR /usr/share
