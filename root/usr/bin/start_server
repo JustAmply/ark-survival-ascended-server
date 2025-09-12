@@ -160,4 +160,21 @@ if [ -f "$ASA_PLUGIN_BINARY_PATH" ]; then
   LAUNCH_BINARY_NAME="$ASA_PLUGIN_BINARY_NAME"
 fi
 
-$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton run $LAUNCH_BINARY_NAME $ASA_START_PARAMS
+# Stream server log files to the main console, if present
+LOG_DIR="/home/gameserver/server-files/ShooterGame/Saved/Logs"
+mkdir -p "$LOG_DIR"
+
+# Start tailing known log patterns in the background. They might not exist yet; that's fine.
+# This helps `docker logs -f` show the live server log content.
+(
+  # slight delay to avoid noisy errors before files are created
+  sleep 1
+  tail -n +1 -F "$LOG_DIR"/*.log "$LOG_DIR"/*.txt 2>/dev/null
+) &
+
+# Run Proton with line-buffered stdout/stderr so logs flush promptly (if available)
+if command -v stdbuf >/dev/null 2>&1; then
+  exec stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME" $ASA_START_PARAMS 2>&1
+else
+  exec "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME" $ASA_START_PARAMS 2>&1
+fi
