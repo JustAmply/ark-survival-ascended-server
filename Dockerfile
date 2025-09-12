@@ -46,7 +46,7 @@ RUN python3 -m pip install --user -e . && \
     chmod +x /usr/local/bin/asa-ctrl
 
 # Copy server start script
-COPY root/usr/bin/start_server /usr/bin/start_server
+COPY scripts/start_server /usr/bin/start_server
 
 # Set permissions
 RUN chmod +x /usr/bin/start_server && \

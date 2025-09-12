@@ -1,0 +1,181 @@
+@ -1,180 +0,0 @@
+#!/bin/bash
+
+# Safer shell defaults (no -u because we reference optional env vars)
+set -Ee -o pipefail
+
+# If running as root, fix volume permissions once, then drop to 'gameserver'.
+if [ "$(id -u)" = "0" ] && [ -z "${START_SERVER_PRIVS_DROPPED:-}" ]; then
+  set -e
+
+  TARGET_UID=25000
+  TARGET_GID=25000
+  DIRS=(
+    "/home/gameserver/Steam"
+    "/home/gameserver/steamcmd"
+    "/home/gameserver/server-files"
+    "/home/gameserver/cluster-shared"
+  )
+
+  for d in "${DIRS[@]}"; do
+    mkdir -p "$d"
+    # Only run recursive chown once per volume using a marker file to avoid slow startups.
+    MARKER="$d/.permissions_set"
+    if [ ! -e "$MARKER" ]; then
+      echo "Setting ownership for $d to ${TARGET_UID}:${TARGET_GID} (first run)"
+      chown -R ${TARGET_UID}:${TARGET_GID} "$d" || true
+      # Create marker owned by target user to skip on subsequent starts
+      touch "$MARKER"
+      chown ${TARGET_UID}:${TARGET_GID} "$MARKER" || true
+    else
+      # Ensure the root directory has correct ownership even if marker exists
+      chown ${TARGET_UID}:${TARGET_GID} "$d" || true
+    fi
+  done
+
+  # Re-exec this script as the 'gameserver' user
+  export START_SERVER_PRIVS_DROPPED=1
+  if command -v runuser >/dev/null 2>&1; then
+    exec runuser -u gameserver -- /usr/bin/start_server
+  else
+    exec su -s /bin/bash -c "/usr/bin/start_server" gameserver
+  fi
+fi
+
+ENABLE_DEBUG="${ENABLE_DEBUG:-0}"
+if [ "$ENABLE_DEBUG" = "1" ]; then
+  echo "Entering debug mode..."
+  sleep 999999999999
+  exit 0
+fi
+
+# download steamcmd if necessary
+if [ ! -d "/home/gameserver/steamcmd/linux32" ]; then
+  cd /home/gameserver/steamcmd
+	wget https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
+  tar xfvz steamcmd_linux.tar.gz
+fi
+
+# download/update server files
+cd /home/gameserver/steamcmd
+./steamcmd.sh +force_install_dir /home/gameserver/server-files +login anonymous +app_update 2430930 validate +quit
+
+# Proton configuration
+# - You can override by setting PROTON_VERSION (e.g., 9-xx)
+# - If not set, we try to auto-detect the latest GE-Proton release via GitHub API
+# - If detection fails, we fall back to a known-good default
+DEFAULT_PROTON_VERSION="8-21"
+if [ -z "${PROTON_VERSION:-}" ]; then
+  echo "Detecting latest Proton GE version..."
+  # Example tag_name: GE-Proton9-xx -> extract the 9-xx part
+  if LATEST_TAG_JSON=$(wget -qO- https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest 2>/dev/null || true); then
+    if LATEST_NUMERIC=$(printf "%s" "$LATEST_TAG_JSON" | grep -m1 -o '"tag_name"\s*:\s*"GE-Proton[^"]*"' | sed -E 's/.*"GE-Proton([^\"]*)".*/\1/' || true); then
+      if [ -n "$LATEST_NUMERIC" ]; then
+        PROTON_VERSION="$LATEST_NUMERIC"
+        echo "Using latest detected GE-Proton version: $PROTON_VERSION"
+      fi
+    fi
+  fi
+fi
+PROTON_VERSION="${PROTON_VERSION:-$DEFAULT_PROTON_VERSION}"
+PROTON_DIR_NAME="GE-Proton$PROTON_VERSION"
+PROTON_ARCHIVE_NAME="$PROTON_DIR_NAME.tar.gz"
+STEAM_COMPAT_DATA=/home/gameserver/server-files/steamapps/compatdata
+STEAM_COMPAT_DIR=/home/gameserver/Steam/compatibilitytools.d
+ASA_COMPAT_DATA=$STEAM_COMPAT_DATA/2430930
+ASA_BINARY_DIR="/home/gameserver/server-files/ShooterGame/Binaries/Win64"
+START_PARAMS_FILE="/home/gameserver/server-files/start-parameters"
+MODS="$(/usr/bin/cli-asa-mods)"
+ASA_START_PARAMS="${ASA_START_PARAMS:-} $MODS"
+ASA_BINARY_NAME="ArkAscendedServer.exe"
+ASA_PLUGIN_BINARY_NAME="AsaApiLoader.exe"
+ASA_PLUGIN_LOADER_ARCHIVE_NAME=$(basename $ASA_BINARY_DIR/AsaApi_*.zip)
+ASA_PLUGIN_LOADER_ARCHIVE_PATH="$ASA_BINARY_DIR/$ASA_PLUGIN_LOADER_ARCHIVE_NAME"
+ASA_PLUGIN_BINARY_PATH="$ASA_BINARY_DIR/$ASA_PLUGIN_BINARY_NAME"
+LAUNCH_BINARY_NAME="$ASA_BINARY_NAME"
+
+# install proton if necessary
+if [ ! -d "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME" ]; then
+  mkdir -p $STEAM_COMPAT_DIR
+  echo "Downloading Proton version $PROTON_VERSION... This might take a while"
+  ASSET_URL="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton$PROTON_VERSION/GE-Proton$PROTON_VERSION.tar.gz"
+  LOCAL_ARCHIVE="/tmp/$PROTON_ARCHIVE_NAME"
+  LOCAL_HEADERS="/tmp/$PROTON_ARCHIVE_NAME.headers"
+  # Download asset and capture final response headers (which include X-Checksum-Sha256)
+  wget --server-response -O "$LOCAL_ARCHIVE" "$ASSET_URL" 2> "$LOCAL_HEADERS"
+  EXIT_CODE=$?
+
+  if [ $EXIT_CODE -ne 0 ]; then
+    echo "Error: Error while downloading Proton ($EXIT_CODE)"
+    exit 200
+  fi
+
+  echo "Verifying checksum via GitHub header (sha256)..."
+  LOCAL_SUM=$(sha256sum "$LOCAL_ARCHIVE" | awk '{print $1}')
+  # Extract the last X-Checksum-Sha256 header from the response chain
+  EXPECTED_SUM=$(awk 'BEGIN{IGNORECASE=1} tolower($1)=="x-checksum-sha256:"{last=$2} END{print last}' "$LOCAL_HEADERS" | tr -d '\r')
+  # Strip optional prefix if present
+  EXPECTED_SUM=${EXPECTED_SUM#sha256:}
+
+  if [ -n "$EXPECTED_SUM" ] && [ "$EXPECTED_SUM" = "$LOCAL_SUM" ]; then
+    echo "Checksum verified using GitHub X-Checksum-Sha256 header."
+  else
+    echo "Error: Proton checksum verification failed (missing header or mismatch)."
+    if [ "${PROTON_SKIP_CHECKSUM:-0}" = "1" ]; then
+      echo "PROTON_SKIP_CHECKSUM=1 is set; proceeding without verification (NOT RECOMMENDED)."
+    else
+      exit 201
+    fi
+  fi
+
+  tar -xf /tmp/$PROTON_ARCHIVE_NAME -C $STEAM_COMPAT_DIR
+  rm /tmp/$PROTON_ARCHIVE_NAME
+fi
+
+# install proton compat game data
+if [ ! -d "$ASA_COMPAT_DATA" ]; then
+  mkdir -p "$STEAM_COMPAT_DATA"
+  cp -r "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx" "$ASA_COMPAT_DATA"
+fi
+
+echo "Starting the ARK: Survival Ascended dedicated server..."
+echo "Start parameters: $ASA_START_PARAMS"
+
+export XDG_RUNTIME_DIR=/run/user/$(id -u)
+export STEAM_COMPAT_CLIENT_INSTALL_PATH=/home/gameserver/Steam
+export STEAM_COMPAT_DATA_PATH=$ASA_COMPAT_DATA
+
+# Ensure runtime dir exists for Proton
+mkdir -p "$XDG_RUNTIME_DIR"
+
+cd "$ASA_BINARY_DIR"
+
+# unzip the asa plugin api archive if it exists. delete it afterwards
+if [ -f "$ASA_PLUGIN_LOADER_ARCHIVE_PATH" ]; then
+  unzip -o $ASA_PLUGIN_LOADER_ARCHIVE_NAME
+  rm $ASA_PLUGIN_LOADER_ARCHIVE_NAME
+fi
+
+if [ -f "$ASA_PLUGIN_BINARY_PATH" ]; then
+  echo "Detected ASA Server API loader. Launching server through $ASA_PLUGIN_BINARY_NAME"
+  LAUNCH_BINARY_NAME="$ASA_PLUGIN_BINARY_NAME"
+fi
+
+# Stream server log files to the main console, if present
+LOG_DIR="/home/gameserver/server-files/ShooterGame/Saved/Logs"
+mkdir -p "$LOG_DIR"
+
+# Start tailing known log patterns in the background. They might not exist yet; that's fine.
+# This helps `docker logs -f` show the live server log content.
+(
+  # slight delay to avoid noisy errors before files are created
+  sleep 1
+  tail -n +1 -F "$LOG_DIR"/*.log "$LOG_DIR"/*.txt 2>/dev/null
+) &
+
+# Run Proton with line-buffered stdout/stderr so logs flush promptly (if available)
+if command -v stdbuf >/dev/null 2>&1; then
+  exec stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME" $ASA_START_PARAMS 2>&1
+else
+  exec "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME" $ASA_START_PARAMS 2>&1
+fi
