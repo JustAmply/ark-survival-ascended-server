@@ -1,3 +1,0 @@
-# ASA Control Python Dependencies
-# All dependencies are part of Python standard library
-# No external dependencies required
