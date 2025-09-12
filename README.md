@@ -164,6 +164,17 @@ Starting the ARK: Survival Ascended dedicated server...
 
 ... the server should be reachable and discoverable through the server browser in ~2-5 minutes.
 
+#### Note on Proton download and checksum verification
+
+On first run, the container downloads a GE-Proton release from the official repository to run the Windows server under Linux. The script verifies the download using one of these methods:
+
+1) GitHub response header `X-Checksum-Sha256` (preferred)
+2) If the header is missing or mismatched, the script downloads the release's `GE-Proton<version>.sha512sum` file and verifies with `sha512sum -c`
+
+If both checks are unavailable or fail and you still want to proceed, you may set `PROTON_SKIP_CHECKSUM=1` in the container environment as a last resort. This is not recommended; use it only temporarily if the release assets are in flux.
+
+You can pin a specific Proton version via the `PROTON_VERSION` environment variable (for example `9-17`). If omitted, the script tries to auto-detect the latest GE-Proton tag via the GitHub API, then falls back to a built-in default.
+
 The server name is randomly generated upon the first start. Please execute the following command to see under which name the server is discoverable in the server browser:
 ```
 docker exec asa-server-1 cat server-files/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini | grep SessionName
