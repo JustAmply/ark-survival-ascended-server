@@ -1,13 +1,14 @@
 # Dockerfile for ARK: Survival Ascended Server (Python-based)
-FROM opensuse/leap:15.6
+FROM ubuntu:22.04
 
 # Set environment variables
 ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Install required packages
-RUN zypper --non-interactive refresh && \
-    zypper --non-interactive install \
+RUN apt-get update && \
+    apt-get install -y \
     curl \
     wget \
     tar \
@@ -15,11 +16,13 @@ RUN zypper --non-interactive refresh && \
     unzip \
     python3 \
     python3-pip \
-    glibc-locale-base \
-    glibc-devel \
-    libstdc++6-32bit \
-    glib2-32bit \
-    && zypper clean --all
+    locales \
+    libc6-dev \
+    lib32stdc++6 \
+    lib32z1 \
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    locale-gen en_US.UTF-8
 
 # Create gameserver user
 RUN groupadd -g 25000 gameserver && \
@@ -30,13 +33,17 @@ RUN mkdir -p /home/gameserver/{Steam,steamcmd,server-files,cluster-shared} && \
     chown -R gameserver:gameserver /home/gameserver
 
 # Copy Python application
-COPY asa_ctrl /usr/share/asa-ctrl
+COPY asa_ctrl /usr/share/asa_ctrl
 COPY setup.py requirements.txt /usr/share/
 COPY cli-asa-mods /usr/bin/cli-asa-mods
 
 # Install Python application
 WORKDIR /usr/share
-RUN python3 -m pip install -e .
+RUN python3 -m pip install --user -e . && \
+    echo '#!/bin/bash' > /usr/local/bin/asa-ctrl && \
+    echo 'export PYTHONPATH=/usr/share:$PYTHONPATH' >> /usr/local/bin/asa-ctrl && \
+    echo 'exec python3 -m asa_ctrl "$@"' >> /usr/local/bin/asa-ctrl && \
+    chmod +x /usr/local/bin/asa-ctrl
 
 # Copy server start script
 COPY root/usr/bin/start_server /usr/bin/start_server

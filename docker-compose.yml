@@ -48,7 +48,7 @@ services:
 #  set-permissions-2:
 #    entrypoint: "/bin/bash -c 'chown -R 25000:25000 /steam ; chown -R 25000:25000 /steamcmd ; chown -R 25000:25000 /server-files ; chown -R 25000:25000 /cluster-shared'"
 #    user: root
-#    image: "opensuse/leap"
+#    image: "ubuntu:22.04"
 #    volumes:
 #      - steam-2:/steam:rw
 #      - steamcmd-2:/steamcmd:rw

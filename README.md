@@ -12,20 +12,21 @@ This repository provides a step by step guide for Linux administrators to host A
 - **Streamlined codebase**: Consolidated multiple Ruby modules into a cleaner Python structure
 - **No external dependencies**: Uses only Python standard library (no more gem dependencies)
 - **Same functionality**: All RCON commands, mod management, and server features remain identical
+- **Ubuntu-based**: Switched from OpenSUSE to Ubuntu for better compatibility and simpler package management
 
 ### Migration Notes:
 - **For end users**: No changes required - all docker commands and configurations remain the same
-- **For developers**: Build system now uses `make build` instead of KIWI-NG
+- **For developers**: Build system now uses direct Docker commands instead of make/KIWI-NG
 - **Compatibility**: Full backward compatibility maintained for all user-facing features
 
 ### Building from Source:
 ```bash
 # Build the Docker image
-make build
+docker build -t ghcr.io/justamply/asa-linux-server:latest .
 
 # Or build specific versions
-make build-development
-make build-beta
+docker build -t ghcr.io/justamply/asa-linux-server:development .
+docker build -t ghcr.io/justamply/asa-linux-server:beta .
 ```
 
 ## Table of Contents
@@ -533,8 +534,8 @@ But before we start fixing it, you should make sure that this is really the issu
 #### Debugging with curl
 
 1. Log in to the container `docker exec -ti -u root asa-server-1 bash`
-2. Run `zypper --no-gpg-checks ref`
-3. Install curl `zypper in -y curl`
+2. Run `apt-get update`
+3. Install curl `apt-get install -y curl`
 4. Run `curl icanhazip.com` (`icanhazip.com` is a service that tells you from what ip address it received traffic from)
 
 If the service responds with an IP that you have not assigned to the ASA server in the `docker-compose.yml` file, then it's very likely that this is the reason why you are getting a "Connection Timeout" error.
