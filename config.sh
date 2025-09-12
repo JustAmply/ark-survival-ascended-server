@@ -11,6 +11,7 @@ usermod -u 25000 gameserver
 
 chmod 0755 /usr/bin/start_server
 chmod 0755 /usr/bin/cli-asa-mods
+chmod 0755 /usr/bin/health-check
 
 # install ruby gems
 cd /usr/share/asa-ctrl
