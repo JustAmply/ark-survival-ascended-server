@@ -1,5 +1,5 @@
 # Dockerfile for ARK: Survival Ascended Server (Python-based)
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 # Set environment variables
 ENV LANG=en_US.UTF-8
