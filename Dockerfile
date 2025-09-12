@@ -28,7 +28,6 @@ RUN mkdir -p \
 
 # Copy Python application
 COPY asa_ctrl /usr/share/asa_ctrl
-COPY scripts/cli-asa-mods.sh /usr/bin/cli-asa-mods.sh
 
 # Create launcher script for Python application (avoid pip install to prevent PEP 668 issues)
 WORKDIR /usr/share
@@ -38,14 +37,14 @@ RUN echo '#!/bin/bash' > /usr/local/bin/asa-ctrl && \
     sed -i 's/\\"/"/g' /usr/local/bin/asa-ctrl && \
     chmod +x /usr/local/bin/asa-ctrl
 
-# Ensure PYTHONPATH is available for all shells so cli-asa-mods works
+# Ensure PYTHONPATH is available for all shells
 RUN echo 'export PYTHONPATH=/usr/share:$PYTHONPATH' > /etc/profile.d/asa_ctrl.sh
 
 # Copy server start script
 COPY scripts/start_server.sh /usr/bin/start_server.sh
 
 # Set permissions
-RUN chmod +x /usr/bin/start_server.sh /usr/bin/cli-asa-mods.sh
+RUN chmod +x /usr/bin/start_server.sh
 
 # Set working directory
 WORKDIR /home/gameserver

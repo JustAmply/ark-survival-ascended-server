@@ -445,9 +445,14 @@ If you want to spin up more servers, you need to add more entries to the `docker
 
 ## Adding Mods
 
-Mods can be added by adjusting the `docker-compose.yml` file and adding a `-mods` option to the start parameters.
+There are two supported ways to manage mods:
 
-e.g.
+1. Static method: Add a `-mods=` option directly to `ASA_START_PARAMS` in `docker-compose.yml` (works but requires editing and restarting for every change)
+2. Dynamic method: Use the built-in mod database and CLI to enable/disable mods without manually editing the compose file.
+
+### Static method
+
+You can still hard-code mods in `ASA_START_PARAMS` by adding a `-mods=` option:
 
 ```
 [...]
@@ -455,16 +460,38 @@ e.g.
 [...]
 ```
 
-Once done, restart the server using `docker compose up -d`. It might take longer until the server comes up, because the server has to download the mods first.
+Changing this list requires editing the compose file and recreating/restarting the container. Mixing both methods is safe: statically defined mods are merged with dynamically enabled ones (duplicates are ignored by the game server).
 
-Mod IDs are usually somewhere listed on the mod page of a mod on curseforge.com.
+### Dynamic method
+
+The container maintains a JSON database (`mods.json`) inside the server files directory. You can enable, disable and list mods via the `asa-ctrl` CLI:
+
+```
+docker exec asa-server-1 asa-ctrl mods enable 12345
+docker exec asa-server-1 asa-ctrl mods enable 67891
+docker exec asa-server-1 asa-ctrl mods list --enabled-only
+docker exec asa-server-1 asa-ctrl mods disable 12345
+```
+
+Enabled mods are automatically injected into the server start parameters through an internal helper command `asa-ctrl mods-string` when the container (re)starts. After enabling or disabling mods you only need to restart the container for downloads / changes to take effect:
+
+```
+docker restart asa-server-1
+```
+
+
+
+Mod IDs are usually listed on the mod's CurseForge page.
 
 ### Adding Mod Maps
 
 Search for a map on curseforge.com and find out what mod id the map has and what the map name is. For the map [Svartalfheim](https://www.curseforge.com/ark-survival-ascended/mods/svartalfheim) the map name
 is `Svartalfheim_WP` and the mod id is `893657`.
 
-Once you found out the information you need, you need to adjust your start parameters in the `docker-compose.yml` file and add the map name, as well as the `-mods` option.
+Once you found out the information you need, you need to adjust your start parameters in the `docker-compose.yml` file and add the map name, as well as either:
+
+* enable the map mod dynamically (`docker exec asa-server-1 asa-ctrl mods enable 893657`) OR
+* add / keep a static `-mods=893657` option
 
 e.g.
 

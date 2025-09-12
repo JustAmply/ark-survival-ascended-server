@@ -19,6 +19,7 @@ if PROJECT_ROOT not in sys.path:
 from asa_ctrl.mods import ModDatabase, ModRecord  # noqa: E402
 from asa_ctrl.config import StartParamsHelper, parse_start_params  # noqa: E402
 from asa_ctrl.constants import ExitCodes  # noqa: E402
+from asa_ctrl.cli import main as cli_main  # noqa: E402
 
 
 def test_start_params_helper():
@@ -46,6 +47,26 @@ def test_start_params_helper():
 def test_mod_database():
     """Test mod database functionality."""
     print("Testing ModDatabase...")
+
+
+def test_cli_mods_string():
+    """Test the hidden 'mods-string' CLI helper outputs correct formatting."""
+    print("Testing CLI mods-string helper...")
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = os.path.join(temp_dir, 'mods.json')
+        os.environ['ASA_MOD_DATABASE_PATH'] = db_path
+        db = ModDatabase.get_instance()  # singleton will pick overridden path first time
+        db.enable_mod(111)
+        db.enable_mod(222)
+        # Capture stdout
+        from io import StringIO
+        import contextlib
+        buf = StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli_main(['mods-string'])
+        out = buf.getvalue().strip()
+        assert out in ('-mods=111,222', '-mods=222,111')  # order not guaranteed
+    print("\u2713 CLI mods-string tests passed")
 
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, "mods.json")
@@ -90,6 +111,7 @@ def main():  # pragma: no cover - simple runner
     try:
         test_start_params_helper()
         test_mod_database()
+        test_cli_mods_string()
         test_exit_codes()
         print("\nAll tests passed.")
         return 0

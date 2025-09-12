@@ -11,7 +11,7 @@ from typing import List, Optional
 
 from .constants import ExitCodes
 from .rcon import execute_rcon_command
-from .mods import ModDatabase
+from .mods import ModDatabase, format_mod_list_for_server
 from .logging_config import configure_logging, get_logger
 from .config import parse_start_params
 from .errors import (
@@ -164,6 +164,11 @@ class ModsCommand:
             status = "enabled" if mod.enabled else "disabled"
             print(f"  {mod.mod_id}: {mod.name} ({status})")
 
+    @staticmethod
+    def print_mods_string(_args) -> None:
+        """Print the formatted mods parameter string only."""
+        print(format_mod_list_for_server(), end="")
+
 
 def create_parser() -> argparse.ArgumentParser:
     """Create the main argument parser."""
@@ -177,6 +182,10 @@ def create_parser() -> argparse.ArgumentParser:
     # Add command parsers
     RconCommand.add_parser(subparsers)
     ModsCommand.add_parser(subparsers)
+
+    # Hidden helper replacing external bash wrapper to output mods string
+    hidden = subparsers.add_parser('mods-string', help=argparse.SUPPRESS)
+    hidden.set_defaults(func=ModsCommand.print_mods_string)
     
     return parser
 
