@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <image schemaversion="7.4" name="asa-linux-server">
   <description type="system">
+    <author>JustAmply</author>
+    <contact></contact>
     <specification>ARK: Survival Ascended - Dedicated Server (Linux)</specification>
   </description>
   <profiles>
