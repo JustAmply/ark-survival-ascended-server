@@ -35,9 +35,9 @@ if [ "$(id -u)" = "0" ] && [ -z "${START_SERVER_PRIVS_DROPPED:-}" ]; then
   # Re-exec this script as the 'gameserver' user
   export START_SERVER_PRIVS_DROPPED=1
   if command -v runuser >/dev/null 2>&1; then
-    exec runuser -u gameserver -- /usr/bin/start_server
+    exec runuser -u gameserver -- /usr/bin/start_server.sh
   else
-    exec su -s /bin/bash -c "/usr/bin/start_server" gameserver
+    exec su -s /bin/bash -c "/usr/bin/start_server.sh" gameserver
   fi
 fi
 
@@ -48,15 +48,17 @@ if [ "$ENABLE_DEBUG" = "1" ]; then
   exit 0
 fi
 
+STEAMCMD_DIR="/home/gameserver/steamcmd"
 # download steamcmd if necessary
-if [ ! -d "/home/gameserver/steamcmd/linux32" ]; then
-  cd /home/gameserver/steamcmd
-	wget https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
+if [ ! -d "$STEAMCMD_DIR/linux32" ]; then
+  mkdir -p "$STEAMCMD_DIR"
+  cd "$STEAMCMD_DIR"
+  wget https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
   tar xfvz steamcmd_linux.tar.gz
 fi
 
 # download/update server files
-cd /home/gameserver/steamcmd
+cd "$STEAMCMD_DIR"
 ./steamcmd.sh +force_install_dir /home/gameserver/server-files +login anonymous +app_update 2430930 validate +quit
 
 # Proton configuration
@@ -68,7 +70,7 @@ if [ -z "${PROTON_VERSION:-}" ]; then
   echo "Detecting latest Proton GE version..."
   # Example tag_name: GE-Proton9-xx -> extract the 9-xx part
   if LATEST_TAG_JSON=$(wget -qO- https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest 2>/dev/null || true); then
-    if LATEST_NUMERIC=$(printf "%s" "$LATEST_TAG_JSON" | grep -m1 -o '"tag_name"\s*:\s*"GE-Proton[^"]*"' | sed -E 's/.*"GE-Proton([^\"]*)".*/\1/' || true); then
+    if LATEST_NUMERIC=$(printf "%s" "$LATEST_TAG_JSON" | grep -m1 -o '"tag_name"\s*:\s*"GE-Proton[^"]*"' | sed -E 's/.*"GE-Proton([^"]*)".*/\1/' || true); then
       if [ -n "$LATEST_NUMERIC" ]; then
         PROTON_VERSION="$LATEST_NUMERIC"
         echo "Using latest detected GE-Proton version: $PROTON_VERSION"
@@ -84,7 +86,7 @@ STEAM_COMPAT_DIR=/home/gameserver/Steam/compatibilitytools.d
 ASA_COMPAT_DATA=$STEAM_COMPAT_DATA/2430930
 ASA_BINARY_DIR="/home/gameserver/server-files/ShooterGame/Binaries/Win64"
 START_PARAMS_FILE="/home/gameserver/server-files/start-parameters"
-MODS="$(/usr/bin/cli-asa-mods)"
+MODS="$(/usr/bin/cli-asa-mods.sh)"
 ASA_START_PARAMS="${ASA_START_PARAMS:-} $MODS"
 ASA_BINARY_NAME="ArkAscendedServer.exe"
 ASA_PLUGIN_BINARY_NAME="AsaApiLoader.exe"
@@ -95,40 +97,43 @@ LAUNCH_BINARY_NAME="$ASA_BINARY_NAME"
 
 # install proton if necessary
 if [ ! -d "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME" ]; then
-  mkdir -p $STEAM_COMPAT_DIR
-  echo "Downloading Proton version $PROTON_VERSION... This might take a while"
-  ASSET_URL="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton$PROTON_VERSION/GE-Proton$PROTON_VERSION.tar.gz"
+  mkdir -p "$STEAM_COMPAT_DIR"
+  echo "Downloading Proton GE-Proton$PROTON_VERSION... This might take a while"
+  ASSET_BASE="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton$PROTON_VERSION"
+  ARCHIVE_URL="$ASSET_BASE/GE-Proton$PROTON_VERSION.tar.gz"
+  SUM_URL="$ASSET_BASE/GE-Proton$PROTON_VERSION.sha512sum"
   LOCAL_ARCHIVE="/tmp/$PROTON_ARCHIVE_NAME"
-  LOCAL_HEADERS="/tmp/$PROTON_ARCHIVE_NAME.headers"
-  # Download asset and capture final response headers (which include X-Checksum-Sha256)
-  wget --server-response -O "$LOCAL_ARCHIVE" "$ASSET_URL" 2> "$LOCAL_HEADERS"
-  EXIT_CODE=$?
+  LOCAL_SUM_FILE="/tmp/GE-Proton$PROTON_VERSION.sha512sum"
 
-  if [ $EXIT_CODE -ne 0 ]; then
-    echo "Error: Error while downloading Proton ($EXIT_CODE)"
+  if ! wget -q -O "$LOCAL_ARCHIVE" "$ARCHIVE_URL"; then
+    echo "Error: failed to download Proton archive."
     exit 200
   fi
 
-  echo "Verifying checksum via GitHub header (sha256)..."
-  LOCAL_SUM=$(sha256sum "$LOCAL_ARCHIVE" | awk '{print $1}')
-  # Extract the last X-Checksum-Sha256 header from the response chain
-  EXPECTED_SUM=$(awk 'BEGIN{IGNORECASE=1} tolower($1)=="x-checksum-sha256:"{last=$2} END{print last}' "$LOCAL_HEADERS" | tr -d '\r')
-  # Strip optional prefix if present
-  EXPECTED_SUM=${EXPECTED_SUM#sha256:}
-
-  if [ -n "$EXPECTED_SUM" ] && [ "$EXPECTED_SUM" = "$LOCAL_SUM" ]; then
-    echo "Checksum verified using GitHub X-Checksum-Sha256 header."
+  echo "Verifying sha512 checksum..."
+  if wget -q -O "$LOCAL_SUM_FILE" "$SUM_URL"; then
+    if (cd /tmp && sha512sum -c "$(basename "$LOCAL_SUM_FILE")" 2>/dev/null | grep -q "GE-Proton$PROTON_VERSION.tar.gz: OK"); then
+      echo "Checksum OK."
+    else
+      echo "Error: sha512 checksum verification failed."
+      if [ "${PROTON_SKIP_CHECKSUM:-0}" = "1" ]; then
+        echo "PROTON_SKIP_CHECKSUM=1 set; continuing WITHOUT verification."
+      else
+        exit 201
+      fi
+    fi
+    rm -f "$LOCAL_SUM_FILE" || true
   else
-    echo "Error: Proton checksum verification failed (missing header or mismatch)."
+    echo "Warning: could not download checksum file." 
     if [ "${PROTON_SKIP_CHECKSUM:-0}" = "1" ]; then
-      echo "PROTON_SKIP_CHECKSUM=1 is set; proceeding without verification (NOT RECOMMENDED)."
+      echo "PROTON_SKIP_CHECKSUM=1 set; continuing WITHOUT verification."
     else
       exit 201
     fi
   fi
 
-  tar -xf /tmp/$PROTON_ARCHIVE_NAME -C $STEAM_COMPAT_DIR
-  rm /tmp/$PROTON_ARCHIVE_NAME
+  tar -xf "$LOCAL_ARCHIVE" -C "$STEAM_COMPAT_DIR"
+  rm -f "$LOCAL_ARCHIVE"
 fi
 
 # install proton compat game data
@@ -140,12 +145,35 @@ fi
 echo "Starting the ARK: Survival Ascended dedicated server..."
 echo "Start parameters: $ASA_START_PARAMS"
 
-export XDG_RUNTIME_DIR=/run/user/$(id -u)
+#############################
+# XDG_RUNTIME_DIR handling  #
+#############################
+# Proton expects a valid XDG runtime dir with 0700 perms.
+# In minimal containers, /run/user/<uid> may not exist or be writable.
+# Prefer a safe fallback under /tmp.
+UID_CURRENT="$(id -u)"
+
+# If provided, validate; otherwise pick a sane default.
+if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+  if [ ! -d "$XDG_RUNTIME_DIR" ] || [ ! -w "$XDG_RUNTIME_DIR" ]; then
+    echo "Warning: XDG_RUNTIME_DIR '$XDG_RUNTIME_DIR' is not writable. Falling back to /tmp/xdg-runtime-$UID_CURRENT"
+    XDG_RUNTIME_DIR="/tmp/xdg-runtime-$UID_CURRENT"
+  fi
+else
+  CANDIDATE="/run/user/$UID_CURRENT"
+  if [ -d "$CANDIDATE" ] && [ -w "$CANDIDATE" ]; then
+    XDG_RUNTIME_DIR="$CANDIDATE"
+  else
+    XDG_RUNTIME_DIR="/tmp/xdg-runtime-$UID_CURRENT"
+  fi
+fi
+export XDG_RUNTIME_DIR
 export STEAM_COMPAT_CLIENT_INSTALL_PATH=/home/gameserver/Steam
 export STEAM_COMPAT_DATA_PATH=$ASA_COMPAT_DATA
 
-# Ensure runtime dir exists for Proton
-mkdir -p "$XDG_RUNTIME_DIR"
+# Ensure runtime dir exists for Proton with correct perms (0700)
+mkdir -p "$XDG_RUNTIME_DIR" || true
+chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
 
 cd "$ASA_BINARY_DIR"
 
