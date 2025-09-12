@@ -11,7 +11,7 @@ Enhancements in refactor:
 import os
 import configparser
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 
 from .constants import GAME_USER_SETTINGS_PATH as DEFAULT_GAME_USER_SETTINGS_PATH, GAME_INI_PATH as DEFAULT_GAME_INI_PATH
 

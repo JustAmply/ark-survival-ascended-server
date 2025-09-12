@@ -11,7 +11,7 @@ from typing import List, Optional
 
 from .constants import ExitCodes
 from .rcon import execute_rcon_command
-from .mods import ModDatabase, get_enabled_mod_ids
+from .mods import ModDatabase
 from .logging_config import configure_logging, get_logger
 from .config import parse_start_params
 from .errors import (
