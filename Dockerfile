@@ -1,10 +1,4 @@
-# Dockerfile for ARK: Survival Ascended Server (Python-based)
 FROM ubuntu:24.04
-
-# Set environment variables
-ENV LANG=en_US.UTF-8
-ENV LC_ALL=en_US.UTF-8
-ENV DEBIAN_FRONTEND=noninteractive
 
 # Install required packages
 RUN apt-get update && \
@@ -20,6 +14,7 @@ RUN apt-get update && \
     libc6-dev \
     lib32stdc++6 \
     lib32z1 \
+    dos2unix \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
     locale-gen en_US.UTF-8
@@ -34,29 +29,28 @@ RUN mkdir -p /home/gameserver/{Steam,steamcmd,server-files,cluster-shared} && \
 
 # Copy Python application
 COPY asa_ctrl /usr/share/asa_ctrl
-COPY setup.py requirements.txt /usr/share/
-COPY scripts/cli-asa-mods /usr/bin/cli-asa-mods
+COPY scripts/cli-asa-mods.sh /usr/bin/cli-asa-mods.sh
 
-# Install Python application
+# Create launcher script for Python application (avoid pip install to prevent PEP 668 issues)
 WORKDIR /usr/share
-RUN python3 -m pip install --user -e . && \
-    echo '#!/bin/bash' > /usr/local/bin/asa-ctrl && \
+RUN echo '#!/bin/bash' > /usr/local/bin/asa-ctrl && \
     echo 'export PYTHONPATH=/usr/share:$PYTHONPATH' >> /usr/local/bin/asa-ctrl && \
     echo 'exec python3 -m asa_ctrl "$@"' >> /usr/local/bin/asa-ctrl && \
+    sed -i 's/\\"/"/g' /usr/local/bin/asa-ctrl && \
     chmod +x /usr/local/bin/asa-ctrl
 
+# Ensure PYTHONPATH is available for all shells so cli-asa-mods works
+RUN echo 'export PYTHONPATH=/usr/share:$PYTHONPATH' > /etc/profile.d/asa_ctrl.sh
+
 # Copy server start script
-COPY scripts/start_server /usr/bin/start_server
+COPY scripts/start_server.sh /usr/bin/start_server.sh
 
 # Set permissions
-RUN chmod +x /usr/bin/start_server && \
-    chmod +x /usr/bin/cli-asa-mods
+RUN dos2unix /usr/bin/start_server.sh /usr/bin/cli-asa-mods.sh && \
+    chmod +x /usr/bin/start_server.sh /usr/bin/cli-asa-mods.sh
 
 # Set working directory
 WORKDIR /home/gameserver
 
-# Default user
-USER gameserver
-
 # Entry point
-ENTRYPOINT ["/usr/bin/start_server"]
+ENTRYPOINT ["/usr/bin/start_server.sh"]
