@@ -63,7 +63,7 @@ cd /home/gameserver/steamcmd
 # - You can override by setting PROTON_VERSION (e.g., 9-xx)
 # - If not set, we try to auto-detect the latest GE-Proton release via GitHub API
 # - If detection fails, we fall back to a known-good default
-DEFAULT_PROTON_VERSION="10-15"
+DEFAULT_PROTON_VERSION="8-21"
 if [ -z "${PROTON_VERSION:-}" ]; then
   echo "Detecting latest Proton GE version..."
   # Example tag_name: GE-Proton9-xx -> extract the 9-xx part
