@@ -2,7 +2,6 @@
 ### THIS IS THE DEVELOPMENT COMPOSE FILE!
 ### You are most likely looking for the 'docker-compose.yml' file instead!
 ###
-version: "3.3"
 services:
   asa-server-1:
     container_name: asa-server-1

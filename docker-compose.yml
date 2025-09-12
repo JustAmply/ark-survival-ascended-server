@@ -1,4 +1,3 @@
-version: "3.3"
 services:
   asa-server-1:
     container_name: asa-server-1
