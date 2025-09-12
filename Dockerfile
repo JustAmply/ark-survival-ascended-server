@@ -38,10 +38,7 @@ COPY cli-asa-mods /usr/bin/cli-asa-mods
 WORKDIR /usr/share
 RUN python3 -m pip install -e .
 
-# Create asa-ctrl symlink
-RUN ln -s /usr/bin/asa-ctrl /usr/bin/asa-ctrl
-
-# Copy server start script (will be updated to use Python paths)
+# Copy server start script
 COPY root/usr/bin/start_server /usr/bin/start_server
 
 # Set permissions

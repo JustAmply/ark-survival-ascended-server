@@ -2,6 +2,32 @@
 
 This repository provides a step by step guide for Linux administrators to host ARK: Survival Ascended servers on Linux using a docker image.
 
+## Version 2.0 - Python Migration
+
+**Important Notice:** Version 2.0 represents a complete reimplementation of the ASA server control system from Ruby to Python. This change brings several improvements:
+
+### What's New in 2.0:
+- **Python-based architecture**: Replaced Ruby with Python for better maintainability and broader ecosystem support
+- **Simplified build system**: Moved from KIWI-NG to standard Docker builds
+- **Streamlined codebase**: Consolidated multiple Ruby modules into a cleaner Python structure
+- **No external dependencies**: Uses only Python standard library (no more gem dependencies)
+- **Same functionality**: All RCON commands, mod management, and server features remain identical
+
+### Migration Notes:
+- **For end users**: No changes required - all docker commands and configurations remain the same
+- **For developers**: Build system now uses `make build` instead of KIWI-NG
+- **Compatibility**: Full backward compatibility maintained for all user-facing features
+
+### Building from Source:
+```bash
+# Build the Docker image
+make build
+
+# Or build specific versions
+make build-development
+make build-beta
+```
+
 ## Table of Contents
 
 * [Hardware Requirements](#hardware-requirements)
