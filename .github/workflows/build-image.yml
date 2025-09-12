@@ -51,7 +51,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           SRC="justamply/asa-linux-server:latest"
-          DEST_BASE="${{ env.REGISTRY }}/${{ env.IMAGE_BASENAME }}"
+          DEST_BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
           echo "Pushing $DEST_BASE:latest"
           docker tag "$SRC" "$DEST_BASE:latest"
           docker push "$DEST_BASE:latest"
@@ -60,7 +60,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           SRC="justamply/asa-linux-server:latest"
-          DEST_BASE="${{ env.REGISTRY }}/${{ env.IMAGE_BASENAME }}"
+          DEST_BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
           VERSION_TAG="${GITHUB_REF_NAME#v}"
           echo "Pushing $DEST_BASE:$VERSION_TAG"
           docker tag "$SRC" "$DEST_BASE:$VERSION_TAG"
@@ -104,7 +104,7 @@ jobs:
       - name: Push development tag
         run: |
           SRC="justamply/asa-linux-server:development"
-          DEST_BASE="${{ env.REGISTRY }}/${{ env.IMAGE_BASENAME }}"
+          DEST_BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
           echo "Pushing $DEST_BASE:development"
           docker tag "$SRC" "$DEST_BASE:development"
           docker push "$DEST_BASE:development"
