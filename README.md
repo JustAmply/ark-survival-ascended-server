@@ -264,7 +264,6 @@ Once done, the result will look like this:
 
 ```yml
 ...
-version: "3.3"
 services:
   asa-server-1:
     container_name: asa-server-1
