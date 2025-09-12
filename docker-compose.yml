@@ -3,7 +3,6 @@ services:
     container_name: asa-server-1
     hostname: asa-server-1
     entrypoint: "/usr/bin/start_server"
-    user: gameserver
     image: "mschnitzer/asa-linux-server:latest"
     tty: true
     environment:
@@ -14,8 +13,6 @@ services:
       - 0.0.0.0:7777:7777/udp
       # RCON port for remote server administration
       - 0.0.0.0:27020:27020/tcp
-    depends_on:
-      - set-permissions-1
     volumes:
       - steam-1:/home/gameserver/Steam:rw
       - steamcmd-1:/home/gameserver/steamcmd:rw
@@ -24,15 +21,6 @@ services:
       - /etc/localtime:/etc/localtime:ro
     networks:
       asa-network:
-  set-permissions-1:
-    entrypoint: "/bin/bash -c 'chown -R 25000:25000 /steam ; chown -R 25000:25000 /steamcmd ; chown -R 25000:25000 /server-files ; chown -R 25000:25000 /cluster-shared'"
-    user: root
-    image: "opensuse/leap"
-    volumes:
-      - steam-1:/steam:rw
-      - steamcmd-1:/steamcmd:rw
-      - server-files-1:/server-files:rw
-      - cluster-shared:/cluster-shared:rw
 #  asa-server-2:
 #    container_name: asa-server-2
 #    hostname: asa-server-2

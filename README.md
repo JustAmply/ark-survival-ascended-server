@@ -162,7 +162,7 @@ You can ignore `asa-server_steam-1` and `asa-server_steamcmd-1`, these volumes a
 
 The `GameUserSettings.ini` and `Game.ini` file can be found at `/var/lib/docker/volumes/asa-server_server-files-1/_data/ShooterGame/Saved/Config/WindowsServer`. The `Game.ini` file is not there by default, so you might want to create it yourself.
 
-You don't need to worry about file permissions. The `docker-compose.yml` is running a container before starting the ASA server and adjusts the file permissions to `25000:25000`, which is the user id and group id the server starts with. These ids are not bound to any user on your system and that's fine and not an issue.
+You don't need to worry about file permissions. The container now adjusts the file permissions automatically at startup and then drops privileges to the `gameserver` user (`25000:25000`). These ids are not bound to any user on your system and that's fine and not an issue.
 
 ### 6. Changing the start parameters AND the player limit
 

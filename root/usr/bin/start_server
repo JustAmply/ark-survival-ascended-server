@@ -1,4 +1,43 @@
 #!/bin/bash
+
+# If running as root, fix volume permissions once, then drop to 'gameserver'.
+if [ "$(id -u)" = "0" ] && [ -z "$START_SERVER_PRIVS_DROPPED" ]; then
+  set -e
+
+  TARGET_UID=25000
+  TARGET_GID=25000
+  DIRS=(
+    "/home/gameserver/Steam"
+    "/home/gameserver/steamcmd"
+    "/home/gameserver/server-files"
+    "/home/gameserver/cluster-shared"
+  )
+
+  for d in "${DIRS[@]}"; do
+    mkdir -p "$d"
+    # Only run recursive chown once per volume using a marker file to avoid slow startups.
+    MARKER="$d/.permissions_set"
+    if [ ! -e "$MARKER" ]; then
+      echo "Setting ownership for $d to ${TARGET_UID}:${TARGET_GID} (first run)"
+      chown -R ${TARGET_UID}:${TARGET_GID} "$d" || true
+      # Create marker owned by target user to skip on subsequent starts
+      touch "$MARKER"
+      chown ${TARGET_UID}:${TARGET_GID} "$MARKER" || true
+    else
+      # Ensure the root directory has correct ownership even if marker exists
+      chown ${TARGET_UID}:${TARGET_GID} "$d" || true
+    fi
+  done
+
+  # Re-exec this script as the 'gameserver' user
+  export START_SERVER_PRIVS_DROPPED=1
+  if command -v runuser >/dev/null 2>&1; then
+    exec runuser -u gameserver -- /usr/bin/start_server
+  else
+    exec su -s /bin/bash -c "/usr/bin/start_server" gameserver
+  fi
+fi
+
 if [ "$ENABLE_DEBUG" = "1" ]; then
   echo "Entering debug mode..."
   sleep 999999999999
