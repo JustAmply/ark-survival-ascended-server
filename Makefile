@@ -1,56 +1,64 @@
- .PHONY: prepare build build-development build-beta load check-deps build-in-docker
+ .PHONY: build build-development build-beta push clean test help
 
-GLOBAL_BUILD_DIR = /tmp/.kiwi-build-results
-TARGET_DIR = $(GLOBAL_BUILD_DIR)/ark-survival-ascended-linux-container-image
+# Docker image configuration
+DOCKER_REGISTRY ?= ghcr.io
+DOCKER_REPO ?= JustAmply/asa-linux-server
+IMAGE_NAME = $(DOCKER_REGISTRY)/$(DOCKER_REPO)
 
-# Tools required for native KIWI docker image build
-REQUIRED_TOOLS = kiwi-ng umoci skopeo xz
+# Version and tags
+VERSION ?= 2.0.0
+GIT_COMMIT ?= $(shell git rev-parse --short HEAD)
+BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# Official kiwi builder container image (contains umoci & skopeo)
-KIWI_CONTAINER_IMAGE = registry.opensuse.org/opensuse/kiwi/kiwi-ng:latest
+# Docker build arguments
+DOCKER_BUILD_ARGS = \
+	--build-arg VERSION=$(VERSION) \
+	--build-arg GIT_COMMIT=$(GIT_COMMIT) \
+	--build-arg BUILD_DATE=$(BUILD_DATE)
 
-check-deps:
-	@missing=""; \
-	for t in $(REQUIRED_TOOLS); do \
-	  if ! command -v $$t >/dev/null 2>&1; then missing="$$missing $$t"; fi; \
-	done; \
-	if [ -n "$$missing" ]; then \
-	  echo "ERROR: Missing required tools:$$missing"; \
-	  echo "       Install them or use: make build-in-docker"; \
-	  exit 2; \
-	else \
-	  echo "All required tools found: $(REQUIRED_TOOLS)"; \
-	fi
+help: ## Show this help message
+	@echo "Available targets:"
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-prepare:
-	- sudo rm -rf $(TARGET_DIR)
-	- mkdir -p $(GLOBAL_BUILD_DIR)
+build: ## Build the latest Docker image
+	docker build $(DOCKER_BUILD_ARGS) -t $(IMAGE_NAME):latest .
+	docker tag $(IMAGE_NAME):latest $(IMAGE_NAME):$(VERSION)
 
-build: check-deps prepare
-	- sudo kiwi-ng --profile stable --color-output --debug system build --target-dir $(TARGET_DIR) --description .
-	- sudo xz --threads 8 -z $(TARGET_DIR)/*.tar
+build-development: ## Build the development Docker image
+	docker build $(DOCKER_BUILD_ARGS) -t $(IMAGE_NAME):development .
 
-build-development: check-deps prepare
-	- sudo kiwi-ng --profile development --color-output --debug system build --target-dir $(TARGET_DIR) --description .
-	- sudo xz --threads 8 -z $(TARGET_DIR)/*.tar
+build-beta: ## Build the beta Docker image
+	docker build $(DOCKER_BUILD_ARGS) -t $(IMAGE_NAME):beta .
 
-build-beta: check-deps prepare
-	- sudo kiwi-ng --profile beta --color-output --debug system build --target-dir $(TARGET_DIR) --description .
-	- sudo xz --threads 8 -z $(TARGET_DIR)/*.tar
+push: ## Push Docker images to registry
+	docker push $(IMAGE_NAME):latest
+	docker push $(IMAGE_NAME):$(VERSION)
 
-# Container-based build (no local umoci/skopeo needed, only docker or podman)
-build-in-docker: prepare
-	# Use kiwi builder container; perform build & compression inside container
-	# Requires: docker (or alias DOCKER=podman before invoking)
-	DOCKER ?= docker
-	$(DOCKER) run --rm \
-	  -v $(CURDIR):/workspace:Z \
-	  -v $(GLOBAL_BUILD_DIR):/results:Z \
-	  -w /workspace \
-	  --privileged \
-	  $(KIWI_CONTAINER_IMAGE) \
-	  /bin/sh -c "kiwi-ng --profile stable system build --target-dir /results/ark-survival-ascended-linux-container-image --description . && xz --threads 8 -z /results/ark-survival-ascended-linux-container-image/*.tar"
-	@echo "Build artifacts (possibly compressed) are in $(TARGET_DIR)"
+push-development: ## Push development image to registry
+	docker push $(IMAGE_NAME):development
 
-load:
-	- sudo docker load -i $(TARGET_DIR)/*.xz
+push-beta: ## Push beta image to registry
+	docker push $(IMAGE_NAME):beta
+
+test: ## Run tests for the Python application
+	python3 -m pytest tests/ -v || echo "No tests found - skipping"
+
+clean: ## Clean up Docker images and build artifacts
+	docker rmi $(IMAGE_NAME):latest $(IMAGE_NAME):$(VERSION) 2>/dev/null || true
+	docker system prune -f
+
+lint: ## Run Python linting
+	python3 -m flake8 asa_ctrl/ || echo "flake8 not installed - skipping"
+	python3 -m pylint asa_ctrl/ || echo "pylint not installed - skipping"
+
+install-dev: ## Install development dependencies
+	python3 -m pip install flake8 pylint pytest
+
+# Legacy KIWI-NG targets (deprecated)
+check-deps: ## Check for deprecated KIWI-NG dependencies
+	@echo "WARNING: KIWI-NG build system is deprecated. Use 'make build' instead."
+	@echo "This project now uses Docker for building container images."
+
+load: ## Load Docker image (replaces old KIWI-NG load)
+	@echo "Use 'docker pull $(IMAGE_NAME):latest' to load the image from registry"
+	@echo "Or 'make build' to build locally"

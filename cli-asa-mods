@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""
+CLI script to output enabled mods for server startup.
+
+This script is called by the start_server script to get the mod parameters.
+"""
+
+import sys
+import os
+
+# Add the parent directory to the Python path so we can import asa_ctrl
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from asa_ctrl.mods import format_mod_list_for_server
+
+if __name__ == '__main__':
+    try:
+        mod_params = format_mod_list_for_server()
+        print(mod_params, end='')
+    except Exception as e:
+        # Write error to file for debugging, but don't fail the server start
+        with open('/tmp/mod-read-error', 'w') as f:
+            f.write(str(e))
+        print('', end='')  # Output empty string on error
