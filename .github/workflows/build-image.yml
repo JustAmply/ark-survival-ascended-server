@@ -1,0 +1,110 @@
+name: Build and Push to GHCR
+
+on:
+  push:
+    branches: [ main, development ]
+    tags:
+      - 'v*'
+      - '[0-9]+.*'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-stable:
+    name: Build stable (main/tags) and push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_BASENAME: ${{ toLower(github.repository_owner) }}/asa-linux-server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies (pip, xz)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip xz-utils
+
+      - name: Install kiwi-ng (system-wide)
+        run: |
+          sudo pip3 install --no-cache-dir kiwi
+
+      - name: Build image (stable)
+        run: |
+          make build
+
+      - name: Load image into Docker
+        run: |
+          make load
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push latest (only on main)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          SRC="justamply/asa-linux-server:latest"
+          DEST_BASE="${{ env.REGISTRY }}/${{ env.IMAGE_BASENAME }}"
+          echo "Pushing $DEST_BASE:latest"
+          docker tag "$SRC" "$DEST_BASE:latest"
+          docker push "$DEST_BASE:latest"
+
+      - name: Push version tag (only on tag refs)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          SRC="justamply/asa-linux-server:latest"
+          DEST_BASE="${{ env.REGISTRY }}/${{ env.IMAGE_BASENAME }}"
+          VERSION_TAG="${GITHUB_REF_NAME#v}"
+          echo "Pushing $DEST_BASE:$VERSION_TAG"
+          docker tag "$SRC" "$DEST_BASE:$VERSION_TAG"
+          docker push "$DEST_BASE:$VERSION_TAG"
+
+  build-development:
+    name: Build development (development branch) and push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/development'
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_BASENAME: ${{ toLower(github.repository_owner) }}/asa-linux-server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies (pip, xz)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip xz-utils
+
+      - name: Install kiwi-ng (system-wide)
+        run: |
+          sudo pip3 install --no-cache-dir kiwi
+
+      - name: Build image (development)
+        run: |
+          make build-development
+
+      - name: Load image into Docker
+        run: |
+          make load
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push development tag
+        run: |
+          SRC="justamply/asa-linux-server:development"
+          DEST_BASE="${{ env.REGISTRY }}/${{ env.IMAGE_BASENAME }}"
+          echo "Pushing $DEST_BASE:development"
+          docker tag "$SRC" "$DEST_BASE:development"
+          docker push "$DEST_BASE:development"
