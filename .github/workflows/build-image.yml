@@ -18,7 +18,7 @@ jobs:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     env:
       REGISTRY: ghcr.io
-      IMAGE_BASENAME: ${{ toLower(github.repository_owner) }}/asa-linux-server
+      IMAGE_BASENAME: ${{ github.repository_owner }}/asa-linux-server
     steps:
       - name: Checkout
         uses: actions/checkout@v4
