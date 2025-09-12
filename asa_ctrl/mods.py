@@ -1,52 +1,43 @@
 """
 Mod management system for ASA Control.
 
-Handles enabling/disabling mods and maintaining the mods database.
+Handles mod database operations including:
+* Enabling/disabling mods
+* Listing mods
+* Persisting mod data to a JSON file
 """
 
 import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+from dataclasses import dataclass, asdict
+from threading import RLock
+
+from .logging_config import get_logger
 
 from .constants import MOD_DATABASE_PATH
 from .errors import ModAlreadyEnabledError, CorruptedModsDatabaseError
 
 
+@dataclass
 class ModRecord:
     """Represents a mod record in the database."""
-    
-    def __init__(self, mod_id: int, name: str = "unknown", enabled: bool = False, scanned: bool = False):
-        """
-        Initialize a mod record.
-        
-        Args:
-            mod_id: The mod ID
-            name: The mod name
-            enabled: Whether the mod is enabled
-            scanned: Whether the mod has been scanned
-        """
-        self.mod_id = mod_id
-        self.name = name
-        self.enabled = enabled
-        self.scanned = scanned
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert the mod record to a dictionary."""
-        return {
-            'mod_id': self.mod_id,
-            'name': self.name,
-            'enabled': self.enabled,
-            'scanned': self.scanned
-        }
-    
+
+    mod_id: int
+    name: str = "unknown"
+    enabled: bool = False
+    scanned: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:  # Backward compatibility
+        return asdict(self)
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ModRecord':
-        """Create a mod record from a dictionary."""
         return cls(
-            mod_id=data['mod_id'],
+            mod_id=int(data['mod_id']),
             name=data.get('name', 'unknown'),
-            enabled=data.get('enabled', False),
-            scanned=data.get('scanned', False)
+            enabled=bool(data.get('enabled', False)),
+            scanned=bool(data.get('scanned', False)),
         )
 
 
@@ -64,6 +55,8 @@ class ModDatabase:
         """
         self.database_path = Path(database_path)
         self.mods: List[ModRecord] = []
+        self._lock = RLock()
+        self._log = get_logger(__name__)
         self._ensure_database_exists()
         self._load_database()
     
@@ -77,33 +70,30 @@ class ModDatabase:
     def _ensure_database_exists(self) -> None:
         """Ensure the database file exists, create if it doesn't."""
         if not self.database_path.exists():
-            # Create parent directory if it doesn't exist
             self.database_path.parent.mkdir(parents=True, exist_ok=True)
             self._write_database()
+            self._log.debug("Created new mods database at %s", self.database_path)
     
     def _load_database(self) -> None:
         """Load the mod database from the JSON file."""
         try:
-            with open(self.database_path, 'r') as f:
+            with open(self.database_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            
             self.mods = [ModRecord.from_dict(mod_data) for mod_data in data]
-            
         except json.JSONDecodeError as e:
             raise CorruptedModsDatabaseError(
-                f"mods.json file is corrupted and cannot be parsed: {e}. "
-                "Please delete this file manually. It can be found in the server files root directory."
+                "mods.json file is corrupted and cannot be parsed: %s. Please delete this file manually. It can be found in the server files root directory." % e
             )
         except FileNotFoundError:
-            # This shouldn't happen due to _ensure_database_exists, but handle it anyway
             self.mods = []
+        self._log.debug("Loaded %d mods", len(self.mods))
     
     def _write_database(self) -> None:
         """Write the mod database to the JSON file."""
         data = [mod.to_dict() for mod in self.mods]
-        
-        with open(self.database_path, 'w') as f:
+        with open(self.database_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
+        self._log.debug("Persisted %d mods", len(self.mods))
     
     def enable_mod(self, mod_id: int) -> None:
         """
@@ -116,19 +106,19 @@ class ModDatabase:
             ModAlreadyEnabledError: If the mod is already enabled
         """
         # Check if mod already exists
-        for mod in self.mods:
-            if mod.mod_id == mod_id:
-                if mod.enabled:
-                    raise ModAlreadyEnabledError(f"Mod {mod_id} is already enabled")
-                
-                mod.enabled = True
-                self._write_database()
-                return
-        
-        # Add new mod record
-        new_mod = ModRecord(mod_id=mod_id, enabled=True)
-        self.mods.append(new_mod)
-        self._write_database()
+        with self._lock:
+            for mod in self.mods:
+                if mod.mod_id == mod_id:
+                    if mod.enabled:
+                        raise ModAlreadyEnabledError(f"Mod {mod_id} is already enabled")
+                    mod.enabled = True
+                    self._write_database()
+                    self._log.info("Enabled existing mod %s", mod_id)
+                    return
+            new_mod = ModRecord(mod_id=mod_id, enabled=True)
+            self.mods.append(new_mod)
+            self._write_database()
+            self._log.info("Added and enabled new mod %s", mod_id)
     
     def disable_mod(self, mod_id: int) -> bool:
         """
@@ -140,13 +130,17 @@ class ModDatabase:
         Returns:
             True if mod was found and disabled, False otherwise
         """
-        for mod in self.mods:
-            if mod.mod_id == mod_id:
-                mod.enabled = False
-                self._write_database()
-                return True
-        
-        return False
+        with self._lock:
+            for mod in self.mods:
+                if mod.mod_id == mod_id:
+                    if mod.enabled:
+                        mod.enabled = False
+                        self._write_database()
+                        self._log.info("Disabled mod %s", mod_id)
+                    else:
+                        self._log.debug("Mod %s already disabled", mod_id)
+                    return True
+            return False
     
     def get_enabled_mods(self) -> List[ModRecord]:
         """Get a list of all enabled mods."""
@@ -154,7 +148,7 @@ class ModDatabase:
     
     def get_all_mods(self) -> List[ModRecord]:
         """Get a list of all mods in the database."""
-        return self.mods.copy()
+        return list(self.mods)
     
     def mod_exists(self, mod_id: int) -> bool:
         """Check if a mod exists in the database."""
@@ -166,6 +160,22 @@ class ModDatabase:
             if mod.mod_id == mod_id:
                 return mod.enabled
         return False
+
+    def get_mod(self, mod_id: int) -> Optional[ModRecord]:
+        for mod in self.mods:
+            if mod.mod_id == mod_id:
+                return mod
+        return None
+
+    def remove_mod(self, mod_id: int) -> bool:
+        with self._lock:
+            before = len(self.mods)
+            self.mods = [m for m in self.mods if m.mod_id != mod_id]
+            if len(self.mods) != before:
+                self._write_database()
+                self._log.info("Removed mod %s", mod_id)
+                return True
+            return False
 
 
 def get_enabled_mod_ids() -> List[int]:

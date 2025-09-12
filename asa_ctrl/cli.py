@@ -6,11 +6,14 @@ Provides CLI commands for RCON and mod management.
 
 import argparse
 import sys
+import os
 from typing import List, Optional
 
 from .constants import ExitCodes
 from .rcon import execute_rcon_command
 from .mods import ModDatabase, get_enabled_mod_ids
+from .logging_config import configure_logging, get_logger
+from .config import parse_start_params
 from .errors import (
     RconPasswordNotFoundError, 
     RconAuthenticationError, 
@@ -185,6 +188,9 @@ def main(args: Optional[List[str]] = None) -> None:
     Args:
         args: Command line arguments (uses sys.argv if None)
     """
+    # Configure logging early (idempotent)
+    configure_logging()
+    logger = get_logger(__name__)
     parser = create_parser()
     
     if args is None:
@@ -196,6 +202,10 @@ def main(args: Optional[List[str]] = None) -> None:
         sys.exit(ExitCodes.OK)
     
     parsed_args = parser.parse_args(args)
+    # Lazy debug output if user enabled verbose logging
+    raw_params = os.environ.get('ASA_START_PARAMS')
+    if raw_params and logger.isEnabledFor(10):  # DEBUG level
+        logger.debug("Parsed start params: %s", parse_start_params(raw_params))
     
     # Execute the appropriate command
     if hasattr(parsed_args, 'func'):

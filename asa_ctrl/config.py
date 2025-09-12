@@ -1,7 +1,11 @@
-"""
-Configuration parsing utilities for ASA Control.
+"""Configuration parsing utilities for ASA Control.
 
-Handles parsing of INI files and start parameters.
+Enhancements in refactor:
+* Added `parse_start_params` returning a structured mapping of key/values
+* Added environment variable overrides for INI lookup paths:
+    - `ASA_GAME_USER_SETTINGS_PATH`
+    - `ASA_GAME_INI_PATH`
+* Defensive parsing + minimal caching (can be expanded if needed)
 """
 
 import os
@@ -9,7 +13,11 @@ import configparser
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from .constants import GAME_USER_SETTINGS_PATH, GAME_INI_PATH
+from .constants import GAME_USER_SETTINGS_PATH as DEFAULT_GAME_USER_SETTINGS_PATH, GAME_INI_PATH as DEFAULT_GAME_INI_PATH
+
+# Allow environment overrides (useful for tests / alternate layouts)
+GAME_USER_SETTINGS_PATH = os.environ.get("ASA_GAME_USER_SETTINGS_PATH", DEFAULT_GAME_USER_SETTINGS_PATH)
+GAME_INI_PATH = os.environ.get("ASA_GAME_INI_PATH", DEFAULT_GAME_INI_PATH)
 
 
 class StartParamsHelper:
@@ -45,6 +53,43 @@ class StartParamsHelper:
             value += char
             
         return value
+
+
+def parse_start_params(start_params: Optional[str]) -> Dict[str, str]:
+    """Parse the raw `ASA_START_PARAMS` string into a dictionary.
+
+    This is a best-effort parser: it looks for segments separated by `?` and
+    key/value pairs separated by `=` (for the part preceding spaces / next `?`).
+
+    Non key/value tokens (like the initial map) are stored under the synthetic
+    key `_map` if detected.
+    """
+    result: Dict[str, str] = {}
+    if not start_params:
+        return result
+
+    # Split on whitespace first to discard trailing flags (e.g. -WinLiveMaxPlayers=50)
+    # We'll keep full string; then split tokens by space to treat flags separately.
+    space_tokens = start_params.split()
+    if not space_tokens:
+        return result
+
+    # First token often contains map plus ? delimited options
+    first = space_tokens[0]
+    parts = first.split('?')
+    if parts:
+        result['_map'] = parts[0]
+        for seg in parts[1:]:
+            if '=' in seg:
+                k, v = seg.split('=', 1)
+                result[k] = v
+
+    # Remaining tokens may include -Key=Value style args
+    for token in space_tokens[1:]:
+        if token.startswith('-') and '=' in token:
+            k, v = token[1:].split('=', 1)
+            result[k] = v.strip('"')
+    return result
 
 
 class IniConfigHelper:
