@@ -107,6 +107,8 @@ class RconClient:
         packet_data = struct.pack('<III', packet_size, packet_id, packet_type)
         packet_data += data.encode('utf-8') + b'\x00\x00'
         
+        # Ensure the socket is connected (helps static type checkers and avoids None attribute errors)
+        assert self.socket is not None, "RCON socket is not connected"
         self.socket.sendall(packet_data)
         
         # Receive response
