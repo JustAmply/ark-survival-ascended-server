@@ -175,8 +175,3 @@ For troubleshooting, enable debug mode:
 - **🐛 Found a bug?** [Open an issue](https://github.com/JustAmply/ark-survival-ascended-server/issues)
 - **❓ Common problems?** Check the [FAQ](FAQ.md)
 - **💬 Questions?** [Start a discussion](https://github.com/JustAmply/ark-survival-ascended-server/discussions)
-
-## 🙏 Credits
-
-- **GloriousEggroll** - [GE-Proton for Linux compatibility](https://github.com/GloriousEggroll/proton-ge-custom)
-- **cdp1337** - [Linux ARK installation guidance](https://github.com/cdp1337/ARKSurvivalAscended-Linux)
