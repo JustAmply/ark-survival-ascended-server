@@ -26,44 +26,18 @@ Your server will be discoverable in the "Unofficial" server browser once setup i
 
 - **🐳 Docker-based**: Simple deployment with Docker Compose
 - **🔧 Easy Management**: Built-in RCON commands and server control
-- **🎮 Mod Support**: Dynamic mod management without container restarts
+- **🎮 Mod Support**: Simple mod management via console
 - **🌐 Cluster Ready**: Multi-server setups with character/dino transfer
 - **🔄 Auto-Updates**: Automatic game updates on container restart
 - **📊 Monitoring**: Debug mode and comprehensive logging
 - **🔌 Plugin Support**: ServerAPI plugin loader integration
-
-## 🏗️ Project History
-
-This project is a **complete rewrite** of the original ARK server management tools. Here's the story:
-
-### From Ruby to Python
-
-Originally, I worked with Ruby-based server management tools for ARK, but I wasn't satisfied with their complexity and maintenance overhead. The Ruby implementation had several pain points:
-
-- Complex dependency management with gems
-- Complicated build system using KIWI-NG
-- Multiple scattered modules
-- OpenSUSE-based images with compatibility issues
-
-### The Rewrite Decision
-
-I decided to completely rewrite everything from scratch in **Python** to create a better, more maintainable solution. This wasn't just a port - it was a ground-up redesign with modern best practices.
-
-### What's Better in Version 2.0
-
-- **🐍 Python-powered**: Cleaner, more maintainable codebase
-- **📦 Zero dependencies**: Uses only Python standard library
-- **🏗️ Simplified builds**: Standard Docker builds instead of complex KIWI-NG
-- **🧹 Unified codebase**: Single Python package (`asa_ctrl`) replaces multiple Ruby modules
-- **🐧 Ubuntu-based**: Better compatibility and package management
-- **⚡ Same functionality**: All features preserved while improving maintainability
 
 ## 📋 System Requirements
 
 - **RAM**: ~13 GB per server instance
 - **Storage**: ~31 GB (server files only)
 - **OS**: Linux with Docker support
-- **Tested on**: Ubuntu 24.04, Debian 12, openSUSE Leap 15.6
+- **Tested on**: Ubuntu 24.04, Debian 12, Docker Desktop on Windows
 
 ## 🎯 Main Use Cases
 
@@ -104,6 +78,15 @@ environment:
 ## 🎮 Server Management
 
 ### Add Mods
+
+Simple modify the `ASA_START_PARAMS` in the `docker-compose.yml` to include mods `-mods=12345,67891`:
+```yaml
+- ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50 -mods=12345,67891
+```
+
+Changing this list requires editing the compose file and recreating/restarting the container.
+
+Or use the dynamic method:
 ```bash
 # Enable mods dynamically (no container restart needed for config)
 docker exec asa-server-1 asa-ctrl mods enable 12345
@@ -115,6 +98,8 @@ docker exec asa-server-1 asa-ctrl mods list --enabled-only
 # Restart to download mods
 docker restart asa-server-1
 ```
+
+Mixing both methods is safe: statically defined mods are merged with dynamically enabled ones (duplicates are ignored by the game server).
 
 ### RCON Commands
 ```bash
@@ -135,6 +120,31 @@ Set up automatic restarts with updates:
 0 4 * * * docker restart asa-server-1
 ```
 
+## 🏗️ Project History
+
+This project is a **complete rewrite** of the original ARK server management tools. Here's the story:
+
+### From Ruby to Python
+
+Originally, I worked with Ruby-based server management tools for ARK, but I wasn't satisfied with their complexity and overhead. The Ruby implementation had several pain points:
+
+- Unknown language for me, hard to read and maintain
+- Complicated build system using KIWI-NG
+- Multiple scattered modules
+- Heavy dependencies and bloat (old project was ~500MB in comparison to ~170MB for this Python version - savings of 2/3 of the image size!)
+
+### The Rewrite Decision
+
+I decided to completely rewrite everything from scratch in **Python** to create a better, more maintainable solution.
+
+### What's Better in Version 2.0
+
+- **🐍 Python-powered**: Cleaner, more maintainable codebase
+- **📦 Zero dependencies**: Uses only Python standard library
+- **🏗️ Simplified builds**: Standard Docker builds instead of complex KIWI-NG
+- **🧩 Modular design**: Single script with clear functions
+- **⚡ Same functionality**: All features preserved while improving maintainability
+
 ## 🔗 Need More Details?
 
 This README provides a quick overview to get you started. For comprehensive documentation including:
@@ -146,8 +156,6 @@ This README provides a quick overview to get you started. For comprehensive docu
 - **Plugin installation** instructions
 - **Cluster configuration** details
 
-👉 **See the [detailed documentation](README.original.md)** for complete setup instructions.
-
 ## 📞 Support
 
 - **🐛 Found a bug?** [Open an issue](https://github.com/JustAmply/ark-survival-ascended-server/issues)
@@ -156,10 +164,6 @@ This README provides a quick overview to get you started. For comprehensive docu
 
 ## 🙏 Credits
 
-- **Glorious Eggroll** - GE-Proton for running Windows ARK binaries on Linux
-- **cdp1337** - Linux ARK installation guidance  
-- **tesfabpel** - Ruby RCON implementation reference
-
----
-
-*Made with ❤️ by JustAmply - Because the original Ruby tools weren't good enough* 😉
+- **mschnitzer** - [Original Ruby implementation of ARK Linux server image](https://github.com/mschnitzer/ark-survival-ascended-linux-container-image)
+- **GloriousEggroll** - [GE-Proton for running Windows ARK binaries on Linux](https://github.com/GloriousEggroll/proton-ge-custom)
+- **cdp1337** - [Linux ARK installation guidance](https://github.com/cdp1337/ARKSurvivalAscended-Linux)
