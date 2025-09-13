@@ -1,9 +1,10 @@
 FROM ubuntu:24.04
 
-# Install required packages
-RUN apt-get update && \
-    apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    locales \
     wget \
+    curl \
+    ca-certificates \
     tar \
     gzip \
     unzip \
@@ -11,8 +12,15 @@ RUN apt-get update && \
     libc6-dev \
     lib32stdc++6 \
     lib32z1 \
-    && apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    lib32gcc-s1 \
+    && rm -rf /var/lib/apt/lists/* && \
+    echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen && \
+    locale-gen
+
+# Set locale-related environment variables early (inherit to runtime)
+ENV LANG=en_US.UTF-8 \
+    LANGUAGE=en_US:en \
+    LC_ALL=en_US.UTF-8
 
 # Create gameserver user
 RUN groupadd -g 25000 gameserver && \
