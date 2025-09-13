@@ -2,53 +2,9 @@
 
 This repository provides a step by step guide for Linux administrators to host ARK: Survival Ascended servers on Linux using a docker image.
 
-## Version 2.0 - Python Migration
-
-**Important Notice:** Version 2.0 represents a complete reimplementation of the ASA server control system from Ruby to Python. This change brings several improvements:
-
-### What's New in 2.0:
-- **Python-based architecture**: Replaced Ruby with Python for better maintainability and broader ecosystem support
-- **Simplified build system**: Moved from KIWI-NG to standard Docker builds
-- **Streamlined codebase**: Consolidated multiple Ruby modules into a cleaner Python structure
-- **No external dependencies**: Uses only Python standard library (no more gem dependencies)
-- **Same functionality**: All RCON commands, mod management, and server features remain identical
-- **Ubuntu-based**: Switched from OpenSUSE to Ubuntu for better compatibility and simpler package management
-
-### Additional Refactor Improvements (post 2.0 minor update)
-The internal Python package `asa_ctrl` has been refactored for maintainability:
-
-* Added structured logging (enable debug with `ASA_LOG_LEVEL=DEBUG`)
-* Added environment overrides for config paths:
-  * `ASA_GAME_USER_SETTINGS_PATH`
-  * `ASA_GAME_INI_PATH`
-* Added `parse_start_params()` helper for programmatic access to the parsed `ASA_START_PARAMS`
-* `mods.json` handling now thread-safe & uses a dataclass model
-* Public API consolidated in `asa_ctrl.__init__` for easier imports
-* Zero external dependencies preserved
-
-### Migration Notes:
-- **For end users**: No changes required - all docker commands and configurations remain the same
-- **For developers**: Build system now uses direct Docker commands instead of make/KIWI-NG
-- **Compatibility**: Full backward compatibility maintained for all user-facing features
-
-### Building from Source:
-```bash
-# Build the Docker image
-docker build -t ghcr.io/justamply/asa-linux-server:latest .
-
-# Or build specific versions
-docker build -t ghcr.io/justamply/asa-linux-server:development .
-docker build -t ghcr.io/justamply/asa-linux-server:beta .
-```
-
 ## Table of Contents
 
 - [ARK: Survival Ascended - Dedicated Linux Server - Docker Image](#ark-survival-ascended---dedicated-linux-server---docker-image)
-  - [Version 2.0 - Python Migration](#version-20---python-migration)
-    - [What's New in 2.0:](#whats-new-in-20)
-    - [Additional Refactor Improvements (post 2.0 minor update)](#additional-refactor-improvements-post-20-minor-update)
-    - [Migration Notes:](#migration-notes)
-    - [Building from Source:](#building-from-source)
   - [Table of Contents](#table-of-contents)
   - [Hardware Requirements](#hardware-requirements)
   - [Installation](#installation)
@@ -72,6 +28,8 @@ docker build -t ghcr.io/justamply/asa-linux-server:beta .
     - [Executing RCON commands](#executing-rcon-commands)
   - [Setting up a second server / cluster](#setting-up-a-second-server--cluster)
   - [Adding Mods](#adding-mods)
+    - [Static method](#static-method)
+    - [Dynamic method](#dynamic-method)
     - [Adding Mod Maps](#adding-mod-maps)
   - [Adding Plugins](#adding-plugins)
   - [Map Names](#map-names)
