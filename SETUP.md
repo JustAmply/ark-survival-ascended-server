@@ -1,48 +1,19 @@
-# ARK: Survival Ascended - Dedicated Linux Server - Docker Image
+# ARK: Survival Ascended Server - Detailed Setup Guide
 
-This repository provides a step by step guide for Linux administrators to host ARK: Survival Ascended servers on Linux using a docker image.
+This guide provides comprehensive instructions for setting up and configuring ARK: Survival Ascended dedicated servers using Docker.
 
 ## Table of Contents
 
-- [ARK: Survival Ascended - Dedicated Linux Server - Docker Image](#ark-survival-ascended---dedicated-linux-server---docker-image)
-  - [Table of Contents](#table-of-contents)
-  - [Hardware Requirements](#hardware-requirements)
-  - [Installation](#installation)
-    - [1. Install Docker \& Docker Compose](#1-install-docker--docker-compose)
-      - [openSUSE Leap 15.6:](#opensuse-leap-156)
-      - [Debian 12](#debian-12)
-      - [Ubuntu (24.04.x):](#ubuntu-2404x)
-    - [2. Start docker daemon](#2-start-docker-daemon)
-    - [3. Create the Docker Compose config](#3-create-the-docker-compose-config)
-    - [4. First server start](#4-first-server-start)
-      - [Note on Proton download and checksum verification](#note-on-proton-download-and-checksum-verification)
-    - [5. Server configuration](#5-server-configuration)
-    - [6. Changing the start parameters AND the player limit](#6-changing-the-start-parameters-and-the-player-limit)
-  - [Port forwarding?](#port-forwarding)
-  - [Changing the game port and RCON port](#changing-the-game-port-and-rcon-port)
-  - [Start/Restart/Stop](#startrestartstop)
-  - [Server Administration](#server-administration)
-    - [Debug Mode](#debug-mode)
-    - [Applying server updates](#applying-server-updates)
-    - [Daily restarts](#daily-restarts)
-    - [Executing RCON commands](#executing-rcon-commands)
-  - [Setting up a second server / cluster](#setting-up-a-second-server--cluster)
-  - [Adding Mods](#adding-mods)
-    - [Static method](#static-method)
-    - [Dynamic method](#dynamic-method)
-    - [Adding Mod Maps](#adding-mod-maps)
-  - [Adding Plugins](#adding-plugins)
-  - [Map Names](#map-names)
-  - [Updating the Container Image](#updating-the-container-image)
-  - [Common Issues](#common-issues)
-    - [Server is not visible in server browser](#server-is-not-visible-in-server-browser)
-  - [Addressing "Connection Timeout" issues](#addressing-connection-timeout-issues)
-    - [Your server has multiple IPv4 addresses](#your-server-has-multiple-ipv4-addresses)
-      - [Debugging with curl](#debugging-with-curl)
-      - [How to customize your routing?](#how-to-customize-your-routing)
-      - [Making your iptable rules persistent](#making-your-iptable-rules-persistent)
-  - [Found an Issue or Bug?](#found-an-issue-or-bug)
-  - [Credits](#credits)
+- [Hardware Requirements](#hardware-requirements)
+- [Installation](#installation)
+- [Server Configuration](#server-configuration)
+- [Port Configuration](#port-configuration)
+- [Server Administration](#server-administration)
+- [Cluster Setup](#cluster-setup)
+- [Mod Management](#mod-management)
+- [Plugin Support](#plugin-support)
+- [Map Information](#map-information)
+- [Container Updates](#container-updates)
 
 ## Hardware Requirements
 
@@ -161,7 +132,9 @@ Once confirmed that you are able to connect, stop the server again:
 docker stop asa-server-1
 ```
 
-### 5. Server configuration
+## Server Configuration
+
+### File Locations
 
 The `docker-compose.yml` config defines three docker volumes, which serve as a storage for your server files, Steam, and Proton. They are directly mounted to the docker container and can be edited outside of the container. The
 location of these volumes is `/var/lib/docker/volumes`. If you followed the steps 1:1, then you should find the following directories at that location:
@@ -181,7 +154,7 @@ The `GameUserSettings.ini` and `Game.ini` file can be found at `/var/lib/docker/
 
 You don't need to worry about file permissions. The container now adjusts the file permissions automatically at startup and then drops privileges to the `gameserver` user (`25000:25000`). These ids are not bound to any user on your system and that's fine and not an issue.
 
-### 6. Changing the start parameters AND the player limit
+### Changing Start Parameters and Player Limit
 
 Start parameters are defined in the `docker-compose.yml`:
 
@@ -199,7 +172,9 @@ Please note:
 * `?RCONPort=` is the port of the RCON server that allows remote administration of the server
 * The player limit is set by `-WinLiveMaxPlayers`. Please note that for ASA servers, editing the player limit via `GameUserSettings.ini` is not working.
 
-## Port forwarding?
+## Port Configuration
+
+### Port Forwarding
 
 There should not be the need to forward any ports if your server runs in a public cloud. This is because docker configures `iptables` by itself. In a home setup, where a router is in between, it is very likely that you need to forward ports.
 
@@ -212,7 +187,7 @@ In any case, you ONLY need to forward the following ports:
 
 As of today, ASA does no longer offer a way to query the server, so there's no query port and you won't be able to find your server through the Steam server browser, only via the ingame browser.
 
-## Changing the game port and RCON port
+### Changing Game Port and RCON Port
 
 You already learned that ports are defined by `ASA_START_PARAMS` in the `docker-compose.yml` file. This just tells the ASA server what ports to bind.
 As a first step for port changes adjust the start parameters accordingly.
@@ -255,8 +230,7 @@ Adjust the port to your liking, but make sure that you change both numbers (the 
 
 Now that your port changes are set, you have to recreate your container. Therefore you need to use `docker compose up -d` in order to apply your port changes.
 
-
-## Start/Restart/Stop
+### Start/Restart/Stop
 
 To perform any of the actions, execute the following commands (you need to be in the directory of the `docker-compose.yml` file):
 
@@ -310,7 +284,7 @@ If you need root access run
 docker exec -ti -u root asa-server-1 bash
 ```
 
-### Applying server updates
+### Applying Server Updates
 
 Updates will be automatically downloaded or applied once you restart the container with ...
 
@@ -327,7 +301,7 @@ tells you when the last update was rolled out for the server software.
 
 If you have any doubts on this, open a GitHub issue.
 
-### Daily restarts
+### Daily Restarts
 
 As `root` user of your server (or any other user that is member of the `docker` group) open your crontab configuration:
 
@@ -356,7 +330,7 @@ Read more about the crontab syntax [here](https://www.adminschoice.com/crontab-q
 **NOTE:** The first 4 lines execute RCON commands, which requires you to have a working RCON setup. Please follow the instructions in section "[Executing RCON commands](#executing-rcon-commands)" to
 ensure you can execute RCON commands.
 
-### Executing RCON commands
+### Executing RCON Commands
 
 You can run RCON commands by accessing the `rcon` subcommand of the `asa-ctrl` tool which is shipped with the container image. There's no need to enter your server password, IP, or RCON port manually. As long as
 you have set your RCON password and port, either as a start parameter or in the `GameUserSettings.ini` file of your server, `asa-ctrl` is able to figure those details out by itself.
@@ -379,7 +353,7 @@ docker exec -t asa-server-1 asa-ctrl rcon --exec 'saveworld'
 
 **NOTE:** As opposed to ingame cheat commands, you must not put `admincheat` or `cheat` in front of the command.
 
-## Setting up a second server / cluster
+## Cluster Setup
 
 Setting up a second server is quite easy and you can easily add more if you want (given that your hardware is capable of running multiple instances). There's already a definition for a second server in the `docker-compose.yml` file,
 but the definition is commented out by a leading `#`. If you remove these `#`, and run `docker compose up -d` again, then the second server should start and it will listen on the game port `7778` and the query port `27021`. Please note that
@@ -401,14 +375,14 @@ end up seeing also other servers from the community that use `default` as their 
 If you want to spin up more servers, you need to add more entries to the `docker-compose.yml` file. The following sections need to be edited: `services` and `volumes`. Make sure that you adjust all suffixes and replace them with a new one
 (e.g. `-3` now) for the newly added entries.
 
-## Adding Mods
+## Mod Management
 
 There are two supported ways to manage mods:
 
 1. Static method: Add a `-mods=` option directly to `ASA_START_PARAMS` in `docker-compose.yml` (works but requires editing and restarting for every change)
 2. Dynamic method: Use the built-in mod database and CLI to enable/disable mods without manually editing the compose file.
 
-### Static method
+### Static Method
 
 You can still hard-code mods in `ASA_START_PARAMS` by adding a `-mods=` option:
 
@@ -420,7 +394,7 @@ You can still hard-code mods in `ASA_START_PARAMS` by adding a `-mods=` option:
 
 Changing this list requires editing the compose file and recreating/restarting the container. Mixing both methods is safe: statically defined mods are merged with dynamically enabled ones (duplicates are ignored by the game server).
 
-### Dynamic method
+### Dynamic Method
 
 The container maintains a JSON database (`mods.json`) inside the server files directory. You can enable, disable and list mods via the `asa-ctrl` CLI:
 
@@ -436,8 +410,6 @@ Enabled mods are automatically injected into the server start parameters through
 ```
 docker restart asa-server-1
 ```
-
-
 
 Mod IDs are usually listed on the mod's CurseForge page.
 
@@ -461,7 +433,7 @@ e.g.
 
 Restart your server using `docker compose up -d`. It may take a while, as the server has to download the map, so be patient.
 
-## Adding Plugins
+## Plugin Support
 
 Plugin support was introduced by version 1.4.0 of this container image. So make sure that you updated to the latest version of the container image or to version 1.4.0 as described [here](#updating-the-container-image).
 
@@ -480,9 +452,9 @@ the installation is complete. In the following log lines your should see the sta
 
 How to install plugins is described on gameservershub.com, from which you obtained the plugin loader. Please refer to their guide instead.
 
-## Map Names
+## Map Information
 
-This is a list of all official map names with their map id. The map id is used as start parameter in the `docker-compose.yml` file. ([click](#6-changing-the-start-parameters-and-the-player-limit))
+This is a list of all official map names with their map id. The map id is used as start parameter in the `docker-compose.yml` file.
 
 | Map Name  | Map ID (for the start parameter) |
 | ------------- | ------------- |
@@ -492,9 +464,9 @@ This is a list of all official map names with their map id. The map id is used a
 | Aberration | Aberration_WP |
 | Extinction | Extinction_WP |
 
-**NOTE:** Mod Maps have their own id! ([click](#adding-mod-maps))
+**NOTE:** Mod Maps have their own id! (See [Adding Mod Maps](#adding-mod-maps))
 
-## Updating the Container Image
+## Container Updates
 
 The container image will be updated from time to time. In general, we try to not break previous installations by an update, but to add certain features, it might be necessary to introduce backward incompatibilities.
 The default `docker-compose.yml` file suggests to use the `latest` branch of the container image. If you want to stay on one specific version, you can force the container image to launch with that said version, by
@@ -509,120 +481,6 @@ Even if you stay on branch `latest`, your container image won't be updated autom
 
 We strongly suggest to read through the [releases page](https://github.com/justamply/ark-survival-ascended-linux-container-image/releases) of this repository to see what has changed between versions. If there's
 a backward incompatibility being introduced, it will be mentioned there with an explanation what to change.
-
-## Common Issues
-
-### Server is not visible in server browser
-
-If you cannot discover your server in the server browser, it's most likely due to at least one of the following reasons:
-
-* Your server is still booting up, give it ~5 minutes
-* You are not looking at the "Unofficial" server browser list
-* Your filter settings in the server browser exclude your server
-* You forgot clicking the "Show player server settings". ([view screenshot](https://raw.githubusercontent.com/justamply/ark-survival-ascended-linux-container-image/main/assets/show-player-servers.jpg)) By default, only Nitrado servers are shown to players when searching for unofficial servers, unfortunately.
-
-## Addressing "Connection Timeout" issues
-
-First of all, try to connect through the ingame console to your server. In many cases this works, but only connecting through the server browser causes an issue. Try to run the command `open $IP:$PORT` and test whether you
-can connect to it.
-
-If that is NOT working and you are having a home setup and not a VPS cloud setup, make sure your ports are REALLY open. This needs to be configured on your router. The ports that need to be opened are listed above in this README.
-Please refer to the documentation of your router how to configure port forwarding properly.
-
-If you can connect to your server through the console command, but not via the sever browser, it is very likely that you are running into one of these issues:
-
-### Your server has multiple IPv4 addresses
-
-If your server has multiple IPv4 addresses and you bound your ASA server to one of the secondary ones, by default, docker routes your traffic always through your primary network interface, which would cause the server browser to list your
-server under the wrong IP address.
-
-For example:
-
-Your primary IP is: `255.255.300.300`
-Your secondary one is: `255.255.400.400`
-
-You adjusted the `docker-compose.yml` file in a way where it binds the ports on interface `255.255.400.400`. However, if your ASA server communicates with the internet and announces itself to the ASA server list, the ASA master server that manages the
-server browser entries, would see the requests coming from `255.255.300.300` as this is your primary network interface.
-
-This issue can be solved by forcing the traffic to be routed manually through your secondary network interface.
-
-But before we start fixing it, you should make sure that this is really the issue.
-
-#### Debugging with curl
-
-1. Log in to the container `docker exec -ti -u root asa-server-1 bash`
-2. Run `apt-get update`
-3. Install curl `apt-get install -y curl`
-4. Run `curl icanhazip.com` (`icanhazip.com` is a service that tells you from what ip address it received traffic from)
-
-If the service responds with an IP that you have not assigned to the ASA server in the `docker-compose.yml` file, then it's very likely that this is the reason why you are getting a "Connection Timeout" error.
-Please continue following the instructions below.
-
-#### How to customize your routing?
-
-You need to adjust the `docker-compose.yml` file and add `com.docker.network.bridge.enable_ip_masquerade: 'false'` to the `networks` section, so that it looks like this:
-
-```yml
-networks:
-  asa-network:
-    attachable: true
-    driver: bridge
-    driver_opts:
-      com.docker.network.bridge.name: 'asanet'
-      com.docker.network.bridge.enable_ip_masquerade: 'false'
-```
-
-Now stop the ASA server if it's running:
-
-```
-docker stop asa-server-1
-```
-
-Delete the docker network interface and the container, so that they can be recreated:
-
-```
-docker rm asa-server-1
-docker network rm asa-server_asa-network
-```
-
-Now run `docker compose up -d` from within the directory where your `docker-compose.yml` is located at.
-
-Once done and the container is up again, inspect the network to find its subnet:
-
-```
-docker network inspect asa-server_asa-network | grep Subnet
-```
-
-Now customize the routing of the container through `iptables`, where `$SUBNET` needs to be replaced with the subnet from the previous command (including the `/24` or `/16` - whatever it is in your case):
-
-```
-iptables -t nat -A POSTROUTING -s $SUBNET ! -o asanet -j SNAT --to-source $YOUR_SECONDARY_IP_USED_BY_ASA
-```
-
-Once done, connect to your container and test that the remote IP is the right one, by following the steps with `curl` again.
-
-Now try to connect to your server through the server browser. If that is not solving your problem or if the IP is still the wrong one, open a GitHub issue. If it solves your problem, continue with the
-next section to make the `iptables` adjustments persistent after reboot.
-
-#### Making your iptable rules persistent
-
-Changes to the `iptables` will get reverted after reboot. You can make them persistent by saving the current state:
-
-```
-iptables-save > /root/iptables
-```
-
-Now run `crontab -e` and add the following entry:
-
-```
-@reboot /bin/bash -c 'sleep 15 ; /usr/sbin/iptables-restore < /root/iptables'
-```
-
-Save the cronjob and test it by rebooting your system. You can test whether it has worked by following the `curl` steps from above again.
-
-## Found an Issue or Bug?
-
-Create a ticket on GitHub, I will do my best to fix it. Feel free to open a pull request as well.
 
 ## Credits
 

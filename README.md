@@ -145,22 +145,16 @@ I decided to completely rewrite everything from scratch in **Python** to create 
 - **🧩 Modular design**: Single script with clear functions
 - **⚡ Same functionality**: All features preserved while improving maintainability
 
-## 🔗 Need More Details?
+## 📖 Documentation
 
-This README provides a quick overview to get you started. For comprehensive documentation including:
-
-- **Detailed installation steps** for different Linux distributions
-- **Advanced configuration** options
-- **Troubleshooting guides** for common issues
-- **Port forwarding** setup
-- **Plugin installation** instructions
-- **Cluster configuration** details
+- **[📋 Setup Guide](SETUP.md)** - Detailed installation, configuration, and administration instructions
+- **[❓ FAQ & Troubleshooting](FAQ.md)** - Common issues, solutions, and troubleshooting steps
 
 ## 📞 Support
 
 - **🐛 Found a bug?** [Open an issue](https://github.com/JustAmply/ark-survival-ascended-server/issues)
 - **💡 Have a feature request?** [Start a discussion](https://github.com/JustAmply/ark-survival-ascended-server/discussions)
-- **📚 Need help?** Check the [original detailed README](README.original.md)
+- **📚 Need help?** Check the [Setup Guide](SETUP.md) or [FAQ](FAQ.md)
 
 ## 🙏 Credits
 
