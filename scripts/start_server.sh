@@ -332,6 +332,11 @@ run_server_loop() {
   SHUTDOWN_REQUESTED=0
 
   while true; do
+    if [ "${SHUTDOWN_REQUESTED:-0}" = "1" ]; then
+      log "Shutdown requested before launching server - exiting server loop."
+      return 0
+    fi
+
     ASA_START_PARAMS="$base_params"
     export ASA_START_PARAMS
 
