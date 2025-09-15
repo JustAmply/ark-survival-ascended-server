@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "asa-ctrl"
+version = "2.1.0"
+description = "ARK: Survival Ascended server management tool."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "JustAmply" }
+]
+keywords = ["ark", "survival", "ascended", "server", "rcon", "cli"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "Topic :: Games/Entertainment :: Simulation",
+    "Topic :: System :: Systems Administration"
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/JustAmply/ark-survival-ascended-server"
+Issues = "https://github.com/JustAmply/ark-survival-ascended-server/issues"
+
+[project.scripts]
+"asa-ctrl" = "asa_ctrl.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["asa_ctrl"]
