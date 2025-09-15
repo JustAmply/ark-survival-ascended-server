@@ -10,6 +10,7 @@ class ExitCodes:
     RCON_PASSWORD_NOT_FOUND = 3
     RCON_PASSWORD_WRONG = 4
     RCON_COMMAND_EXECUTION_FAILED = 5
+    RESTART_SCHEDULE_INVALID = 6
 
 
 class RconPacketTypes:
@@ -21,6 +22,12 @@ class RconPacketTypes:
 
 
 # File paths
-MOD_DATABASE_PATH = '/home/gameserver/server-files/mods.json'
-GAME_USER_SETTINGS_PATH = '/home/gameserver/server-files/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini'
-GAME_INI_PATH = '/home/gameserver/server-files/ShooterGame/Saved/Config/WindowsServer/Game.ini'
+import os
+
+DEFAULT_MOD_DATABASE_PATH = '/home/gameserver/server-files/mods.json'
+DEFAULT_GAME_USER_SETTINGS_PATH = '/home/gameserver/server-files/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini'
+DEFAULT_GAME_INI_PATH = '/home/gameserver/server-files/ShooterGame/Saved/Config/WindowsServer/Game.ini'
+
+MOD_DATABASE_PATH = os.environ.get('ASA_MOD_DATABASE_PATH', DEFAULT_MOD_DATABASE_PATH)
+GAME_USER_SETTINGS_PATH = os.environ.get('ASA_GAME_USER_SETTINGS_PATH', DEFAULT_GAME_USER_SETTINGS_PATH)
+GAME_INI_PATH = os.environ.get('ASA_GAME_INI_PATH', DEFAULT_GAME_INI_PATH)

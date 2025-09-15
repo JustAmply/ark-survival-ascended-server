@@ -31,3 +31,8 @@ class RconAuthenticationError(AsaCtrlError):
 class CorruptedModsDatabaseError(AsaCtrlError):
     """Raised when the mods database JSON file is corrupted."""
     pass
+
+
+class RestartScheduleInvalidError(AsaCtrlError):
+    """Raised when the restart schedule format is invalid."""
+    pass

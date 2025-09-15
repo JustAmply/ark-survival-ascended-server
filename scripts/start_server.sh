@@ -175,7 +175,24 @@ inject_mods_param() {
 }
 
 #############################
-# 6. Runtime Environment (XDG)
+# 6. Cron setup for restart scheduling  
+#############################
+setup_restart_cron() {
+  if [ -n "${ASA_RESTART_CRON:-}" ]; then
+    log "Setting up automatic restart schedule: $ASA_RESTART_CRON"
+    # Start cron service as root
+    if [ "$(id -u)" = "0" ]; then
+      service cron start 2>/dev/null || true
+    fi
+    # Setup restart schedule using asa-ctrl
+    /usr/local/bin/asa-ctrl restart schedule "$ASA_RESTART_CRON" --warning-minutes "${ASA_RESTART_WARNING_MINUTES:-5}" 2>/dev/null || {
+      log "Warning: Failed to setup restart schedule - cron expression may be invalid"
+    }
+  fi
+}
+
+#############################
+# 7. Runtime Environment (XDG)
 #############################
 prepare_runtime_env() {
   local uid
@@ -201,7 +218,7 @@ prepare_runtime_env() {
 }
 
 #############################
-# 7. Plugin Loader Handling
+# 8. Plugin Loader Handling
 #############################
 handle_plugin_loader() {
   local archive
@@ -220,7 +237,7 @@ handle_plugin_loader() {
 }
 
 #############################
-# 8. Log Streaming
+# 9. Log Streaming
 #############################
 start_log_streamer() {
   mkdir -p "$LOG_DIR"
@@ -231,7 +248,7 @@ start_log_streamer() {
 }
 
 #############################
-# 9. Launch Server
+# 10. Launch Server
 #############################
 launch_server() {
   log "Starting ASA dedicated server..."
@@ -255,6 +272,7 @@ resolve_proton_version
 install_proton_if_needed
 ensure_proton_compat_data
 inject_mods_param
+setup_restart_cron
 prepare_runtime_env
 handle_plugin_loader
 start_log_streamer

@@ -13,6 +13,7 @@ CLI remains the primary user interface; programmatic usage is a nice-to-have.
 from .logging_config import configure_logging  # noqa: F401
 from .mods import ModDatabase, format_mod_list_for_server  # noqa: F401
 from .rcon import execute_rcon_command, RconClient  # noqa: F401
+from .restart import setup_restart_cron, disable_restart_cron, get_restart_schedule, validate_cron_expression  # noqa: F401
 from .config import StartParamsHelper, IniConfigHelper, parse_start_params  # noqa: F401
 
 __all__ = [
@@ -21,6 +22,10 @@ __all__ = [
 	"format_mod_list_for_server",
 	"execute_rcon_command",
 	"RconClient",
+	"setup_restart_cron",
+	"disable_restart_cron", 
+	"get_restart_schedule",
+	"validate_cron_expression",
 	"StartParamsHelper",
 	"IniConfigHelper",
 	"parse_start_params",

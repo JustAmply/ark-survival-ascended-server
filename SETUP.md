@@ -153,7 +153,36 @@ Each additional server gets its own ports (7778, 7779, etc.) and storage volumes
 
 ## ⏰ Automatic Restarts
 
-Set up daily restarts with updates by adding to crontab (`crontab -e`):
+Configure automatic server restarts with the built-in cron scheduler:
+
+### Method 1: Docker Compose (Recommended)
+
+Add these environment variables to your `docker-compose.yml`:
+
+```yaml
+environment:
+  - ASA_RESTART_CRON=0 4 * * *  # Daily at 4 AM
+  - ASA_RESTART_WARNING_MINUTES=5  # Optional: warning time in minutes
+```
+
+This provides graceful shutdowns with in-game warnings and world saves.
+
+### Method 2: Manual CLI Configuration
+
+```bash
+# Schedule daily restart at 4 AM with 5-minute warning
+docker exec asa-server-1 asa-ctrl restart schedule "0 4 * * *" --warning-minutes 5
+
+# Show current schedule
+docker exec asa-server-1 asa-ctrl restart show
+
+# Disable automatic restarts
+docker exec asa-server-1 asa-ctrl restart disable
+```
+
+### Method 3: Host System Cron
+
+Set up external cron on the host system (`crontab -e`):
 
 ```bash
 # Daily restart at 4 AM with warnings
@@ -161,6 +190,13 @@ Set up daily restarts with updates by adding to crontab (`crontab -e`):
 58 3 * * * docker exec asa-server-1 asa-ctrl rcon --exec 'saveworld'
 0 4 * * * docker restart asa-server-1
 ```
+
+### Cron Schedule Examples
+
+- `0 4 * * *` - Daily at 4:00 AM
+- `0 */6 * * *` - Every 6 hours
+- `0 4 * * 0` - Weekly on Sundays at 4:00 AM
+- `0 4 1 * *` - Monthly on the 1st at 4:00 AM
 
 ## 🔧 Debug Mode
 

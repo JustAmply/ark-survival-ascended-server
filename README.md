@@ -114,11 +114,24 @@ docker exec asa-server-1 asa-ctrl rcon --exec 'kickplayer PlayerName'
 ```
 
 ### Daily Restarts
-Set up automatic restarts with updates:
+
+You can set up automatic restarts in two ways:
+
+**Method 1: Internal Container Scheduling (Recommended)**
+```yaml
+# In docker-compose.yml, add these environment variables:
+environment:
+  - ASA_RESTART_CRON=0 4 * * *  # Daily at 4 AM
+  - ASA_RESTART_WARNING_MINUTES=5  # 5-minute warning (optional)
+```
+
+**Method 2: External Cron (Host System)**
 ```bash
 # Add to crontab (crontab -e)
 0 4 * * * docker restart asa-server-1
 ```
+
+The internal method is preferred as it provides in-game warnings and graceful shutdowns.
 
 ## 🏗️ Project History
 

@@ -19,6 +19,7 @@ if PROJECT_ROOT not in sys.path:
 from asa_ctrl.mods import ModDatabase, ModRecord  # noqa: E402
 from asa_ctrl.config import StartParamsHelper, parse_start_params  # noqa: E402
 from asa_ctrl.constants import ExitCodes  # noqa: E402
+from asa_ctrl.restart import validate_cron_expression  # noqa: E402
 from asa_ctrl.cli import main as cli_main  # noqa: E402
 
 
@@ -55,6 +56,8 @@ def test_cli_mods_string():
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, 'mods.json')
         os.environ['ASA_MOD_DATABASE_PATH'] = db_path
+        # Reset singleton for this test
+        ModDatabase._instance = None
         db = ModDatabase.get_instance()  # singleton will pick overridden path first time
         db.enable_mod(111)
         db.enable_mod(222)
@@ -95,6 +98,27 @@ def test_cli_mods_string():
     print("✓ ModDatabase tests passed")
 
 
+def test_restart_validation():
+    """Test restart cron expression validation."""
+    print("Testing restart cron validation...")
+    
+    # Valid expressions
+    assert validate_cron_expression("0 4 * * *") == True
+    assert validate_cron_expression("30 2 * * 1") == True
+    assert validate_cron_expression("*/15 * * * *") == True
+    assert validate_cron_expression("0 0 1 1 *") == True
+    
+    # Invalid expressions
+    assert validate_cron_expression("") == False
+    assert validate_cron_expression("0 4 * *") == False  # Too few fields
+    assert validate_cron_expression("0 4 * * * *") == False  # Too many fields
+    assert validate_cron_expression("60 4 * * *") == False  # Invalid minute
+    assert validate_cron_expression("0 25 * * *") == False  # Invalid hour
+    assert validate_cron_expression(None) == False
+    
+    print("✓ Restart validation tests passed")
+
+
 def test_exit_codes():
     print("Testing ExitCodes...")
     assert ExitCodes.OK == 0
@@ -103,6 +127,7 @@ def test_exit_codes():
     assert ExitCodes.RCON_PASSWORD_NOT_FOUND == 3
     assert ExitCodes.RCON_PASSWORD_WRONG == 4
     assert ExitCodes.RCON_COMMAND_EXECUTION_FAILED == 5
+    assert ExitCodes.RESTART_SCHEDULE_INVALID == 6
     print("✓ ExitCodes tests passed")
 
 
@@ -112,6 +137,7 @@ def main():  # pragma: no cover - simple runner
         test_start_params_helper()
         test_mod_database()
         test_cli_mods_string()
+        test_restart_validation()
         test_exit_codes()
         print("\nAll tests passed.")
         return 0

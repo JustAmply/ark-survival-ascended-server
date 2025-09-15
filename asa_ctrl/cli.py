@@ -12,6 +12,7 @@ from typing import List, Optional
 from .constants import ExitCodes
 from .rcon import execute_rcon_command
 from .mods import ModDatabase, format_mod_list_for_server
+from .restart import setup_restart_cron, disable_restart_cron, get_restart_schedule
 from .logging_config import configure_logging, get_logger
 from .config import parse_start_params
 from .errors import (
@@ -19,7 +20,8 @@ from .errors import (
     RconAuthenticationError, 
     RconPortNotFoundError,
     ModAlreadyEnabledError,
-    CorruptedModsDatabaseError
+    CorruptedModsDatabaseError,
+    RestartScheduleInvalidError
 )
 
 
@@ -170,6 +172,73 @@ class ModsCommand:
         print(format_mod_list_for_server(), end="")
 
 
+class RestartCommand:
+    """Handles server restart scheduling commands."""
+    
+    @staticmethod
+    def add_parser(subparsers) -> None:
+        """Add restart command parser to subparsers."""
+        parser = subparsers.add_parser('restart', help='Manage server restart scheduling')
+        
+        # Add subcommands for restart
+        restart_subparsers = parser.add_subparsers(dest='restart_action', help='Restart actions')
+        
+        # Schedule restart command
+        schedule_parser = restart_subparsers.add_parser('schedule', help='Schedule automatic restarts')
+        schedule_parser.add_argument('cron_schedule', 
+                                   help='Cron expression for restart timing (e.g., "0 4 * * *" for 4 AM daily)')
+        schedule_parser.add_argument('--warning-minutes', type=int, default=5,
+                                   help='Minutes before restart to send warning (default: 5)')
+        
+        # Show schedule command
+        show_parser = restart_subparsers.add_parser('show', help='Show current restart schedule')
+        
+        # Disable schedule command
+        disable_parser = restart_subparsers.add_parser('disable', help='Disable automatic restarts')
+        
+        parser.set_defaults(func=RestartCommand.execute)
+    
+    @staticmethod
+    def execute(args) -> None:
+        """Execute a restart management command."""
+        try:
+            if args.restart_action == 'schedule':
+                RestartCommand._schedule_restart(args.cron_schedule, args.warning_minutes)
+            elif args.restart_action == 'show':
+                RestartCommand._show_schedule()
+            elif args.restart_action == 'disable':
+                RestartCommand._disable_schedule()
+            else:
+                print("Please specify a restart action: schedule, show, or disable")
+                sys.exit(ExitCodes.OK)
+                
+        except RestartScheduleInvalidError as e:
+            exit_with_error(str(e), ExitCodes.RESTART_SCHEDULE_INVALID)
+    
+    @staticmethod
+    def _schedule_restart(cron_schedule: str, warning_minutes: int) -> None:
+        """Schedule automatic server restarts."""
+        setup_restart_cron(cron_schedule, warning_minutes)
+        print(f"Scheduled server restart at: {cron_schedule}")
+        if warning_minutes > 0:
+            print(f"Warning will be sent {warning_minutes} minutes before restart")
+    
+    @staticmethod
+    def _show_schedule() -> None:
+        """Show current restart schedule."""
+        schedule = get_restart_schedule()
+        if schedule:
+            print(f"Current restart schedule: {schedule}")
+        else:
+            print("No restart schedule configured")
+    
+    @staticmethod
+    def _disable_schedule() -> None:
+        """Disable automatic restart schedule."""
+        disable_restart_cron()
+        print("Disabled automatic server restarts")
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the main argument parser."""
     parser = argparse.ArgumentParser(
@@ -182,6 +251,7 @@ def create_parser() -> argparse.ArgumentParser:
     # Add command parsers
     RconCommand.add_parser(subparsers)
     ModsCommand.add_parser(subparsers)
+    RestartCommand.add_parser(subparsers)
 
     # Hidden helper replacing external bash wrapper to output mods string
     hidden = subparsers.add_parser('mods-string', help=argparse.SUPPRESS)
