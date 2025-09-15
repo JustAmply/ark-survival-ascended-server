@@ -11,7 +11,12 @@ from typing import NamedTuple, Optional
 
 from .constants import RconPacketTypes
 from .config import StartParamsHelper, IniConfigHelper
-from .errors import RconPasswordNotFoundError, RconPortNotFoundError, RconAuthenticationError
+from .errors import (
+    AsaCtrlError,
+    RconPasswordNotFoundError,
+    RconPortNotFoundError,
+    RconAuthenticationError,
+)
 
 
 class RconPacket(NamedTuple):
@@ -130,16 +135,28 @@ class RconClient:
         response = self._send_packet(self.password, RconPacketTypes.AUTH)
         return response.id != -1
     
-    def connect(self) -> None:
+    def connect(self, timeout: float = 30.0) -> None:
         """
         Connect to the RCON server and authenticate.
-        
+
+        Args:
+            timeout: Timeout in seconds for establishing the connection.
+
         Raises:
+            AsaCtrlError: If the connection attempt times out.
             RconAuthenticationError: If authentication fails
         """
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect((self.server_ip, self.port))
-        
+        self.socket.settimeout(timeout)
+
+        try:
+            self.socket.connect((self.server_ip, self.port))
+        except socket.timeout as exc:
+            self.close()
+            raise AsaCtrlError(
+                f"Timed out connecting to RCON server at {self.server_ip}:{self.port}"
+            ) from exc
+
         if not self._authenticate():
             raise RconAuthenticationError("RCON authentication failed")
     

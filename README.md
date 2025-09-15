@@ -150,6 +150,18 @@ I decided to completely rewrite everything from scratch in **Python** to create 
 - **[📋 Setup Guide](SETUP.md)** - Detailed installation, configuration, and administration instructions
 - **[❓ FAQ & Troubleshooting](FAQ.md)** - Common issues, solutions, and troubleshooting steps
 
+## 🛠️ Development
+
+Set up a local development environment with an editable installation so that CLI changes are reflected immediately:
+
+```bash
+git clone https://github.com/JustAmply/ark-survival-ascended-server.git
+cd ark-survival-ascended-server
+pip install -e .
+```
+
+This registers the `asa-ctrl` command on your PATH while allowing you to modify the source code in-place.
+
 ## 📞 Support
 
 - **🐛 Found a bug?** [Open an issue](https://github.com/JustAmply/ark-survival-ascended-server/issues)
