@@ -260,8 +260,12 @@ handle_plugin_loader() {
 #############################
 start_log_streamer() {
   mkdir -p "$LOG_DIR"
-  if [ -n "${LOG_STREAMER_PID:-}" ] && kill -0 "$LOG_STREAMER_PID" 2>/dev/null; then
-    return 0
+  if [ -n "${LOG_STREAMER_PID:-}" ]; then
+    if kill -0 "$LOG_STREAMER_PID" 2>/dev/null; then
+      return 0
+    else
+      unset LOG_STREAMER_PID
+    fi
   fi
   (
     sleep 1
