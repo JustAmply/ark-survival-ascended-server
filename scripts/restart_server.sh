@@ -36,8 +36,9 @@ main() {
 
   if [ "$saveworld_flag" != "0" ]; then
     log "Issuing saveworld via RCON before restart."
-    if ! /usr/local/bin/asa-ctrl rcon --exec 'saveworld' >/dev/null 2>&1; then
-      log "Warning: failed to execute saveworld command via RCON."
+    rcon_err="$({ /usr/local/bin/asa-ctrl rcon --exec 'saveworld' 2>&1 1>/dev/null; } || true)"
+    if [ -n "$rcon_err" ]; then
+      log "Warning: failed to execute saveworld command via RCON. Possible causes: server not ready, RCON not enabled, or network issue. Error output: $rcon_err"
     fi
     # Allow the server some time to finish writing the save.
     sleep "$saveworld_delay" || true
