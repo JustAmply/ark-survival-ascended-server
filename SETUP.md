@@ -153,14 +153,21 @@ Each additional server gets its own ports (7778, 7779, etc.) and storage volumes
 
 ## ⏰ Automatic Restarts
 
-Set up daily restarts with updates by adding to crontab (`crontab -e`):
+Schedule restarts without host-level cron jobs by using the built-in helper inside the container. Add a cron expression to your `docker-compose.yml`:
 
-```bash
-# Daily restart at 4 AM with warnings
-30 3 * * * docker exec asa-server-1 asa-ctrl rcon --exec 'serverchat Server restart in 30 minutes'
-58 3 * * * docker exec asa-server-1 asa-ctrl rcon --exec 'saveworld'
-0 4 * * * docker restart asa-server-1
+```yaml
+environment:
+  - 'SERVER_RESTART_CRON=0 4 * * *'  # Restart daily at 04:00
 ```
+
+The helper triggers a `saveworld` before sending `SIGTERM` to the server process. You can adjust the behaviour with optional variables:
+
+- `ASA_RESTART_SAVEWORLD=0` – disable the automatic save command
+- `ASA_RESTART_SAVEWORLD_DELAY=30` – wait longer (seconds) after saving
+- `ASA_RESTART_SHUTDOWN_TIMEOUT=300` – extend the graceful shutdown timeout
+- `SERVER_RESTART_BACKOFF=30` – wait before relaunching the server again (seconds)
+
+Use additional cron entries (inside or outside the container) if you want to broadcast warning messages ahead of the restart.
 
 ## 🔧 Debug Mode
 

@@ -28,8 +28,44 @@ STEAM_COMPAT_DIR="/home/gameserver/Steam/compatibilitytools.d"
 ASA_BINARY_NAME="ArkAscendedServer.exe"
 ASA_PLUGIN_BINARY_NAME="AsaApiLoader.exe"
 DEFAULT_PROTON_VERSION="8-21"
+PID_FILE="/home/gameserver/.asa-server.pid"
+RESTART_CRON_FILE="/etc/cron.d/asa-server-restart"
 
 log() { echo "[asa-start] $*"; }
+
+
+#############################
+# Cron-based scheduled restarts
+#############################
+setup_restart_cron() {
+  if [ "$(id -u)" != "0" ]; then
+    return 0
+  fi
+
+  rm -f "$RESTART_CRON_FILE"
+
+  local schedule="${SERVER_RESTART_CRON:-}"
+  if [ -z "$schedule" ]; then
+    return 0
+  fi
+
+  log "Configuring scheduled restart (cron): $schedule"
+  cat >"$RESTART_CRON_FILE" <<EOF
+MAILTO=""
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+$schedule gameserver /usr/bin/restart_server.sh
+EOF
+  chmod 0644 "$RESTART_CRON_FILE"
+
+  if command -v cron >/dev/null 2>&1; then
+    if ! cron; then
+      log "Failed to start cron daemon; scheduled restarts disabled."
+    fi
+  else
+    log "Cron binary not found; scheduled restarts disabled."
+  fi
+}
 
 
 #############################
@@ -224,10 +260,14 @@ handle_plugin_loader() {
 #############################
 start_log_streamer() {
   mkdir -p "$LOG_DIR"
+  if [ -n "${LOG_STREAMER_PID:-}" ] && kill -0 "$LOG_STREAMER_PID" 2>/dev/null; then
+    return 0
+  fi
   (
     sleep 1
     tail -n +1 -F "$LOG_DIR"/*.log "$LOG_DIR"/*.txt 2>/dev/null
   ) &
+  LOG_STREAMER_PID=$!
 }
 
 #############################
@@ -237,25 +277,89 @@ launch_server() {
   log "Starting ASA dedicated server..."
   log "Start parameters: $ASA_START_PARAMS"
   cd "$ASA_BINARY_DIR"
+  local runner
   if command -v stdbuf >/dev/null 2>&1; then
-    exec stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME" $ASA_START_PARAMS 2>&1
+    runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
   else
-    exec "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME" $ASA_START_PARAMS 2>&1
+    runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
   fi
+  "${runner[@]}" $ASA_START_PARAMS &
+  SERVER_PID=$!
+  echo "$SERVER_PID" > "$PID_FILE"
+  wait "$SERVER_PID"
+  local exit_code=$?
+  log "Server process exited with code $exit_code"
+  return $exit_code
+}
+
+#############################
+# Process Supervision
+#############################
+handle_shutdown_signal() {
+  local signal="$1"
+  log "Received signal $signal - forwarding to server process"
+  SHUTDOWN_REQUESTED=1
+  if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
+    kill -TERM "$SERVER_PID" 2>/dev/null || true
+  fi
+}
+
+cleanup() {
+  if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
+  rm -f "$PID_FILE" || true
+  if [ -n "${LOG_STREAMER_PID:-}" ] && kill -0 "$LOG_STREAMER_PID" 2>/dev/null; then
+    kill "$LOG_STREAMER_PID" 2>/dev/null || true
+  fi
+}
+
+run_server_loop() {
+  trap 'handle_shutdown_signal TERM' TERM
+  trap 'handle_shutdown_signal INT' INT
+  trap 'handle_shutdown_signal HUP' HUP
+  trap cleanup EXIT
+
+  local base_params
+  base_params="${ASA_START_PARAMS:-}"
+  local backoff
+  backoff="${SERVER_RESTART_BACKOFF:-15}"
+  SHUTDOWN_REQUESTED=0
+
+  while true; do
+    ASA_START_PARAMS="$base_params"
+    export ASA_START_PARAMS
+
+    update_server_files
+    resolve_proton_version
+    install_proton_if_needed
+    ensure_proton_compat_data
+    inject_mods_param
+    prepare_runtime_env
+    handle_plugin_loader
+    start_log_streamer
+
+    launch_server
+    local exit_code=$?
+    rm -f "$PID_FILE" || true
+    SERVER_PID=""
+
+    if [ "${SHUTDOWN_REQUESTED:-0}" = "1" ]; then
+      log "Shutdown requested - exiting server loop."
+      return 0
+    fi
+
+    log "Server exited with code $exit_code - restarting in ${backoff}s..."
+    sleep "$backoff" || true
+  done
 }
 
 #############################
 # Main Flow
 #############################
 maybe_debug
+setup_restart_cron
 ensure_permissions
 ensure_steamcmd
-update_server_files
-resolve_proton_version
-install_proton_if_needed
-ensure_proton_compat_data
-inject_mods_param
-prepare_runtime_env
-handle_plugin_loader
-start_log_streamer
-launch_server
+run_server_loop
