@@ -1,5 +1,18 @@
 FROM ubuntu:24.04
 
+# Build arguments for metadata
+ARG VERSION="unknown"
+ARG GIT_COMMIT="unknown"
+ARG BUILD_DATE="unknown"
+
+# Add metadata labels
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.title="ARK: Survival Ascended Linux Server" \
+      org.opencontainers.image.description="Dockerized ARK: Survival Ascended server with asa_ctrl management tool" \
+      org.opencontainers.image.source="https://github.com/JustAmply/ark-survival-ascended-server"
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     locales \
     wget \

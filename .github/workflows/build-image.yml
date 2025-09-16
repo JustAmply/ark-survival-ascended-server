@@ -12,30 +12,85 @@ permissions:
   packages: write
 
 jobs:
-  build-stable:
-    name: Build stable (main/tags) and push
+  build:
+    name: Build and push Docker image
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     env:
       REGISTRY: ghcr.io
       IMAGE_BASENAME: ${{ github.repository_owner }}/asa-linux-server
-      VERSION: 2.0.0
-      GIT_COMMIT: ${{ github.sha }}
-      BUILD_DATE: ${{ github.run_id }}
+    outputs:
+      image-tags: ${{ steps.metadata.outputs.tags }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build Docker image (stable)
+      - name: Extract version from pyproject.toml
+        id: version
         run: |
-          BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
-          echo "Building image $BASE with tags: latest, ${{ env.VERSION }}"
+          VERSION=$(python3 -c "
+          import tomllib
+          with open('pyproject.toml', 'rb') as f:
+              data = tomllib.load(f)
+          print(data['project']['version'])
+          ")
+          
+          # Determine version based on context
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            # For git tags, use the tag name (strip 'v' prefix if present)
+            FINAL_VERSION="${{ github.ref_name }}"
+            FINAL_VERSION="${FINAL_VERSION#v}"
+          elif [[ "${{ github.ref_name }}" == "development" ]]; then
+            # For development branch, append -dev and short commit SHA
+            SHORT_SHA="${{ github.sha }}"
+            SHORT_SHA="${SHORT_SHA:0:7}"
+            FINAL_VERSION="${VERSION}-dev-${SHORT_SHA}"
+          else
+            # For main branch and others, use pyproject.toml version
+            FINAL_VERSION="${VERSION}"
+          fi
+          
+          echo "version=${FINAL_VERSION}" >> $GITHUB_OUTPUT
+          echo "Determined version: ${FINAL_VERSION}"
+
+      - name: Generate image metadata
+        id: metadata
+        run: |
+          IMAGE_BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          # Build tag list based on branch/tag context
+          TAGS="${IMAGE_BASE}:${VERSION}"
+          
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            TAGS="${TAGS},${IMAGE_BASE}:latest"
+          elif [[ "${{ github.ref_name }}" == "development" ]]; then
+            TAGS="${TAGS},${IMAGE_BASE}:development"
+          fi
+          
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "Generated tags: ${TAGS}"
+
+      - name: Build Docker image
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAGS="${{ steps.metadata.outputs.tags }}"
+          
+          # Convert comma-separated tags to -t arguments
+          TAG_ARGS=""
+          IFS=',' read -ra TAG_ARRAY <<< "$TAGS"
+          for tag in "${TAG_ARRAY[@]}"; do
+            TAG_ARGS="$TAG_ARGS -t $tag"
+          done
+          
+          echo "Building image with version: $VERSION"
+          echo "Tags: $TAGS"
+          
           docker build \
-            --build-arg VERSION=${{ env.VERSION }} \
-            --build-arg GIT_COMMIT=${{ env.GIT_COMMIT }} \
-            --build-arg BUILD_DATE=${{ env.BUILD_DATE }} \
-            -t "$BASE:latest" \
-            -t "$BASE:${{ env.VERSION }}" \
+            --build-arg VERSION="$VERSION" \
+            --build-arg GIT_COMMIT="${{ github.sha }}" \
+            --build-arg BUILD_DATE="${{ github.run_id }}" \
+            $TAG_ARGS \
             .
 
       - name: Log in to GHCR
@@ -45,57 +100,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push latest (only on main)
-        if: github.ref == 'refs/heads/main'
+      - name: Push Docker images
         run: |
-          DEST_BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
-          echo "Pushing $DEST_BASE:latest"
-          docker push "$DEST_BASE:latest"
-
-      - name: Push version tag (only on tag refs)
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          DEST_BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
-          VERSION_TAG="${GITHUB_REF_NAME#v}"
-          echo "Tagging $DEST_BASE:$VERSION_TAG (from latest)"
-          docker tag "$DEST_BASE:latest" "$DEST_BASE:$VERSION_TAG"
-          echo "Pushing $DEST_BASE:$VERSION_TAG"
-          docker push "$DEST_BASE:$VERSION_TAG"
-
-  build-development:
-    name: Build development (development branch) and push
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/development'
-    env:
-      REGISTRY: ghcr.io
-      IMAGE_BASENAME: ${{ github.repository_owner }}/asa-linux-server
-      VERSION: 2.0.0-dev
-      GIT_COMMIT: ${{ github.sha }}
-      BUILD_DATE: ${{ github.run_id }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build Docker image (development)
-        run: |
-          BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
-          echo "Building image $BASE with tag: development"
-          docker build \
-            --build-arg VERSION=${{ env.VERSION }} \
-            --build-arg GIT_COMMIT=${{ env.GIT_COMMIT }} \
-            --build-arg BUILD_DATE=${{ env.BUILD_DATE }} \
-            -t "$BASE:development" \
-            .
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Push development tag
-        run: |
-          DEST_BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
-          echo "Pushing $DEST_BASE:development"
-          docker push "$DEST_BASE:development"
+          TAGS="${{ steps.metadata.outputs.tags }}"
+          
+          IFS=',' read -ra TAG_ARRAY <<< "$TAGS"
+          for tag in "${TAG_ARRAY[@]}"; do
+            echo "Pushing $tag"
+            docker push "$tag"
+          done
