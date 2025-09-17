@@ -132,7 +132,7 @@ Originally, I worked with Ruby-based server management tools for ARK, but I wasn
 - Unknown language for me, hard to read and maintain
 - Complicated build system using KIWI-NG
 - Multiple scattered modules
-- Heavy dependencies and bloat (old project was ~500MB in comparison to ~170MB for this Python version - savings of 2/3 of the image size!)
+- Heavy dependencies and bloat (old project was 563MB in comparison to ~200MB for this Python version - savings of 2/3 of the image size!)
 
 ### The Rewrite Decision
 
