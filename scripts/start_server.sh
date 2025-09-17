@@ -265,7 +265,7 @@ start_log_streamer() {
   fi
   (
     sleep 1
-    tail -n +1 -F "$LOG_DIR"/*.log "$LOG_DIR"/*.txt 2>/dev/null
+    tail -n +1 -F "$LOG_DIR/ShooterGame.log" 2>/dev/null
   ) &
   LOG_STREAMER_PID=$!
 }
