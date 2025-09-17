@@ -61,7 +61,7 @@ Ideal for modded gameplay:
 
 ## 🔧 Basic Configuration
 
-After starting your server, you can customize it by editing the `docker-compose.yml` file:
+Before starting your server, you can customize it by editing the `docker-compose.yml` file:
 
 ```yaml
 environment:
@@ -88,14 +88,14 @@ Changing this list requires editing the compose file and recreating/restarting t
 
 Or use the dynamic method:
 ```bash
-# Enable mods dynamically (no container restart needed for config)
+# Enable mods dynamically (container restart needed for activation)
 docker exec asa-server-1 asa-ctrl mods enable 12345
 docker exec asa-server-1 asa-ctrl mods enable 67891
 
 # List enabled mods
 docker exec asa-server-1 asa-ctrl mods list --enabled-only
 
-# Restart to download mods
+# Restart to download and activate mods
 docker restart asa-server-1
 ```
 
