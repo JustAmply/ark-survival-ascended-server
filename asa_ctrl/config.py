@@ -109,7 +109,7 @@ class IniConfigHelper:
         if not Path(file_path).exists():
             return None
             
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(strict=False)
         config.read(file_path)
         return config
     
