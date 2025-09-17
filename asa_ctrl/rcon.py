@@ -176,7 +176,7 @@ class RconClient:
         for attempt in range(self.retry_count + 1):
             try:
                 return operation(*args, **kwargs)
-            except (socket.timeout, socket.error, RconPacketError, RconConnectionError) as e:
+            except (socket.timeout, socket.error, RconPacketError, RconConnectionError, RconTimeoutError) as e:
                 last_exception = e
                 if attempt < self.retry_count:
                     delay = self.retry_delay * (2 ** attempt)  # Exponential backoff
