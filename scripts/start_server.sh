@@ -27,7 +27,7 @@ ASA_COMPAT_DATA="$STEAM_COMPAT_DATA/2430930"
 STEAM_COMPAT_DIR="/home/gameserver/Steam/compatibilitytools.d"
 ASA_BINARY_NAME="ArkAscendedServer.exe"
 ASA_PLUGIN_BINARY_NAME="AsaApiLoader.exe"
-DEFAULT_PROTON_VERSION="8-21"
+FALLBACK_PROTON_VERSION="8-21"
 PID_FILE="/home/gameserver/.asa-server.pid"
 RESTART_CRON_FILE="/etc/cron.d/asa-server-restart"
 ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
@@ -160,7 +160,7 @@ resolve_proton_version() {
       log "Could not query GitHub API for Proton releases"
     fi
   fi
-  PROTON_VERSION="${PROTON_VERSION:-$DEFAULT_PROTON_VERSION}"
+  PROTON_VERSION="${PROTON_VERSION:-$FALLBACK_PROTON_VERSION}"
   export PROTON_VERSION
   PROTON_DIR_NAME="GE-Proton$PROTON_VERSION"
   PROTON_ARCHIVE_NAME="$PROTON_DIR_NAME.tar.gz"
