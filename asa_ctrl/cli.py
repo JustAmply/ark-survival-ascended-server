@@ -1,12 +1,13 @@
 """
 Command Line Interface for ASA Control.
 
-Provides CLI commands for RCON and mod management.
+Provides CLI commands for RCON, mod management, and enterprise features.
 """
 
 import argparse
 import sys
 import os
+import json
 from typing import List, Optional
 
 from .constants import ExitCodes
@@ -20,6 +21,16 @@ from .errors import (
     RconPortNotFoundError,
     ModAlreadyEnabledError,
     CorruptedModsDatabaseError
+)
+from .enterprise import (
+    get_config_manager,
+    get_security_manager,
+    get_audit_logger,
+    get_health_checker,
+    get_metrics_collector,
+    ConfigValidationError,
+    SecurityViolationError,
+    HealthCheckError
 )
 
 
@@ -48,8 +59,52 @@ class RconCommand:
     
     @staticmethod
     def execute(args) -> None:
-        """Execute an RCON command."""
+        """Execute an RCON command with enterprise security integration."""
         try:
+            # Enterprise security integration
+            client_ip = "127.0.0.1"  # Default for local execution
+            if hasattr(args, 'client_ip') and args.client_ip:
+                client_ip = args.client_ip
+            
+            # Check security if enterprise features are available
+            try:
+                security_manager = get_security_manager()
+                
+                # Check IP access
+                if not security_manager.check_rcon_access(client_ip):
+                    exit_with_error(
+                        f"RCON access denied for IP {client_ip}",
+                        ExitCodes.SECURITY_VIOLATION
+                    )
+                
+                # Check rate limiting
+                if not security_manager.check_rate_limit(client_ip):
+                    exit_with_error(
+                        f"RCON rate limit exceeded for IP {client_ip}",
+                        ExitCodes.SECURITY_VIOLATION
+                    )
+                
+                # Validate command input
+                if not security_manager.validate_input(args.command):
+                    exit_with_error(
+                        "RCON command blocked by security policy",
+                        ExitCodes.SECURITY_VIOLATION
+                    )
+                
+                # Log the command execution
+                audit_logger = get_audit_logger()
+                audit_logger.log_admin_action("rcon_command", {
+                    "command": args.command,
+                    "client_ip": client_ip,
+                    "user": os.environ.get("USER", "unknown")
+                })
+                
+            except Exception as e:
+                # If enterprise features fail, log warning but continue
+                logger = get_logger(__name__)
+                logger.warning("Enterprise security check failed, proceeding: %s", e)
+            
+            # Execute the command
             response = execute_rcon_command(args.command)
             print(response)
             
@@ -170,11 +225,216 @@ class ModsCommand:
         print(format_mod_list_for_server(), end="")
 
 
+class EnterpriseCommand:
+    """Handles enterprise management commands."""
+    
+    @staticmethod
+    def add_parser(subparsers) -> None:
+        """Add enterprise command parser."""
+        enterprise_parser = subparsers.add_parser(
+            'enterprise',
+            help='Enterprise management commands'
+        )
+        enterprise_subparsers = enterprise_parser.add_subparsers(
+            dest='enterprise_action',
+            help='Enterprise actions'
+        )
+        
+        # Config management
+        config_parser = enterprise_subparsers.add_parser(
+            'config',
+            help='Configuration management'
+        )
+        config_subparsers = config_parser.add_subparsers(
+            dest='config_action',
+            help='Configuration actions'
+        )
+        
+        show_config = config_subparsers.add_parser('show', help='Show current configuration')
+        show_config.set_defaults(func=EnterpriseCommand.show_config)
+        
+        update_config = config_subparsers.add_parser('update', help='Update configuration')
+        update_config.add_argument('--field', required=True, help='Configuration field to update')
+        update_config.add_argument('--value', required=True, help='New value')
+        update_config.set_defaults(func=EnterpriseCommand.update_config)
+        
+        # Health checks
+        health_parser = enterprise_subparsers.add_parser('health', help='System health check')
+        health_parser.set_defaults(func=EnterpriseCommand.health_check)
+        
+        # Metrics
+        metrics_parser = enterprise_subparsers.add_parser('metrics', help='Collect metrics')
+        metrics_parser.set_defaults(func=EnterpriseCommand.collect_metrics)
+        
+        # Audit logs
+        audit_parser = enterprise_subparsers.add_parser('audit', help='Audit log management')
+        audit_subparsers = audit_parser.add_subparsers(
+            dest='audit_action',
+            help='Audit actions'
+        )
+        
+        log_event = audit_subparsers.add_parser('log', help='Log an event')
+        log_event.add_argument('--type', required=True, help='Event type')
+        log_event.add_argument('--details', required=True, help='Event details (JSON)')
+        log_event.set_defaults(func=EnterpriseCommand.log_audit_event)
+        
+        # Security
+        security_parser = enterprise_subparsers.add_parser('security', help='Security management')
+        security_subparsers = security_parser.add_subparsers(
+            dest='security_action',
+            help='Security actions'
+        )
+        
+        check_access = security_subparsers.add_parser('check-access', help='Check IP access')
+        check_access.add_argument('--ip', required=True, help='IP address to check')
+        check_access.set_defaults(func=EnterpriseCommand.check_ip_access)
+    
+    @staticmethod
+    def show_config(args) -> None:
+        """Show current enterprise configuration."""
+        try:
+            config_manager = get_config_manager()
+            config = config_manager.get_config()
+            
+            print("Enterprise Configuration:")
+            print("=" * 50)
+            config_dict = config.__dict__
+            for key, value in sorted(config_dict.items()):
+                if 'password' in key.lower() or 'token' in key.lower():
+                    value = "***HIDDEN***" if value else "(not set)"
+                print(f"  {key}: {value}")
+                
+        except ConfigValidationError as e:
+            exit_with_error(f"Configuration error: {e}", ExitCodes.CONFIG_VALIDATION_ERROR)
+        except Exception as e:
+            exit_with_error(f"Failed to show configuration: {e}", ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
+    
+    @staticmethod
+    def update_config(args) -> None:
+        """Update enterprise configuration."""
+        try:
+            config_manager = get_config_manager()
+            
+            # Parse value based on type
+            value = args.value
+            if value.lower() in ('true', 'false'):
+                value = value.lower() == 'true'
+            elif value.isdigit():
+                value = int(value)
+            elif value.startswith('[') and value.endswith(']'):
+                # Simple list parsing
+                value = [item.strip().strip('"\'') for item in value[1:-1].split(',') if item.strip()]
+            
+            config_manager.update_config({args.field: value})
+            print(f"Updated {args.field} = {value}")
+            
+        except ConfigValidationError as e:
+            exit_with_error(f"Configuration error: {e}", ExitCodes.CONFIG_VALIDATION_ERROR)
+        except Exception as e:
+            exit_with_error(f"Failed to update configuration: {e}", ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
+    
+    @staticmethod
+    def health_check(args) -> None:
+        """Perform system health check."""
+        try:
+            health_checker = get_health_checker()
+            health = health_checker.check_system_health()
+            
+            print("System Health Check")
+            print("=" * 50)
+            print(f"Overall Status: {health['status'].upper()}")
+            print(f"Timestamp: {health['timestamp']}")
+            
+            if 'failed_checks' in health:
+                print(f"Failed Checks: {', '.join(health['failed_checks'])}")
+            
+            print("\nDetailed Results:")
+            for check_name, result in health.get('checks', {}).items():
+                status = result.get('status', 'unknown').upper()
+                print(f"  {check_name}: {status}")
+                
+                # Show additional details for some checks
+                if check_name == 'disk_space' and 'free_gb' in result:
+                    print(f"    Free: {result['free_gb']} GB ({result['free_percent']}%)")
+                elif check_name == 'memory' and 'used_percent' in result:
+                    print(f"    Used: {result['used_percent']}% ({result['available_mb']} MB available)")
+                
+                if result.get('error'):
+                    print(f"    Error: {result['error']}")
+            
+            # Exit with appropriate code
+            if health['status'] == 'unhealthy':
+                sys.exit(ExitCodes.HEALTH_CHECK_FAILED)
+            elif health['status'] == 'error':
+                sys.exit(ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
+                
+        except HealthCheckError as e:
+            exit_with_error(f"Health check failed: {e}", ExitCodes.HEALTH_CHECK_FAILED)
+        except Exception as e:
+            exit_with_error(f"Health check error: {e}", ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
+    
+    @staticmethod
+    def collect_metrics(args) -> None:
+        """Collect and display system metrics."""
+        try:
+            metrics_collector = get_metrics_collector()
+            metrics = metrics_collector.collect_metrics()
+            
+            print("System Metrics")
+            print("=" * 50)
+            print(json.dumps(metrics, indent=2))
+            
+        except Exception as e:
+            exit_with_error(f"Failed to collect metrics: {e}", ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
+    
+    @staticmethod
+    def log_audit_event(args) -> None:
+        """Log an audit event."""
+        try:
+            audit_logger = get_audit_logger()
+            
+            # Parse details JSON
+            try:
+                details = json.loads(args.details)
+            except json.JSONDecodeError as e:
+                exit_with_error(f"Invalid JSON in details: {e}", ExitCodes.CONFIG_VALIDATION_ERROR)
+            
+            audit_logger.log_event(args.type, details)
+            print(f"Logged audit event: {args.type}")
+            
+        except Exception as e:
+            exit_with_error(f"Failed to log audit event: {e}", ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
+    
+    @staticmethod
+    def check_ip_access(args) -> None:
+        """Check if IP has RCON access."""
+        try:
+            security_manager = get_security_manager()
+            
+            # Check access
+            has_access = security_manager.check_rcon_access(args.ip)
+            rate_limit_ok = security_manager.check_rate_limit(args.ip)
+            
+            print(f"Security Check for IP: {args.ip}")
+            print("=" * 50)
+            print(f"Access Allowed: {'YES' if has_access else 'NO'}")
+            print(f"Rate Limit OK: {'YES' if rate_limit_ok else 'NO'}")
+            print(f"Overall Access: {'GRANTED' if has_access and rate_limit_ok else 'DENIED'}")
+            
+            if not (has_access and rate_limit_ok):
+                sys.exit(ExitCodes.SECURITY_VIOLATION)
+                
+        except SecurityViolationError as e:
+            exit_with_error(f"Security violation: {e}", ExitCodes.SECURITY_VIOLATION)
+        except Exception as e:
+            exit_with_error(f"Security check failed: {e}", ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the main argument parser."""
     parser = argparse.ArgumentParser(
         prog='asa-ctrl',
-        description='ARK: Survival Ascended Server Control Tool'
+        description='ARK: Survival Ascended Server Control Tool with Enterprise Features'
     )
     
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
@@ -182,6 +442,7 @@ def create_parser() -> argparse.ArgumentParser:
     # Add command parsers
     RconCommand.add_parser(subparsers)
     ModsCommand.add_parser(subparsers)
+    EnterpriseCommand.add_parser(subparsers)
 
     # Hidden helper replacing external bash wrapper to output mods string
     hidden = subparsers.add_parser('mods-string', help=argparse.SUPPRESS)

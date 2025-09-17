@@ -11,6 +11,15 @@ import os
 import sys
 import tempfile
 
+# Set test environment before importing modules
+os.environ.setdefault('ASA_MOD_DATABASE_PATH', '/tmp/test_mods.json')
+os.environ.setdefault('ASA_GAME_USER_SETTINGS_PATH', '/tmp/test_game_settings.ini')
+os.environ.setdefault('ASA_GAME_INI_PATH', '/tmp/test_game.ini')
+os.environ.setdefault('ASA_CONFIG_DIR', '/tmp/test_config')
+os.environ.setdefault('ASA_AUDIT_LOG_PATH', '/tmp/test_audit.log')
+os.environ.setdefault('ASA_METRICS_PATH', '/tmp/test_metrics')
+os.environ.setdefault('ASA_BACKUP_DIR', '/tmp/test_backups')
+
 # Ensure project root is on sys.path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -94,21 +103,48 @@ def test_mod_database():
 def test_cli_mods_string():
     """Test the hidden 'mods-string' CLI helper outputs correct formatting."""
     print("Testing CLI mods-string helper...")
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = os.path.join(temp_dir, 'mods.json')
-        os.environ['ASA_MOD_DATABASE_PATH'] = db_path
-        db = ModDatabase.get_instance()  # singleton will pick overridden path first time
+    
+    # Clear any existing temp files
+    import tempfile
+    import shutil
+    
+    # Use a completely different temp directory
+    with tempfile.TemporaryDirectory(prefix='asa_test_cli_') as temp_dir:
+        db_path = os.path.join(temp_dir, 'test_cli_mods.json')
+        
+        # Reset singleton and set new path
+        ModDatabase._reset_instance()
+        
+        # Create a fresh database instance with explicit path
+        db = ModDatabase(db_path)
+        
+        # Enable mods
         db.enable_mod(111)
         db.enable_mod(222)
-        # Capture stdout
-        from io import StringIO
-        import contextlib
-        buf = StringIO()
-        with contextlib.redirect_stdout(buf):
-            cli_main(['mods-string'])
-        out = buf.getvalue().strip()
-        assert out in ('-mods=111,222', '-mods=222,111')  # order not guaranteed
-    print("\u2713 CLI mods-string tests passed")
+        
+        # Update environment for CLI call and reset singleton again
+        old_path = os.environ.get('ASA_MOD_DATABASE_PATH')
+        os.environ['ASA_MOD_DATABASE_PATH'] = db_path
+        ModDatabase._reset_instance()
+        
+        try:
+            # Capture stdout
+            from io import StringIO
+            import contextlib
+            buf = StringIO()
+            with contextlib.redirect_stdout(buf):
+                cli_main(['mods-string'])
+            out = buf.getvalue().strip()
+            assert out in ('-mods=111,222', '-mods=222,111')  # order not guaranteed
+        finally:
+            # Restore environment
+            if old_path:
+                os.environ['ASA_MOD_DATABASE_PATH'] = old_path
+            else:
+                os.environ.pop('ASA_MOD_DATABASE_PATH', None)
+            ModDatabase._reset_instance()
+            
+    print("✓ CLI mods-string tests passed")
 
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, "mods.json")
@@ -148,6 +184,48 @@ def test_exit_codes():
     print("✓ ExitCodes tests passed")
 
 
+def test_enterprise_features():
+    """Test basic enterprise functionality."""
+    print("Testing Enterprise features...")
+    
+    try:
+        # Test configuration manager
+        from asa_ctrl.enterprise import get_config_manager
+        config_manager = get_config_manager()
+        config = config_manager.get_config()
+        assert config.server_name == "ASA Enterprise Server"
+        assert config.max_players == 50
+        print("  ✓ Configuration management working")
+        
+        # Test health checker
+        from asa_ctrl.enterprise import get_health_checker
+        health_checker = get_health_checker()
+        health = health_checker.check_system_health()
+        assert "status" in health
+        assert "checks" in health
+        print("  ✓ Health checker working")
+        
+        # Test metrics collector
+        from asa_ctrl.enterprise import get_metrics_collector
+        metrics_collector = get_metrics_collector()
+        metrics = metrics_collector.collect_metrics()
+        assert "timestamp" in metrics
+        assert "hostname" in metrics
+        print("  ✓ Metrics collector working")
+        
+        # Test audit logger
+        from asa_ctrl.enterprise import get_audit_logger
+        audit_logger = get_audit_logger()
+        audit_logger.log_event("test_event", {"test": "data"})
+        print("  ✓ Audit logger working")
+        
+    except Exception as e:
+        print(f"  ✗ Enterprise features test failed: {e}")
+        raise
+        
+    print("✓ Enterprise features tests passed")
+
+
 def main():  # pragma: no cover - simple runner
     print("Running asa_ctrl tests...\n")
     try:
@@ -156,6 +234,7 @@ def main():  # pragma: no cover - simple runner
         test_mod_database()
         test_cli_mods_string()
         test_exit_codes()
+        test_enterprise_features()
         print("\nAll tests passed.")
         return 0
     except Exception as e:  # noqa: BLE001

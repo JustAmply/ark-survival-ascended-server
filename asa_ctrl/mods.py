@@ -67,6 +67,11 @@ class ModDatabase:
             cls._instance = cls()
         return cls._instance
     
+    @classmethod
+    def _reset_instance(cls) -> None:
+        """Reset the singleton instance. Used for testing."""
+        cls._instance = None
+    
     def _ensure_database_exists(self) -> None:
         """Ensure the database file exists, create if it doesn't."""
         if not self.database_path.exists():
