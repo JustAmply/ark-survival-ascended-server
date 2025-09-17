@@ -297,11 +297,46 @@ launch_server() {
 #############################
 handle_shutdown_signal() {
   local signal="$1"
-  log "Received signal $signal - forwarding to server process"
+  log "Received signal $signal - initiating graceful shutdown"
   SHUTDOWN_REQUESTED=1
-  if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
-    kill -TERM "$SERVER_PID" 2>/dev/null || true
+  
+  if [ -z "${SERVER_PID:-}" ] || ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    log "No server process to shutdown"
+    return 0
   fi
+
+  # Graceful shutdown: save world first, then send SIGTERM
+  local saveworld_flag saveworld_delay shutdown_timeout
+  saveworld_flag="${ASA_SHUTDOWN_SAVEWORLD:-1}"
+  saveworld_delay="${ASA_SHUTDOWN_SAVEWORLD_DELAY:-15}"
+  shutdown_timeout="${ASA_SHUTDOWN_TIMEOUT:-180}"
+
+  if [ "$saveworld_flag" != "0" ]; then
+    log "Issuing saveworld via RCON before shutdown"
+    if /usr/local/bin/asa-ctrl rcon --exec 'saveworld' >/dev/null 2>&1; then
+      log "Saveworld command sent successfully, waiting ${saveworld_delay}s for save completion"
+      sleep "$saveworld_delay" || true
+    else
+      log "Warning: failed to execute saveworld command via RCON"
+    fi
+  fi
+
+  log "Sending SIGTERM to server process $SERVER_PID"
+  kill -TERM "$SERVER_PID" 2>/dev/null || true
+
+  # Wait for graceful shutdown with timeout
+  local remaining="$shutdown_timeout"
+  while kill -0 "$SERVER_PID" 2>/dev/null; do
+    if [ "$remaining" -le 0 ]; then
+      log "Server did not stop within ${shutdown_timeout}s - forcing termination"
+      kill -KILL "$SERVER_PID" 2>/dev/null || true
+      break
+    fi
+    sleep 1
+    remaining=$((remaining - 1))
+  done
+
+  log "Graceful shutdown completed"
 }
 
 cleanup() {
