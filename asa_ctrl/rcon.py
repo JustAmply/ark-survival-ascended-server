@@ -57,7 +57,7 @@ class RconClient:
             retry_delay: Base delay between retry attempts (exponential backoff)
         """
         self.server_ip = self._validate_ip(server_ip)
-        self.port = port or self._identify_port()
+        self.port = self._validate_port(port) if port is not None else self._identify_port()
         self.password = password or self._identify_password()
         self.connect_timeout = max(1.0, connect_timeout)
         self.read_timeout = max(1.0, read_timeout) 
@@ -89,6 +89,23 @@ class RconClient:
             raise ValueError(f"Invalid IP address format: {ip}")
         
         return ip
+    
+    def _validate_port(self, port: int) -> int:
+        """
+        Validate port number.
+        
+        Args:
+            port: Port number to validate
+            
+        Returns:
+            Validated port number
+            
+        Raises:
+            ValueError: If port is invalid
+        """
+        if not isinstance(port, int) or not (1 <= port <= 65535):
+            raise ValueError(f"Port must be an integer between 1 and 65535, got: {port}")
+        return port
     
     def _validate_command(self, command: str) -> str:
         """
