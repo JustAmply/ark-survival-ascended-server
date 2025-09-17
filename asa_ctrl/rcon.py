@@ -381,12 +381,22 @@ class RconClient:
             RconConnectionError: If connection is lost
             RconPacketError: If not enough data received
         """
+        if self.socket is None:
+            raise RconConnectionError("Socket not connected")
         data = b''
-        while len(data) < num_bytes:
-            chunk = self.socket.recv(num_bytes - len(data))
-            if not chunk:
-                raise RconConnectionError("Connection closed by remote host")
-            data += chunk
+        try:
+            while len(data) < num_bytes:
+                chunk = self.socket.recv(num_bytes - len(data))
+                if not chunk:
+                    raise RconConnectionError("Connection closed by remote host")
+                data += chunk
+        except socket.timeout as e:
+            # Normalize socket timeout to RconTimeoutError
+            raise RconTimeoutError("Timeout while receiving data") from e
+        except socket.error as e:
+            # Mark as disconnected and raise a connection error
+            self._connected = False
+            raise RconConnectionError(f"Connection error while receiving data: {e}") from e
         return data
     
     def _authenticate(self) -> bool:
@@ -408,7 +418,7 @@ class RconClient:
             self._authenticated = False
             raise
     
-    def connect(self, timeout: float = None) -> None:
+    def connect(self, timeout: Optional[float] = None) -> None:
         """
         Connect to the RCON server and authenticate.
 
@@ -488,7 +498,12 @@ class RconClient:
                 raise RconPacketError(f"Unexpected response type: {response.type}, expected {RconPacketTypes.RESPONSE_VALUE}")
         
         # Use retry logic for command execution
-        return self._with_retry(_execute_once)
+        result = self._with_retry(_execute_once)
+        if result is None:
+            raise RconPacketError("Empty response from RCON command")
+        if not isinstance(result, str):
+            result = str(result)
+        return result
     
     def close(self) -> None:
         """Close the RCON connection and clean up resources."""
