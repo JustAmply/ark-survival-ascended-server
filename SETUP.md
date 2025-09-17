@@ -157,7 +157,7 @@ Schedule restarts without host-level cron jobs by using the built-in helper insi
 
 ```yaml
 environment:
-  - 'SERVER_RESTART_CRON=0 4 * * *'  # Restart daily at 04:00
+  - SERVER_RESTART_CRON=0 4 * * *  # Restart daily at 04:00
 ```
 
 The helper triggers a `saveworld` before sending `SIGTERM` to the server process. You can adjust the behaviour with optional variables:
