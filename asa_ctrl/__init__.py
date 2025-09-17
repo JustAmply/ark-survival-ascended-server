@@ -28,6 +28,13 @@ from .enterprise import (  # noqa: F401
     MetricsCollector,
     ConfigSchema
 )
+from .api import (  # noqa: F401
+    get_api_server,
+    start_api_server,
+    stop_api_server,
+    EnterpriseAPIServer
+)
+from .backup import get_backup_manager, BackupManager  # noqa: F401
 
 __all__ = [
 	"configure_logging",
@@ -49,7 +56,15 @@ __all__ = [
 	"AuditLogger",
 	"HealthChecker",
 	"MetricsCollector",
-	"ConfigSchema"
+	"ConfigSchema",
+	# API features
+	"get_api_server",
+	"start_api_server",
+	"stop_api_server",
+	"EnterpriseAPIServer",
+	# Backup features
+	"get_backup_manager",
+	"BackupManager"
 ]
 
 __version__ = "2.1.0"

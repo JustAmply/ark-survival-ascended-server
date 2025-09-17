@@ -8,6 +8,8 @@ import argparse
 import sys
 import os
 import json
+import time
+from datetime import datetime
 from typing import List, Optional
 
 from .constants import ExitCodes
@@ -32,6 +34,12 @@ from .enterprise import (
     SecurityViolationError,
     HealthCheckError
 )
+from .api import (
+    get_api_server,
+    start_api_server,
+    stop_api_server
+)
+from .backup import get_backup_manager
 
 
 def exit_with_error(message: str, exit_code: int) -> None:
@@ -288,6 +296,53 @@ class EnterpriseCommand:
         check_access = security_subparsers.add_parser('check-access', help='Check IP access')
         check_access.add_argument('--ip', required=True, help='IP address to check')
         check_access.set_defaults(func=EnterpriseCommand.check_ip_access)
+        
+        # API management
+        api_parser = enterprise_subparsers.add_parser('api', help='API server management')
+        api_subparsers = api_parser.add_subparsers(
+            dest='api_action',
+            help='API actions'
+        )
+        
+        start_api = api_subparsers.add_parser('start', help='Start API server')
+        start_api.set_defaults(func=EnterpriseCommand.start_api)
+        
+        stop_api = api_subparsers.add_parser('stop', help='Stop API server')
+        stop_api.set_defaults(func=EnterpriseCommand.stop_api)
+        
+        status_api = api_subparsers.add_parser('status', help='API server status')
+        status_api.set_defaults(func=EnterpriseCommand.api_status)
+        
+        # Backup management
+        backup_parser = enterprise_subparsers.add_parser('backup', help='Backup management')
+        backup_subparsers = backup_parser.add_subparsers(
+            dest='backup_action',
+            help='Backup actions'
+        )
+        
+        create_backup = backup_subparsers.add_parser('create', help='Create backup')
+        create_backup.add_argument('--type', default='full', 
+                                 choices=['full', 'config', 'saves', 'mods', 'logs'],
+                                 help='Backup type')
+        create_backup.add_argument('--description', default='', help='Backup description')
+        create_backup.set_defaults(func=EnterpriseCommand.create_backup)
+        
+        list_backups = backup_subparsers.add_parser('list', help='List backups')
+        list_backups.set_defaults(func=EnterpriseCommand.list_backups)
+        
+        restore_backup = backup_subparsers.add_parser('restore', help='Restore backup')
+        restore_backup.add_argument('--name', required=True, help='Backup name to restore')
+        restore_backup.add_argument('--type', default='config',
+                                  choices=['config', 'saves', 'mods', 'all'],
+                                  help='What to restore')
+        restore_backup.set_defaults(func=EnterpriseCommand.restore_backup)
+        
+        delete_backup = backup_subparsers.add_parser('delete', help='Delete backup')
+        delete_backup.add_argument('--name', required=True, help='Backup name to delete')
+        delete_backup.set_defaults(func=EnterpriseCommand.delete_backup)
+        
+        cleanup_backups = backup_subparsers.add_parser('cleanup', help='Clean up old backups')
+        cleanup_backups.set_defaults(func=EnterpriseCommand.cleanup_backups)
     
     @staticmethod
     def show_config(args) -> None:
@@ -428,6 +483,154 @@ class EnterpriseCommand:
             exit_with_error(f"Security violation: {e}", ExitCodes.SECURITY_VIOLATION)
         except Exception as e:
             exit_with_error(f"Security check failed: {e}", ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
+    
+    @staticmethod
+    def start_api(args) -> None:
+        """Start the API server."""
+        try:
+            config_manager = get_config_manager()
+            config = config_manager.get_config()
+            
+            if not config.api_enabled:
+                print("API server is disabled. Enable it with:")
+                print("  asa-ctrl enterprise config update --field api_enabled --value true")
+                sys.exit(ExitCodes.CONFIG_VALIDATION_ERROR)
+            
+            api_server = get_api_server()
+            if api_server.is_running():
+                print("API server is already running")
+                return
+            
+            api_server.start()
+            print(f"API server started on port {config.api_port}")
+            print("Press Ctrl+C to stop...")
+            
+            # Keep the process running
+            try:
+                while api_server.is_running():
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\nStopping API server...")
+                api_server.stop()
+                print("API server stopped")
+                
+        except Exception as e:
+            exit_with_error(f"Failed to start API server: {e}", ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
+    
+    @staticmethod
+    def stop_api(args) -> None:
+        """Stop the API server."""
+        try:
+            api_server = get_api_server()
+            if not api_server.is_running():
+                print("API server is not running")
+                return
+            
+            api_server.stop()
+            print("API server stopped")
+            
+        except Exception as e:
+            exit_with_error(f"Failed to stop API server: {e}", ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
+    
+    @staticmethod
+    def api_status(args) -> None:
+        """Check API server status."""
+        try:
+            config_manager = get_config_manager()
+            config = config_manager.get_config()
+            
+            print("API Server Status")
+            print("=" * 50)
+            print(f"Enabled in config: {'YES' if config.api_enabled else 'NO'}")
+            print(f"Port: {config.api_port}")
+            print(f"Authentication: {'ENABLED' if config.api_auth_token else 'DISABLED'}")
+            
+            api_server = get_api_server()
+            running = api_server.is_running()
+            print(f"Status: {'RUNNING' if running else 'STOPPED'}")
+            
+            if running:
+                print(f"Access URL: http://localhost:{config.api_port}/")
+                
+        except Exception as e:
+            exit_with_error(f"Failed to check API status: {e}", ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
+    
+    @staticmethod
+    def create_backup(args) -> None:
+        """Create a backup."""
+        try:
+            backup_manager = get_backup_manager()
+            backup_name = backup_manager.create_backup(args.type, args.description)
+            print(f"Backup created: {backup_name}")
+            
+        except Exception as e:
+            exit_with_error(f"Failed to create backup: {e}", ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
+    
+    @staticmethod
+    def list_backups(args) -> None:
+        """List available backups."""
+        try:
+            backup_manager = get_backup_manager()
+            backups = backup_manager.list_backups()
+            
+            if not backups:
+                print("No backups found.")
+                return
+            
+            print("Available Backups:")
+            print("=" * 80)
+            print(f"{'Name':<30} {'Type':<10} {'Size':<10} {'Created':<20} {'Description':<20}")
+            print("-" * 80)
+            
+            for backup in backups:
+                size_mb = backup.get('size_bytes', 0) / (1024 * 1024)
+                created = datetime.fromisoformat(backup['created_at']).strftime('%Y-%m-%d %H:%M')
+                description = backup.get('description', '')[:18] + ('...' if len(backup.get('description', '')) > 18 else '')
+                
+                print(f"{backup['backup_name']:<30} {backup.get('backup_type', 'unknown'):<10} "
+                      f"{size_mb:>7.1f}MB {created:<20} {description:<20}")
+            
+            print(f"\nTotal backups: {len(backups)}")
+            
+        except Exception as e:
+            exit_with_error(f"Failed to list backups: {e}", ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
+    
+    @staticmethod
+    def restore_backup(args) -> None:
+        """Restore from a backup."""
+        try:
+            backup_manager = get_backup_manager()
+            backup_manager.restore_backup(args.name, args.type)
+            print(f"Successfully restored {args.type} from backup: {args.name}")
+            
+        except Exception as e:
+            exit_with_error(f"Failed to restore backup: {e}", ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
+    
+    @staticmethod
+    def delete_backup(args) -> None:
+        """Delete a backup."""
+        try:
+            backup_manager = get_backup_manager()
+            backup_manager.delete_backup(args.name)
+            print(f"Backup deleted: {args.name}")
+            
+        except Exception as e:
+            exit_with_error(f"Failed to delete backup: {e}", ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
+    
+    @staticmethod
+    def cleanup_backups(args) -> None:
+        """Clean up old backups."""
+        try:
+            backup_manager = get_backup_manager()
+            deleted_count = backup_manager.cleanup_old_backups()
+            
+            if deleted_count > 0:
+                print(f"Cleaned up {deleted_count} old backups")
+            else:
+                print("No old backups to clean up")
+                
+        except Exception as e:
+            exit_with_error(f"Failed to cleanup backups: {e}", ExitCodes.RCON_COMMAND_EXECUTION_FAILED)
 
 
 def create_parser() -> argparse.ArgumentParser:

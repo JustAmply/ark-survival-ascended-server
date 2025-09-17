@@ -22,22 +22,7 @@ from threading import RLock
 
 from .constants import CONFIG_DIR, AUDIT_LOG_PATH, METRICS_PATH, BACKUP_DIR
 from .logging_config import get_logger
-from .errors import AsaCtrlError
-
-
-class ConfigValidationError(AsaCtrlError):
-    """Configuration validation error."""
-    pass
-
-
-class SecurityViolationError(AsaCtrlError):
-    """Security violation error."""
-    pass
-
-
-class HealthCheckError(AsaCtrlError):
-    """Health check error."""
-    pass
+from .errors import AsaCtrlError, ConfigValidationError, SecurityViolationError, HealthCheckError
 
 
 @dataclass

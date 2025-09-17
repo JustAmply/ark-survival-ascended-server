@@ -31,3 +31,19 @@ class RconAuthenticationError(AsaCtrlError):
 class CorruptedModsDatabaseError(AsaCtrlError):
     """Raised when the mods database JSON file is corrupted."""
     pass
+
+
+# Enterprise-specific errors
+class ConfigValidationError(AsaCtrlError):
+    """Configuration validation error."""
+    pass
+
+
+class SecurityViolationError(AsaCtrlError):
+    """Security violation error."""
+    pass
+
+
+class HealthCheckError(AsaCtrlError):
+    """Health check error."""
+    pass
