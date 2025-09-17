@@ -1,0 +1,291 @@
+version: '3.8'
+
+# ASA Enterprise Production Docker Compose Configuration
+# This configuration includes enterprise features, monitoring, and production-ready settings
+
+services:
+  # Main ARK Server with Enterprise Features
+  asa-server:
+    image: ghcr.io/justamply/asa-linux-server:latest
+    container_name: asa-enterprise-server
+    restart: unless-stopped
+    hostname: asa-enterprise
+    
+    environment:
+      # Server Configuration
+      - ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=100 -clusterid=enterprise -ClusterDirOverride="/home/gameserver/cluster-shared"
+      
+      # Enterprise Configuration Paths
+      - ASA_CONFIG_DIR=/home/gameserver/enterprise-config
+      - ASA_AUDIT_LOG_PATH=/home/gameserver/logs/audit.log
+      - ASA_METRICS_PATH=/home/gameserver/metrics
+      - ASA_BACKUP_DIR=/home/gameserver/backups
+      
+      # Logging & Debug
+      - ASA_LOG_LEVEL=INFO
+      - ENABLE_DEBUG=0
+      
+      # Maintenance Schedule
+      - SERVER_RESTART_CRON=0 4 * * *  # Daily restart at 4 AM
+    
+    ports:
+      # Game Communication
+      - "7777:7777/udp"    # Game traffic
+      - "27020:27020/tcp"  # RCON management
+      
+      # Enterprise API (behind reverse proxy in production)
+      - "127.0.0.1:8080:8080/tcp"  # API server (local only)
+    
+    volumes:
+      # Core Game Data (persistent)
+      - steam-data:/home/gameserver/Steam:rw
+      - steamcmd-data:/home/gameserver/steamcmd:rw
+      - server-files:/home/gameserver/server-files:rw
+      - cluster-shared:/home/gameserver/cluster-shared:rw
+      
+      # Enterprise Data (persistent)
+      - enterprise-config:/home/gameserver/enterprise-config:rw
+      - enterprise-logs:/home/gameserver/logs:rw
+      - enterprise-metrics:/home/gameserver/metrics:rw
+      - enterprise-backups:/home/gameserver/backups:rw
+      
+      # System Integration
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    
+    networks:
+      - asa-enterprise-network
+    
+    # Enterprise Health Monitoring
+    healthcheck:
+      test: ["CMD-SHELL", "asa-ctrl enterprise health || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    
+    # Resource Limits (adjust based on your hardware)
+    deploy:
+      resources:
+        limits:
+          cpus: '6.0'
+          memory: 14G
+        reservations:
+          cpus: '2.0'
+          memory: 8G
+    
+    # Structured Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+        labels: "service=asa-server,environment=production"
+
+  # Reverse Proxy for Enterprise API (Production)
+  nginx:
+    image: nginx:alpine
+    container_name: asa-nginx-proxy
+    restart: unless-stopped
+    
+    ports:
+      - "80:80"    # HTTP (redirects to HTTPS)
+      - "443:443"  # HTTPS for secure API access
+    
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/htpasswd:/etc/nginx/htpasswd:ro  # Optional basic auth
+    
+    networks:
+      - asa-enterprise-network
+    
+    depends_on:
+      asa-server:
+        condition: service_healthy
+    
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/api/v1/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Prometheus Monitoring (Optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: asa-prometheus
+    restart: unless-stopped
+    
+    ports:
+      - "127.0.0.1:9090:9090"  # Prometheus UI (local only)
+    
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    
+    networks:
+      - asa-enterprise-network
+    
+    profiles:
+      - monitoring
+
+  # Grafana Dashboard (Optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: asa-grafana
+    restart: unless-stopped
+    
+    ports:
+      - "127.0.0.1:3000:3000"  # Grafana UI (local only)
+    
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=change_me_in_production
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SECURITY_DISABLE_GRAVATAR=true
+    
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    
+    networks:
+      - asa-enterprise-network
+    
+    depends_on:
+      - prometheus
+    
+    profiles:
+      - monitoring
+
+  # Log Aggregation (Optional)
+  fluentd:
+    image: fluent/fluentd:v1.16-debian-1
+    container_name: asa-fluentd
+    restart: unless-stopped
+    
+    volumes:
+      - ./logging/fluentd.conf:/fluentd/etc/fluent.conf:ro
+      - enterprise-logs:/logs:ro
+    
+    networks:
+      - asa-enterprise-network
+    
+    profiles:
+      - logging
+
+  # Redis for Session Management (Optional)
+  redis:
+    image: redis:7-alpine
+    container_name: asa-redis
+    restart: unless-stopped
+    
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    
+    volumes:
+      - redis-data:/data
+    
+    networks:
+      - asa-enterprise-network
+    
+    profiles:
+      - caching
+
+# Named Volumes for Data Persistence
+volumes:
+  # Core Game Volumes
+  steam-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/asa/steam
+
+  steamcmd-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/asa/steamcmd
+
+  server-files:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/asa/server-files
+
+  cluster-shared:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/asa/cluster-shared
+
+  # Enterprise Volumes
+  enterprise-config:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/asa/enterprise-config
+
+  enterprise-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/asa/logs
+
+  enterprise-metrics:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/asa/metrics
+
+  enterprise-backups:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/asa/backups
+
+  # Monitoring Volumes
+  prometheus-data:
+    driver: local
+
+  grafana-data:
+    driver: local
+
+  redis-data:
+    driver: local
+
+# Network Configuration
+networks:
+  asa-enterprise-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+    driver_opts:
+      com.docker.network.bridge.name: asa-enterprise-br
+
+# Configuration for different deployment profiles:
+#
+# Development (basic):
+#   docker compose up -d
+#
+# Production with monitoring:
+#   docker compose --profile monitoring up -d
+#
+# Full enterprise with all features:
+#   docker compose --profile monitoring --profile logging --profile caching up -d

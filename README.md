@@ -1,8 +1,8 @@
-# ARK: Survival Ascended Linux Server
+# ARK: Survival Ascended Linux Server - Enterprise Edition
 
-🦕 **Easy-to-use Docker container for running ARK: Survival Ascended dedicated servers on Linux**
+🦕 **Enterprise-grade Docker container for running ARK: Survival Ascended dedicated servers on Linux**
 
-This project provides a streamlined way to host ARK: Survival Ascended servers using Docker, with powerful management tools and full cluster support.
+This project provides a streamlined way to host ARK: Survival Ascended servers using Docker, with powerful management tools, full cluster support, and comprehensive enterprise features for production environments.
 
 ## 🚀 Quick Start
 
@@ -24,6 +24,7 @@ Your server will be discoverable in the "Unofficial" server browser once setup i
 
 ## ✨ Key Features
 
+### 🎯 **Core Features**
 - **🐳 Docker-based**: Simple deployment with Docker Compose
 - **🔧 Easy Management**: Built-in RCON commands and server control
 - **🎮 Mod Support**: Simple mod management via console
@@ -32,12 +33,127 @@ Your server will be discoverable in the "Unofficial" server browser once setup i
 - **📊 Monitoring**: Debug mode and comprehensive logging
 - **🔌 Plugin Support**: ServerAPI plugin loader integration
 
+### 🏢 **Enterprise Features** *(NEW in v3.0)*
+- **⚙️ Configuration Management**: Environment-based config with validation and centralized updates
+- **🛡️ Security & Access Control**: IP-based RCON access, rate limiting, input validation, and audit logging
+- **📊 Monitoring & Observability**: Real-time health checks, metrics collection, and alerting capabilities
+- **🌐 REST API**: Full management API with 10+ endpoints and web dashboard
+- **🖥️ Web Dashboard**: Beautiful HTML5 interface with real-time monitoring and RCON console
+- **🔄 Backup & Recovery**: Automated backups with compression, retention policies, and point-in-time recovery
+- **🚀 Enterprise Deployment**: Production-ready Docker Compose and Kubernetes configurations
+- **📈 Performance Monitoring**: System metrics, resource optimization, and performance alerts
+
+## 🏢 Enterprise Features
+
+### 🌐 **Web Management Dashboard**
+
+Access the enterprise web dashboard for real-time server management:
+
+```bash
+# Enable the API server
+docker exec asa-server-1 asa-ctrl enterprise config update --field api_enabled --value true
+
+# Access dashboard at http://localhost:8080/dashboard
+```
+
+Features:
+- **Real-time monitoring**: Server status, health checks, and system metrics
+- **Interactive RCON console**: Execute commands directly from the web interface
+- **Quick actions**: Health checks, metrics collection, mod management
+- **Auto-refresh**: Live updates every 30 seconds
+
+### 🔒 **Security & Access Control**
+
+```bash
+# Configure IP-based RCON access control
+docker exec asa-server-1 asa-ctrl enterprise config update --field allowed_rcon_ips --value '["192.168.1.0/24"]'
+
+# Enable rate limiting
+docker exec asa-server-1 asa-ctrl enterprise config update --field enable_rcon_rate_limiting --value true
+
+# Check security status
+docker exec asa-server-1 asa-ctrl enterprise security check-access --ip 192.168.1.100
+```
+
+### 📊 **Monitoring & Health Checks**
+
+```bash
+# Run comprehensive health check
+docker exec asa-server-1 asa-ctrl enterprise health
+
+# Collect system metrics
+docker exec asa-server-1 asa-ctrl enterprise metrics
+
+# View audit logs
+docker exec asa-server-1 asa-ctrl enterprise audit log --type security_event --details '{"test": "event"}'
+```
+
+### 🔄 **Backup & Recovery**
+
+```bash
+# Create manual backup
+docker exec asa-server-1 asa-ctrl enterprise backup create --type full --description "Before update"
+
+# List all backups
+docker exec asa-server-1 asa-ctrl enterprise backup list
+
+# Restore from backup
+docker exec asa-server-1 asa-ctrl enterprise backup restore --name backup_20241201_120000 --type config
+
+# Automated backups (configured via environment variables)
+docker exec asa-server-1 asa-ctrl enterprise config update --field auto_backup_enabled --value true
+```
+
+### 🚀 **REST API Integration**
+
+The enterprise edition includes a full REST API for integration with external systems:
+
+```bash
+# Get server status
+curl http://localhost:8080/api/v1/status
+
+# Execute RCON command
+curl -X POST http://localhost:8080/api/v1/rcon \
+  -H "Content-Type: application/json" \
+  -d '{"command": "listplayers"}'
+
+# Manage mods
+curl -X POST http://localhost:8080/api/v1/mods \
+  -H "Content-Type: application/json" \
+  -d '{"action": "enable", "mod_id": "12345"}'
+```
+
+### 📈 **Enterprise Deployment**
+
+For production environments, use the enterprise Docker Compose configuration:
+
+```bash
+# Download enterprise configuration
+wget https://raw.githubusercontent.com/JustAmply/ark-survival-ascended-server/main/docker-compose.enterprise.yml
+
+# Deploy with monitoring
+docker compose -f docker-compose.enterprise.yml --profile monitoring up -d
+
+# Or deploy to Kubernetes
+kubectl apply -f https://raw.githubusercontent.com/JustAmply/ark-survival-ascended-server/main/k8s-enterprise.yaml
+```
+
 ## 📋 System Requirements
 
+### **Community Edition**
+
+### **Community Edition**
 - **RAM**: ~13 GB per server instance
 - **Storage**: ~31 GB (server files only)
 - **OS**: Linux with Docker support
 - **Tested on**: Ubuntu 24.04, Debian 12, Docker Desktop on Windows
+
+### **Enterprise Edition**
+- **RAM**: ~16 GB per server instance (additional 3 GB for enterprise features)
+- **Storage**: ~50 GB (server files + enterprise data, backups, logs)
+- **CPU**: 4+ cores recommended for optimal performance
+- **OS**: Ubuntu 24.04 LTS or Debian 12 (production environments)
+- **Network**: High-bandwidth connection for API and monitoring features
 
 ## 🎯 Main Use Cases
 
@@ -150,6 +266,7 @@ I decided to completely rewrite everything from scratch in **Python** to create 
 
 - **[📋 Setup Guide](SETUP.md)** - Detailed installation, configuration, and administration instructions
 - **[❓ FAQ & Troubleshooting](FAQ.md)** - Common issues, solutions, and troubleshooting steps
+- **[🏢 Enterprise Deployment Guide](ENTERPRISE.md)** - Production deployment, security, monitoring, and enterprise features
 
 ## 🛠️ Development
 
