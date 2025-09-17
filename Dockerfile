@@ -69,6 +69,12 @@ COPY scripts/restart_server.sh /usr/bin/restart_server.sh
 # Set permissions
 RUN chmod +x /usr/bin/start_server.sh /usr/bin/restart_server.sh
 
+# Declare persistent data volumes
+VOLUME ["/home/gameserver/Steam", \
+        "/home/gameserver/steamcmd", \
+        "/home/gameserver/server-files", \
+        "/home/gameserver/cluster-shared"]
+
 # Set working directory
 WORKDIR /home/gameserver
 
