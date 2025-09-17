@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from typing import cast
 
 # Ensure project root is on sys.path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -178,7 +179,7 @@ def test_rcon_validation():
         pass  # Expected
     
     try:
-        client._validate_ip(None)
+        client._validate_ip(cast(str, None))
         assert False, "Should have raised ValueError for None IP"
     except ValueError:
         pass  # Expected
