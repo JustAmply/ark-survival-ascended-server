@@ -44,6 +44,48 @@ def test_start_params_helper():
     print("✓ StartParamsHelper tests passed")
 
 
+def test_ini_config_helper_duplicate_keys():
+    """Test that IniConfigHelper handles duplicate keys in INI files gracefully."""
+    print("Testing IniConfigHelper with duplicate keys...")
+    
+    from asa_ctrl.config import IniConfigHelper
+    
+    # Create a test INI file with duplicate keys (similar to ARK GameUserSettings.ini)
+    ini_content = """[/Script/ShooterGame.ShooterGameUserSettings]
+LastJoinedSessionPerCategory=
+LastJoinedSessionPerCategory=test_value
+RCONPort=27020
+
+[ServerSettings]
+RCONPort=27020
+ServerAdminPassword=testpass
+"""
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
+        f.write(ini_content)
+        f.flush()
+        
+        try:
+            # This should now work with the fix (strict=False)
+            config = IniConfigHelper.parse_ini(f.name)
+            assert config is not None, "Config should not be None"
+            assert len(config.sections()) == 2, "Should have 2 sections"
+            
+            # Test that duplicate key uses the last value
+            game_section = config['/Script/ShooterGame.ShooterGameUserSettings']
+            assert game_section['LastJoinedSessionPerCategory'] == 'test_value', "Should use last duplicate value"
+            assert game_section['RCONPort'] == '27020', "RCONPort should be accessible"
+            
+            # Test ServerSettings section
+            server_section = config['ServerSettings']
+            assert server_section['ServerAdminPassword'] == 'testpass', "ServerAdminPassword should be accessible"
+            
+        finally:
+            os.unlink(f.name)
+    
+    print("✓ IniConfigHelper duplicate keys tests passed")
+
+
 def test_mod_database():
     """Test mod database functionality."""
     print("Testing ModDatabase...")
@@ -110,6 +152,7 @@ def main():  # pragma: no cover - simple runner
     print("Running asa_ctrl tests...\n")
     try:
         test_start_params_helper()
+        test_ini_config_helper_duplicate_keys()
         test_mod_database()
         test_cli_mods_string()
         test_exit_codes()
