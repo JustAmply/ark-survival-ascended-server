@@ -326,14 +326,28 @@ handle_shutdown_signal() {
 
   # Wait for graceful shutdown with timeout
   local remaining="$shutdown_timeout"
+  local sleep_interval=1
+  local max_sleep=5
   while kill -0 "$SERVER_PID" 2>/dev/null; do
     if [ "$remaining" -le 0 ]; then
       log "Server did not stop within ${shutdown_timeout}s - forcing termination"
       kill -KILL "$SERVER_PID" 2>/dev/null || true
       break
     fi
-    sleep 1
-    remaining=$((remaining - 1))
+    # Sleep for the smaller of sleep_interval or remaining time
+    local this_sleep=$sleep_interval
+    if [ "$remaining" -lt "$sleep_interval" ]; then
+      this_sleep=$remaining
+    fi
+    sleep "$this_sleep"
+    remaining=$((remaining - this_sleep))
+    # Exponential backoff: double sleep_interval up to max_sleep
+    if [ "$sleep_interval" -lt "$max_sleep" ]; then
+      sleep_interval=$((sleep_interval * 2))
+      if [ "$sleep_interval" -gt "$max_sleep" ]; then
+        sleep_interval=$max_sleep
+      fi
+    fi
   done
 
   log "Graceful shutdown completed"
