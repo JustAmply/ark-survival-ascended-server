@@ -178,7 +178,7 @@ def test_rcon_validation():
         pass  # Expected
     
     try:
-        client._validate_ip(None)
+        client._validate_ip(None)  # type: ignore
         assert False, "Should have raised ValueError for None IP"
     except ValueError:
         pass  # Expected
