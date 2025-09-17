@@ -7,6 +7,7 @@ set -Eeuo pipefail
 PID_FILE="/home/gameserver/.asa-server.pid"
 DEFAULT_SAVEWORLD_DELAY=15
 DEFAULT_SHUTDOWN_TIMEOUT=180
+ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
 
 log() {
   echo "[asa-restart] $*"
@@ -36,7 +37,7 @@ main() {
 
   if [ "$saveworld_flag" != "0" ]; then
     log "Issuing saveworld via RCON before restart."
-    if ! /usr/local/bin/asa-ctrl rcon --exec 'saveworld' >/dev/null 2>&1; then
+    if ! "$ASA_CTRL_BIN" rcon --exec 'saveworld' >/dev/null 2>&1; then
       log "Warning: failed to execute saveworld command via RCON."
     fi
     # Allow the server some time to finish writing the save.

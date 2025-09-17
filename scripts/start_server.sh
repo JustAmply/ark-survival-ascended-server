@@ -30,6 +30,7 @@ ASA_PLUGIN_BINARY_NAME="AsaApiLoader.exe"
 DEFAULT_PROTON_VERSION="8-21"
 PID_FILE="/home/gameserver/.asa-server.pid"
 RESTART_CRON_FILE="/etc/cron.d/asa-server-restart"
+ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
 
 log() { echo "[asa-start] $*"; }
 
@@ -203,7 +204,7 @@ ensure_proton_compat_data() {
 #############################
 inject_mods_param() {
   local mods
-  mods="$(/usr/local/bin/asa-ctrl mods-string 2>/dev/null || true)"
+  mods="$("$ASA_CTRL_BIN" mods-string 2>/dev/null || true)"
   if [ -n "$mods" ]; then
     ASA_START_PARAMS="${ASA_START_PARAMS:-} $mods"
   fi
@@ -313,7 +314,7 @@ handle_shutdown_signal() {
 
   if [ "$saveworld_flag" != "0" ]; then
     log "Issuing saveworld via RCON before shutdown"
-    if /usr/local/bin/asa-ctrl rcon --exec 'saveworld' >/dev/null 2>&1; then
+    if "$ASA_CTRL_BIN" rcon --exec 'saveworld' >/dev/null 2>&1; then
       log "Saveworld command sent successfully, waiting ${saveworld_delay}s for save completion"
       sleep "$saveworld_delay" || true
     else
