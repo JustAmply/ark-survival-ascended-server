@@ -30,6 +30,7 @@ ASA_PLUGIN_BINARY_NAME="AsaApiLoader.exe"
 DEFAULT_PROTON_VERSION="8-21"
 PID_FILE="/home/gameserver/.asa-server.pid"
 RESTART_CRON_FILE="/etc/cron.d/asa-server-restart"
+ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
 
 log() { echo "[asa-start] $*"; }
 
@@ -203,7 +204,7 @@ ensure_proton_compat_data() {
 #############################
 inject_mods_param() {
   local mods
-  mods="$(/usr/local/bin/asa-ctrl mods-string 2>/dev/null || true)"
+  mods="$("$ASA_CTRL_BIN" mods-string 2>/dev/null || true)"
   if [ -n "$mods" ]; then
     ASA_START_PARAMS="${ASA_START_PARAMS:-} $mods"
   fi
@@ -297,11 +298,60 @@ launch_server() {
 #############################
 handle_shutdown_signal() {
   local signal="$1"
-  log "Received signal $signal - forwarding to server process"
+  log "Received signal $signal - initiating graceful shutdown"
   SHUTDOWN_REQUESTED=1
-  if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
-    kill -TERM "$SERVER_PID" 2>/dev/null || true
+  
+  if [ -z "${SERVER_PID:-}" ] || ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    log "No server process to shutdown"
+    return 0
   fi
+
+  # Graceful shutdown: save world first, then send SIGTERM
+  local saveworld_flag saveworld_delay shutdown_timeout
+  saveworld_flag="${ASA_SHUTDOWN_SAVEWORLD:-1}"
+  saveworld_delay="${ASA_SHUTDOWN_SAVEWORLD_DELAY:-15}"
+  shutdown_timeout="${ASA_SHUTDOWN_TIMEOUT:-180}"
+
+  if [ "$saveworld_flag" != "0" ]; then
+    log "Issuing saveworld via RCON before shutdown"
+    if "$ASA_CTRL_BIN" rcon --exec 'saveworld' >/dev/null 2>&1; then
+      log "Saveworld command sent successfully, waiting ${saveworld_delay}s for save completion"
+      sleep "$saveworld_delay" || true
+    else
+      log "Warning: failed to execute saveworld command via RCON"
+    fi
+  fi
+
+  log "Sending SIGTERM to server process $SERVER_PID"
+  kill -TERM "$SERVER_PID" 2>/dev/null || true
+
+  # Wait for graceful shutdown with timeout
+  local remaining="$shutdown_timeout"
+  local sleep_interval=1
+  local max_sleep=5
+  while kill -0 "$SERVER_PID" 2>/dev/null; do
+    if [ "$remaining" -le 0 ]; then
+      log "Server did not stop within ${shutdown_timeout}s - forcing termination"
+      kill -KILL "$SERVER_PID" 2>/dev/null || true
+      break
+    fi
+    # Sleep for the smaller of sleep_interval or remaining time
+    local this_sleep=$sleep_interval
+    if [ "$remaining" -lt "$sleep_interval" ]; then
+      this_sleep=$remaining
+    fi
+    sleep "$this_sleep"
+    remaining=$((remaining - this_sleep))
+    # Exponential backoff: double sleep_interval up to max_sleep
+    if [ "$sleep_interval" -lt "$max_sleep" ]; then
+      sleep_interval=$((sleep_interval * 2))
+      if [ "$sleep_interval" -gt "$max_sleep" ]; then
+        sleep_interval=$max_sleep
+      fi
+    fi
+  done
+
+  log "Graceful shutdown completed"
 }
 
 cleanup() {

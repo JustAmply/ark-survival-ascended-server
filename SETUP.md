@@ -167,6 +167,12 @@ The helper triggers a `saveworld` before sending `SIGTERM` to the server process
 - `ASA_RESTART_SHUTDOWN_TIMEOUT=300` – extend the graceful shutdown timeout
 - `SERVER_RESTART_BACKOFF=30` – wait before relaunching the server again (seconds)
 
+**Container shutdown** (e.g., `docker stop`) also performs graceful shutdown with automatic save. You can control this behavior with:
+
+- `ASA_SHUTDOWN_SAVEWORLD=0` – disable automatic save on container shutdown
+- `ASA_SHUTDOWN_SAVEWORLD_DELAY=15` – wait time (seconds) after saving on shutdown
+- `ASA_SHUTDOWN_TIMEOUT=180` – graceful shutdown timeout (seconds) before force-kill
+
 Use additional cron entries (inside or outside the container) if you want to broadcast warning messages ahead of the restart.
 
 ## 🔧 Debug Mode
