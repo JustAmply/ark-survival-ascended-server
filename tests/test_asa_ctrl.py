@@ -20,6 +20,14 @@ from asa_ctrl.mods import ModDatabase, ModRecord  # noqa: E402
 from asa_ctrl.config import StartParamsHelper, parse_start_params  # noqa: E402
 from asa_ctrl.constants import ExitCodes  # noqa: E402
 from asa_ctrl.cli import main as cli_main  # noqa: E402
+from asa_ctrl.rcon import RconClient  # noqa: E402
+from asa_ctrl.errors import (  # noqa: E402
+    RconPortNotFoundError, 
+    RconPasswordNotFoundError,
+    RconConnectionError,
+    RconPacketError,
+    RconTimeoutError
+)
 
 
 def test_start_params_helper():
@@ -145,7 +153,72 @@ def test_exit_codes():
     assert ExitCodes.RCON_PASSWORD_NOT_FOUND == 3
     assert ExitCodes.RCON_PASSWORD_WRONG == 4
     assert ExitCodes.RCON_COMMAND_EXECUTION_FAILED == 5
+    assert ExitCodes.RCON_CONNECTION_FAILED == 6
+    assert ExitCodes.RCON_PACKET_ERROR == 7
+    assert ExitCodes.RCON_TIMEOUT == 8
     print("✓ ExitCodes tests passed")
+
+
+def test_rcon_validation():
+    """Test RCON client validation functions."""
+    print("Testing RCON validation...")
+    
+    # Create client instance without initialization to test individual methods
+    client = RconClient.__new__(RconClient)
+    client.MAX_COMMAND_LENGTH = 1000
+    
+    # Test IP validation
+    assert client._validate_ip('127.0.0.1') == '127.0.0.1'
+    assert client._validate_ip('localhost') == 'localhost'
+    
+    try:
+        client._validate_ip('')
+        assert False, "Should have raised ValueError for empty IP"
+    except ValueError:
+        pass  # Expected
+    
+    try:
+        client._validate_ip(None)
+        assert False, "Should have raised ValueError for None IP"
+    except ValueError:
+        pass  # Expected
+    
+    # Test command validation
+    assert client._validate_command('saveworld') == 'saveworld'
+    assert client._validate_command('  broadcast Hello  ') == 'broadcast Hello'
+    
+    try:
+        client._validate_command('')
+        assert False, "Should have raised ValueError for empty command"
+    except ValueError:
+        pass  # Expected
+    
+    try:
+        client._validate_command('x' * 2000)  # Too long
+        assert False, "Should have raised ValueError for long command"
+    except ValueError:
+        pass  # Expected
+    
+    try:
+        client._validate_command('\x00\x01\x02')  # Control characters
+        assert False, "Should have raised ValueError for control characters only"
+    except ValueError:
+        pass  # Expected
+    
+    # Test packet validation
+    try:
+        client._validate_packet_data(b'')
+        assert False, "Should have raised RconPacketError for empty data"
+    except RconPacketError:
+        pass  # Expected
+    
+    try:
+        client._validate_packet_data(b'abc')  # Too small
+        assert False, "Should have raised RconPacketError for small packet"
+    except RconPacketError:
+        pass  # Expected
+    
+    print("✓ RCON validation tests passed")
 
 
 def main():  # pragma: no cover - simple runner
@@ -154,7 +227,7 @@ def main():  # pragma: no cover - simple runner
         test_start_params_helper()
         test_ini_config_helper_duplicate_keys()
         test_mod_database()
-        test_cli_mods_string()
+        test_rcon_validation()
         test_exit_codes()
         print("\nAll tests passed.")
         return 0

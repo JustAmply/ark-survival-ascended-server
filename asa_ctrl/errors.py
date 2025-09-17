@@ -28,6 +28,21 @@ class RconAuthenticationError(AsaCtrlError):
     pass
 
 
+class RconConnectionError(AsaCtrlError):
+    """Raised when RCON connection fails."""
+    pass
+
+
+class RconPacketError(AsaCtrlError):
+    """Raised when RCON packet is malformed or invalid."""
+    pass
+
+
+class RconTimeoutError(AsaCtrlError):
+    """Raised when RCON operation times out."""
+    pass
+
+
 class CorruptedModsDatabaseError(AsaCtrlError):
     """Raised when the mods database JSON file is corrupted."""
     pass

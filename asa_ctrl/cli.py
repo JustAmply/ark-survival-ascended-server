@@ -18,6 +18,9 @@ from .errors import (
     RconPasswordNotFoundError, 
     RconAuthenticationError, 
     RconPortNotFoundError,
+    RconConnectionError,
+    RconPacketError,
+    RconTimeoutError,
     ModAlreadyEnabledError,
     CorruptedModsDatabaseError
 )
@@ -70,6 +73,26 @@ class RconCommand:
                 "Could not find RCON port. Make sure it is properly configured in start parameters "
                 "or GameUserSettings.ini",
                 ExitCodes.RCON_PASSWORD_NOT_FOUND
+            )
+        except RconConnectionError as e:
+            exit_with_error(
+                f"Failed to connect to RCON server: {e}",
+                ExitCodes.RCON_CONNECTION_FAILED
+            )
+        except RconTimeoutError as e:
+            exit_with_error(
+                f"RCON operation timed out: {e}",
+                ExitCodes.RCON_TIMEOUT
+            )
+        except RconPacketError as e:
+            exit_with_error(
+                f"RCON packet error: {e}",
+                ExitCodes.RCON_PACKET_ERROR
+            )
+        except ValueError as e:
+            exit_with_error(
+                f"Invalid command: {e}",
+                ExitCodes.RCON_COMMAND_EXECUTION_FAILED
             )
         except Exception as e:
             exit_with_error(
