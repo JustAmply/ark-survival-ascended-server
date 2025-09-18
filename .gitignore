@@ -69,6 +69,9 @@ Thumbs.db
 # Docker
 .docker/
 
+# Local development files
+docker-compose.dev.yml
+
 # Build artifacts
 *.tar
 *.tar.gz
