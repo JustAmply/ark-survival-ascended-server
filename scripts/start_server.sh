@@ -261,13 +261,14 @@ handle_plugin_loader() {
 #############################
 start_log_streamer() {
   mkdir -p "$LOG_DIR"
+  local log_file="$LOG_DIR/ShooterGame.log"
   if [ -n "${LOG_STREAMER_PID:-}" ] && kill -0 "$LOG_STREAMER_PID" 2>/dev/null; then
     return 0
   fi
-  (
-    sleep 1
-    tail -n +1 -F "$LOG_DIR/ShooterGame.log" 2>/dev/null
-  ) &
+
+  touch "$log_file"
+  # Follow the live log without replaying earlier entries on rotation
+  tail -n 0 -F "$log_file" 2>/dev/null &
   LOG_STREAMER_PID=$!
 }
 
