@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM python:3.12-slim
 
 # Build arguments for metadata
 ARG VERSION="unknown"
@@ -16,13 +16,8 @@ LABEL org.opencontainers.image.version="${VERSION}" \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     locales \
     wget \
-    curl \
-    ca-certificates \
-    tar \
-    gzip \
     unzip \
     cron \
-    python3 \
     libc6-dev \
     lib32stdc++6 \
     lib32z1 \
@@ -55,7 +50,7 @@ COPY asa_ctrl /usr/share/asa_ctrl
 WORKDIR /usr/share
 RUN echo '#!/bin/bash' > /usr/local/bin/asa-ctrl && \
     echo 'export PYTHONPATH=/usr/share:$PYTHONPATH' >> /usr/local/bin/asa-ctrl && \
-    echo 'exec python3 -m asa_ctrl "$@"' >> /usr/local/bin/asa-ctrl && \
+    echo 'exec python -m asa_ctrl "$@"' >> /usr/local/bin/asa-ctrl && \
     sed -i 's/\\"/"/g' /usr/local/bin/asa-ctrl && \
     chmod +x /usr/local/bin/asa-ctrl
 
