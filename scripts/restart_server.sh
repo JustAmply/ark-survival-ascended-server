@@ -5,6 +5,7 @@
 set -Eeuo pipefail
 
 PID_FILE="/home/gameserver/.asa-server.pid"
+RESTART_FLAG_FILE="/home/gameserver/.asa-restart-requested"
 DEFAULT_SAVEWORLD_DELAY=15
 DEFAULT_SHUTDOWN_TIMEOUT=180
 ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
@@ -44,9 +45,16 @@ main() {
     sleep "$saveworld_delay" || true
   fi
 
+  # Create restart flag to indicate this is a restart, not a shutdown
+  log "Creating restart flag to signal restart intent."
+  touch "$RESTART_FLAG_FILE" || {
+    log "Warning: failed to create restart flag file."
+  }
+
   log "Sending SIGTERM to server process $pid."
   if ! kill -TERM "$pid" >/dev/null 2>&1; then
     log "Failed to send SIGTERM to $pid."
+    rm -f "$RESTART_FLAG_FILE" || true
     return 1
   fi
 
@@ -63,6 +71,9 @@ main() {
     sleep 1
     remaining=$((remaining - 1))
   done
+
+  # Clean up restart flag if it still exists
+  rm -f "$RESTART_FLAG_FILE" || true
 
   log "Restart request completed."
   return 0

@@ -30,6 +30,7 @@ ASA_PLUGIN_BINARY_NAME="AsaApiLoader.exe"
 FALLBACK_PROTON_VERSION="8-21"
 PID_FILE="/home/gameserver/.asa-server.pid"
 RESTART_CRON_FILE="/etc/cron.d/asa-server-restart"
+RESTART_FLAG_FILE="/home/gameserver/.asa-restart-requested"
 ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
 
 log() { echo "[asa-start] $*"; }
@@ -300,7 +301,18 @@ launch_server() {
 handle_shutdown_signal() {
   local signal="$1"
   log "Received signal $signal - initiating graceful shutdown"
-  SHUTDOWN_REQUESTED=1
+  
+  # Check if this is a restart request
+  if [ -f "$RESTART_FLAG_FILE" ]; then
+    log "Restart flag detected - this is a restart, not a shutdown"
+    rm -f "$RESTART_FLAG_FILE" || true
+    # For restart, we only shutdown the server process, not the container
+    local restart_mode=1
+  else
+    # For container shutdown, set the global shutdown flag
+    SHUTDOWN_REQUESTED=1
+    local restart_mode=0
+  fi
   
   if [ -z "${SERVER_PID:-}" ] || ! kill -0 "$SERVER_PID" 2>/dev/null; then
     log "No server process to shutdown"
@@ -352,7 +364,11 @@ handle_shutdown_signal() {
     fi
   done
 
-  log "Graceful shutdown completed"
+  if [ "$restart_mode" = "1" ]; then
+    log "Graceful restart completed - server will restart"
+  else
+    log "Graceful shutdown completed"
+  fi
 }
 
 cleanup() {
@@ -361,6 +377,7 @@ cleanup() {
     wait "$SERVER_PID" 2>/dev/null || true
   fi
   rm -f "$PID_FILE" || true
+  rm -f "$RESTART_FLAG_FILE" || true
   if [ -n "${LOG_STREAMER_PID:-}" ] && kill -0 "$LOG_STREAMER_PID" 2>/dev/null; then
     kill "$LOG_STREAMER_PID" 2>/dev/null || true
   fi
