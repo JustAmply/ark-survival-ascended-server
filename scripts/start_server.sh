@@ -56,7 +56,7 @@ setup_restart_cron() {
 MAILTO=""
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-$schedule gameserver /usr/bin/restart_server.sh
+$schedule gameserver /usr/bin/restart_server.sh >> /proc/1/fd/1 2>&1
 EOF
   chmod 0644 "$RESTART_CRON_FILE"
 
@@ -413,8 +413,10 @@ run_server_loop() {
     handle_plugin_loader
     start_log_streamer
 
-    launch_server
-    local exit_code=$?
+    local exit_code=0
+    if ! launch_server; then
+      exit_code=$?
+    fi
     rm -f "$PID_FILE" || true
     SERVER_PID=""
 
