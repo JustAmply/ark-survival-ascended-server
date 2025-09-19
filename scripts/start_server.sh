@@ -35,6 +35,69 @@ ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
 
 log() { echo "[asa-start] $*"; }
 
+compute_warning_cron_entries() {
+  local schedule="$1"
+  local restore_glob=0
+  case $- in
+    *f*) restore_glob=1 ;;
+    *) set -f ;;
+  esac
+  # shellcheck disable=SC2086
+  set -- $schedule
+  if [ "$restore_glob" = "0" ]; then
+    set +f
+  fi
+  if [ "$#" -ne 5 ]; then
+    return 0
+  fi
+
+  local minute="$1" hour="$2" dom="$3" mon="$4" dow="$5"
+
+  if [ "$dom" != "*" ] || [ "$mon" != "*" ] || [ "$dow" != "*" ]; then
+    return 0
+  fi
+
+  if ! [[ "$minute" =~ ^[0-9]+$ ]] || ! [[ "$hour" =~ ^[0-9]+$ ]]; then
+    return 0
+  fi
+
+  local minute_i hour_i
+  minute_i=$((10#$minute))
+  hour_i=$((10#$hour))
+
+  if [ "$minute_i" -lt 0 ] || [ "$minute_i" -gt 59 ] || [ "$hour_i" -lt 0 ] || [ "$hour_i" -gt 23 ]; then
+    return 0
+  fi
+
+  local warnings=(
+    "30:Server restart in 30 minutes."
+    "5:Server restart in 5 minutes."
+    "1:Server restart in 1 minute."
+  )
+
+  local day_minutes=$(( (hour_i % 24) * 60 + (minute_i % 60) ))
+  local output=""
+
+  local entry offset message target warn_hour warn_minute quoted line
+  for entry in "${warnings[@]}"; do
+    offset="${entry%%:*}"
+    message="${entry#*:}"
+
+    if ! [[ "$offset" =~ ^[0-9]+$ ]]; then
+      continue
+    fi
+
+    target=$(( (day_minutes - offset + 1440) % 1440 ))
+    warn_hour=$(( target / 60 ))
+    warn_minute=$(( target % 60 ))
+    quoted=$(printf '%q' "$message")
+    line=$(printf '%02d %02d %s %s %s gameserver /usr/bin/restart_server.sh warn %s >> /proc/1/fd/1 2>&1\n' "$warn_minute" "$warn_hour" "$dom" "$mon" "$dow" "$quoted")
+    output+="$line"
+  done
+
+  printf '%s' "$output"
+}
+
 
 #############################
 # Cron-based scheduled restarts
@@ -58,6 +121,17 @@ SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 $schedule gameserver /usr/bin/restart_server.sh >> /proc/1/fd/1 2>&1
 EOF
+
+  local warning_lines
+  warning_lines="$(compute_warning_cron_entries "$schedule" || true)"
+  if [ -n "$warning_lines" ]; then
+    printf '%s\n' "$warning_lines" >>"$RESTART_CRON_FILE"
+    log "Configured restart warning cron entries for $schedule"
+    while IFS= read -r warn_line; do
+      [ -z "$warn_line" ] && continue
+      log "  $warn_line"
+    done <<<"$warning_lines"
+  fi
   chmod 0644 "$RESTART_CRON_FILE"
 
   if command -v cron >/dev/null 2>&1; then

@@ -14,6 +14,26 @@ log() {
   echo "[asa-restart] $*"
 }
 
+broadcast_message() {
+  local message="$1"
+  if [ -z "$message" ]; then
+    return 0
+  fi
+
+  log "Broadcast: $message"
+  local quoted
+  quoted=$(printf '%q' "$message")
+  if ! "$ASA_CTRL_BIN" rcon --exec "ServerChat $quoted" >/dev/null 2>&1; then
+    log "Warning: failed to broadcast restart message via RCON."
+  fi
+}
+
+if [ "${1:-}" = "warn" ]; then
+  shift
+  broadcast_message "${*:-Server restart imminent.}"
+  exit 0
+fi
+
 main() {
   if [ ! -f "$PID_FILE" ]; then
     log "PID file not found at $PID_FILE - server likely not running."
@@ -50,6 +70,8 @@ main() {
   touch "$RESTART_FLAG_FILE" || {
     log "Warning: failed to create restart flag file."
   }
+
+  broadcast_message "Server restarting now."
 
   log "Sending SIGTERM to server process $pid."
   if ! kill -TERM "$pid" >/dev/null 2>&1; then
