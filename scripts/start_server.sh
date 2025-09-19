@@ -57,9 +57,13 @@ compute_warning_cron_entries() {
     return 0
   fi
 
-  if ! [[ "$minute" =~ ^[0-9]+$ ]] || ! [[ "$hour" =~ ^[0-9]+$ ]]; then
-    return 0
-  fi
+  # POSIX-compatible numeric validation
+  case "$minute" in
+    ''|*[!0-9]*) return 0 ;;
+  esac
+  case "$hour" in
+    ''|*[!0-9]*) return 0 ;;
+  esac
 
   local minute_i hour_i
   # The 10# prefix forces base-10 interpretation to handle leading zeros (e.g., "08"),
@@ -85,15 +89,22 @@ compute_warning_cron_entries() {
     offset="${entry%%:*}"
     message="${entry#*:}"
 
-    if ! [[ "$offset" =~ ^[0-9]+$ ]]; then
-      continue
-    fi
+    # POSIX-compatible numeric validation for offset
+    case "$offset" in
+      ''|*[!0-9]*) continue ;;
+    esac
 
     target=$(( (day_minutes - offset + 1440) % 1440 ))
     warn_hour=$(( target / 60 ))
     warn_minute=$(( target % 60 ))
     quoted=$(printf '%q' "$message")
-    line=$(printf '%02d %02d %s %s %s gameserver /usr/bin/restart_server.sh warn %s >> /proc/1/fd/1 2>&1\n' "$warn_minute" "$warn_hour" "$dom" "$mon" "$dow" "$quoted")
+    
+    # Build cron entry for restart warning
+    cron_time=$(printf '%02d %02d %s %s %s' "$warn_minute" "$warn_hour" "$dom" "$mon" "$dow")
+    cron_user="gameserver"
+    cron_cmd="/usr/bin/restart_server.sh warn $quoted >> /proc/1/fd/1 2>&1"
+    line="${cron_time} ${cron_user} ${cron_cmd}
+"
     output+="$line"
   done
 
@@ -127,7 +138,7 @@ EOF
   local warning_lines
   warning_lines="$(compute_warning_cron_entries "$schedule" || true)"
   if [ -n "$warning_lines" ]; then
-    printf '%s\n' "$warning_lines" >>"$RESTART_CRON_FILE"
+    printf '%s' "$warning_lines" >>"$RESTART_CRON_FILE"
     log "Configured restart warning cron entries for $schedule"
     while IFS= read -r warn_line; do
       [ -z "$warn_line" ] && continue

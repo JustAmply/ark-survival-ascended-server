@@ -20,6 +20,12 @@ broadcast_message() {
     return 0
   fi
 
+  # Validate ASA_CTRL_BIN is properly defined and points to a trusted executable
+  if [ -z "$ASA_CTRL_BIN" ] || [ ! -f "$ASA_CTRL_BIN" ] || [ ! -x "$ASA_CTRL_BIN" ]; then
+    log "Warning: ASA_CTRL_BIN ($ASA_CTRL_BIN) is not a valid executable - skipping broadcast"
+    return 1
+  fi
+
   log "Broadcast: $message"
   local quoted
   quoted=$(printf '%q' "$message")
