@@ -62,6 +62,8 @@ compute_warning_cron_entries() {
   fi
 
   local minute_i hour_i
+  # The 10# prefix forces base-10 interpretation to handle leading zeros (e.g., "08"),
+  # preventing Bash from interpreting such values as octal, which would cause errors.
   minute_i=$((10#$minute))
   hour_i=$((10#$hour))
 
