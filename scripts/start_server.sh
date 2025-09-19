@@ -103,7 +103,8 @@ compute_warning_cron_entries() {
     cron_time=$(printf '%02d %02d %s %s %s' "$warn_minute" "$warn_hour" "$dom" "$mon" "$dow")
     cron_user="gameserver"
     cron_cmd="/usr/bin/restart_server.sh warn $quoted >> /proc/1/fd/1 2>&1"
-    line="${cron_time} ${cron_user} ${cron_cmd}\n"
+    line="${cron_time} ${cron_user} ${cron_cmd}
+"
     output+="$line"
   done
 
@@ -137,7 +138,7 @@ EOF
   local warning_lines
   warning_lines="$(compute_warning_cron_entries "$schedule" || true)"
   if [ -n "$warning_lines" ]; then
-    printf '%s\n' "$warning_lines" >>"$RESTART_CRON_FILE"
+    printf '%s' "$warning_lines" >>"$RESTART_CRON_FILE"
     log "Configured restart warning cron entries for $schedule"
     while IFS= read -r warn_line; do
       [ -z "$warn_line" ] && continue
