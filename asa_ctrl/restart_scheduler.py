@@ -14,6 +14,7 @@ from .logging_config import configure_logging, get_logger
 
 
 DEFAULT_ASA_CTRL_BIN = "/usr/local/bin/asa-ctrl"
+MAX_SLEEP_INTERVAL_SECONDS = 30
 
 
 @dataclass(frozen=True)
@@ -336,7 +337,7 @@ def run_scheduler() -> None:
                 delta = (event_time - now).total_seconds()
                 if delta <= 0:
                     break
-                time.sleep(min(delta, 30))
+                time.sleep(min(delta, MAX_SLEEP_INTERVAL_SECONDS))
 
             if server_pid_file and not _is_process_alive(_read_pid_from_file(server_pid_file)):
                 logger.info("Server process not running - postponing notifications until it comes back")
