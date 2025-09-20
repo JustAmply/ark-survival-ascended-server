@@ -72,7 +72,7 @@ environment:
 - **🗺️ Change map**: Replace `TheIsland_WP` with `ScorchedEarth_WP`, `TheCenter_WP`, `Aberration_WP`, `Extinction_WP`
 - **🔢 Change ports**: Modify `Port=7777` and `RCONPort=27020`
 - **👥 Player limit**: Adjust `-WinLiveMaxPlayers=50`
-- **🕒 Timezone**: Set `TZ=Europe/Berlin` (or your region) to control cron schedules and logs (default: `UTC`)
+- **🕒 Timezone**: Set `TZ=Europe/Berlin` (or your region) so logs and scheduled restarts follow your local time (default: `UTC`)
 
 ### 📂 File Locations
 
@@ -154,27 +154,26 @@ Each additional server gets its own ports (7778, 7779, etc.) and storage volumes
 
 ## ⏰ Automatic Restarts
 
-Schedule restarts without host-level cron jobs by using the built-in helper inside the container. Add a cron expression to your `docker-compose.yml`:
+Schedule restarts with the built-in scheduler (no system cron needed). Add a cron expression to your `docker-compose.yml`:
 
 ```yaml
 environment:
   - SERVER_RESTART_CRON=0 4 * * *  # Restart daily at 04:00
 ```
 
-The helper triggers a `saveworld` before sending `SIGTERM` to the server process. You can adjust the behaviour with optional variables:
+The helper understands standard five-field cron expressions, sends broadcast warnings (30/5/1 minutes by default), triggers `saveworld`, then sends `SIGTERM`. You can adjust the behaviour with optional variables:
 
 - `ASA_RESTART_SAVEWORLD=0` – disable the automatic save command
 - `ASA_RESTART_SAVEWORLD_DELAY=30` – wait longer (seconds) after saving
 - `ASA_RESTART_SHUTDOWN_TIMEOUT=300` – extend the graceful shutdown timeout
 - `SERVER_RESTART_BACKOFF=30` – wait before relaunching the server again (seconds)
+- `SERVER_RESTART_WARNINGS=15,5` – customise warning times (minutes before restart)
 
 **Container shutdown** (e.g., `docker stop`) also performs graceful shutdown with automatic save. You can control this behavior with:
 
 - `ASA_SHUTDOWN_SAVEWORLD=0` – disable automatic save on container shutdown
 - `ASA_SHUTDOWN_SAVEWORLD_DELAY=15` – wait time (seconds) after saving on shutdown
 - `ASA_SHUTDOWN_TIMEOUT=180` – graceful shutdown timeout (seconds) before force-kill
-
-Use additional cron entries (inside or outside the container) if you want to broadcast warning messages ahead of the restart.
 
 ## 🔧 Debug Mode
 

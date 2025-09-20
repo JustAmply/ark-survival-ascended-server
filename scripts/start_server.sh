@@ -29,10 +29,8 @@ ASA_BINARY_NAME="ArkAscendedServer.exe"
 ASA_PLUGIN_BINARY_NAME="AsaApiLoader.exe"
 FALLBACK_PROTON_VERSION="8-21"
 PID_FILE="/home/gameserver/.asa-server.pid"
-RESTART_CRON_FILE="/etc/cron.d/asa-server-restart"
 RESTART_FLAG_FILE="/home/gameserver/.asa-restart-requested"
-RESTART_CRON_USER="root"
-RESTART_CRON_COMMAND="/usr/bin/restart_server.sh"
+RESTART_SCHEDULER_BIN="/usr/bin/restart_scheduler.py"
 ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
 
 log() { echo "[asa-start] $*"; }
@@ -82,159 +80,29 @@ configure_timezone() {
   fi
 }
 
-compute_warning_cron_entries() {
-  local schedule="$1"
-  local restore_glob=0
-  case $- in
-    *f*) restore_glob=1 ;;
-    *) set -f ;;
-  esac
-  # shellcheck disable=SC2086
-  set -- $schedule
-  if [ "$restore_glob" = "0" ]; then
-    set +f
-  fi
-  if [ "$#" -ne 5 ]; then
-    return 0
-  fi
-
-  local minute="$1" hour="$2" dom="$3" mon="$4" dow="$5"
-
-  if [ "$dom" != "*" ] || [ "$mon" != "*" ] || [ "$dow" != "*" ]; then
-    return 0
-  fi
-
-  # POSIX-compatible numeric validation
-  case "$minute" in
-    ''|*[!0-9]*) return 0 ;;
-  esac
-  case "$hour" in
-    ''|*[!0-9]*) return 0 ;;
-  esac
-
-  local minute_i hour_i
-  # The 10# prefix forces base-10 interpretation to handle leading zeros (e.g., "08"),
-  # preventing Bash from interpreting such values as octal, which would cause errors.
-  minute_i=$((10#$minute))
-  hour_i=$((10#$hour))
-
-  if [ "$minute_i" -lt 0 ] || [ "$minute_i" -gt 59 ] || [ "$hour_i" -lt 0 ] || [ "$hour_i" -gt 23 ]; then
-    return 0
-  fi
-
-  local warnings=(
-    "30:Server restart in 30 minutes."
-    "5:Server restart in 5 minutes."
-    "1:Server restart in 1 minute."
-  )
-
-  local day_minutes=$(( (hour_i % 24) * 60 + (minute_i % 60) ))
-  local output=""
-
-  local entry offset message target warn_hour warn_minute quoted line
-  for entry in "${warnings[@]}"; do
-    offset="${entry%%:*}"
-    message="${entry#*:}"
-
-    # POSIX-compatible numeric validation for offset
-    case "$offset" in
-      ''|*[!0-9]*) continue ;;
-    esac
-
-    target=$(( (day_minutes - offset + 1440) % 1440 ))
-    warn_hour=$(( target / 60 ))
-    warn_minute=$(( target % 60 ))
-    quoted=$(printf '%q' "$message")
-    
-    # Build cron entry for restart warning
-    cron_time=$(printf '%02d %02d %s %s %s' "$warn_minute" "$warn_hour" "$dom" "$mon" "$dow")
-    cron_user="$RESTART_CRON_USER"
-    cron_cmd="$RESTART_CRON_COMMAND warn $quoted >> /proc/1/fd/1 2>&1"
-    line="${cron_time} ${cron_user} ${cron_cmd}
-"
-    output+="$line"
-  done
-
-  printf '%s' "$output"
-}
-
-
 #############################
-# Cron-based scheduled restarts
+# Cron-free scheduled restarts
 #############################
-setup_restart_cron() {
-  if [ "$(id -u)" != "0" ]; then
-    return 0
-  fi
-
-  rm -f "$RESTART_CRON_FILE"
-
+start_restart_scheduler() {
   local schedule="${SERVER_RESTART_CRON:-}"
   if [ -z "$schedule" ]; then
     return 0
   fi
 
-  log "Configuring scheduled restart (cron): $schedule"
-  cat >"$RESTART_CRON_FILE" <<EOF
-MAILTO=""
-SHELL=/bin/bash
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-$schedule $RESTART_CRON_USER $RESTART_CRON_COMMAND >> /proc/1/fd/1 2>&1
-EOF
-
-  local warning_lines
-  warning_lines="$(compute_warning_cron_entries "$schedule" || true)"
-  if [ -n "$warning_lines" ]; then
-    printf '%s' "$warning_lines" >>"$RESTART_CRON_FILE"
-    log "Configured restart warning cron entries for $schedule"
-    while IFS= read -r warn_line; do
-      [ -z "$warn_line" ] && continue
-      log "  $warn_line"
-    done <<<"$warning_lines"
-  fi
-  chmod 0644 "$RESTART_CRON_FILE"
-
-  # Start cron daemon with proper container-friendly method
-  if command -v service >/dev/null 2>&1; then
-    if ! service cron start >/dev/null 2>&1; then
-      log "Failed to start cron daemon via service; scheduled restarts disabled."
-      return 1
-    fi
-  elif [ -x "/etc/init.d/cron" ]; then
-    if ! /etc/init.d/cron start >/dev/null 2>&1; then
-      log "Failed to start cron daemon via init.d; scheduled restarts disabled."
-      return 1
-    fi
-  elif command -v cron >/dev/null 2>&1; then
-    # Fallback to direct cron command
-    if ! cron >/dev/null 2>&1; then
-      log "Failed to start cron daemon; scheduled restarts disabled."
-      return 1
-    fi
-  else
-    log "Cron binary not found; scheduled restarts disabled."
-    return 1
+  if [ ! -x "$RESTART_SCHEDULER_BIN" ]; then
+    log "Restart scheduler binary not found at $RESTART_SCHEDULER_BIN; scheduled restarts disabled."
+    return 0
   fi
 
-  # Verify cron daemon is actually running
-  sleep 1
-  if command -v service >/dev/null 2>&1; then
-    # Use service status check if available
-    if ! service cron status >/dev/null 2>&1; then
-      log "Cron daemon failed to start properly; scheduled restarts disabled."
-      return 1
-    fi
-  else
-    # Fallback to process check using /proc
-    if ! find /proc -maxdepth 2 -name comm 2>/dev/null | xargs grep -l cron >/dev/null 2>&1; then
-      log "Cron daemon failed to start properly; scheduled restarts disabled."
-      return 1
-    fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    log "Python 3 not available; scheduled restarts disabled."
+    return 0
   fi
 
-  log "Cron daemon started successfully for scheduled restarts."
+  log "Starting internal restart scheduler for cron expression: $schedule"
+  "$RESTART_SCHEDULER_BIN" &
+  RESTART_SCHEDULER_PID=$!
 }
-
 
 #############################
 # 1. Debug Hold
@@ -547,6 +415,10 @@ cleanup() {
   if [ -n "${LOG_STREAMER_PID:-}" ] && kill -0 "$LOG_STREAMER_PID" 2>/dev/null; then
     kill "$LOG_STREAMER_PID" 2>/dev/null || true
   fi
+  if [ -n "${RESTART_SCHEDULER_PID:-}" ] && kill -0 "$RESTART_SCHEDULER_PID" 2>/dev/null; then
+    kill "$RESTART_SCHEDULER_PID" 2>/dev/null || true
+    wait "$RESTART_SCHEDULER_PID" 2>/dev/null || true
+  fi
 }
 
 run_server_loop() {
@@ -603,7 +475,7 @@ if [ "$(id -u)" = "0" ]; then
   configure_timezone
 fi
 maybe_debug
-setup_restart_cron
 ensure_permissions
 ensure_steamcmd
+start_restart_scheduler
 run_server_loop

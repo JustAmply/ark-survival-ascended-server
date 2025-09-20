@@ -22,7 +22,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
     wget \
     unzip \
-    cron \
     libc6-dev \
     lib32stdc++6 \
     lib32z1 \
@@ -66,9 +65,10 @@ RUN echo 'export PYTHONPATH=/usr/share:$PYTHONPATH' > /etc/profile.d/asa_ctrl.sh
 # Copy server management scripts
 COPY scripts/start_server.sh /usr/bin/start_server.sh
 COPY scripts/restart_server.sh /usr/bin/restart_server.sh
+COPY scripts/restart_scheduler.py /usr/bin/restart_scheduler.py
 
 # Set permissions
-RUN chmod +x /usr/bin/start_server.sh /usr/bin/restart_server.sh
+RUN chmod +x /usr/bin/start_server.sh /usr/bin/restart_server.sh /usr/bin/restart_scheduler.py
 
 # Declare persistent data volumes
 VOLUME ["/home/gameserver/Steam", \

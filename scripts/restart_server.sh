@@ -1,6 +1,6 @@
 #!/bin/bash
 # Scheduled restart helper for ASA dedicated server.
-# Triggered by cron inside the container to request a graceful restart.
+# Triggered by the internal scheduler to request a graceful restart.
 
 set -Eeuo pipefail
 
