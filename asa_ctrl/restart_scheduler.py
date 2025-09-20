@@ -13,6 +13,9 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 from .logging_config import configure_logging, get_logger
 
 
+DEFAULT_ASA_CTRL_BIN = "/usr/local/bin/asa-ctrl"
+
+
 @dataclass(frozen=True)
 class CronField:
     """Represents a parsed cron field."""
@@ -233,7 +236,7 @@ def _is_process_alive(pid: Optional[int]) -> bool:
 
 
 def _run_rcon_command(command: str, logger) -> bool:
-    exe = os.environ.get("ASA_CTRL_BIN", "/usr/local/bin/asa-ctrl")
+    exe = os.environ.get("ASA_CTRL_BIN", DEFAULT_ASA_CTRL_BIN)
     result = subprocess.run(
         [exe, "rcon", "--exec", command],
         stdout=subprocess.DEVNULL,
