@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "asa-ctrl"
-dynamic = ["version"]
+version = "2.1.0"
 description = "ARK: Survival Ascended server management tool."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -35,6 +35,3 @@ Issues = "https://github.com/JustAmply/ark-survival-ascended-server/issues"
 
 [tool.setuptools.packages.find]
 include = ["asa_ctrl"]
-
-[tool.setuptools.dynamic]
-version = { attr = "asa_ctrl._version.__version__" }
