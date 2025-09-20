@@ -147,13 +147,45 @@ EOF
   fi
   chmod 0644 "$RESTART_CRON_FILE"
 
-  if command -v cron >/dev/null 2>&1; then
-    if ! cron; then
+  # Start cron daemon with proper container-friendly method
+  if command -v service >/dev/null 2>&1; then
+    if ! service cron start >/dev/null 2>&1; then
+      log "Failed to start cron daemon via service; scheduled restarts disabled."
+      return 1
+    fi
+  elif [ -x "/etc/init.d/cron" ]; then
+    if ! /etc/init.d/cron start >/dev/null 2>&1; then
+      log "Failed to start cron daemon via init.d; scheduled restarts disabled."
+      return 1
+    fi
+  elif command -v cron >/dev/null 2>&1; then
+    # Fallback to direct cron command
+    if ! cron >/dev/null 2>&1; then
       log "Failed to start cron daemon; scheduled restarts disabled."
+      return 1
     fi
   else
     log "Cron binary not found; scheduled restarts disabled."
+    return 1
   fi
+
+  # Verify cron daemon is actually running
+  sleep 1
+  if command -v service >/dev/null 2>&1; then
+    # Use service status check if available
+    if ! service cron status >/dev/null 2>&1; then
+      log "Cron daemon failed to start properly; scheduled restarts disabled."
+      return 1
+    fi
+  else
+    # Fallback to process check using /proc
+    if ! find /proc -maxdepth 2 -name comm 2>/dev/null | xargs grep -l cron >/dev/null 2>&1; then
+      log "Cron daemon failed to start properly; scheduled restarts disabled."
+      return 1
+    fi
+  fi
+
+  log "Cron daemon started successfully for scheduled restarts."
 }
 
 
