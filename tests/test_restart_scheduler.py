@@ -43,6 +43,16 @@ def test_cron_schedule_range_and_step():
     assert schedule.next_run(make_dt("2024-06-03 08:59")) == make_dt("2024-06-03 09:00")
 
 
+def test_cron_schedule_accepts_seven_in_weekday_ranges():
+    schedule = CronSchedule("0 0 * * 1-7")
+    assert schedule.next_run(make_dt("2024-03-09 23:59")) == make_dt("2024-03-10 00:00")
+
+
+def test_cron_schedule_accepts_seven_as_sunday():
+    schedule = CronSchedule("0 0 * * 7")
+    assert schedule.next_run(make_dt("2024-03-09 23:59")) == make_dt("2024-03-10 00:00")
+
+
 def test_parse_warning_offsets_default_and_custom():
     assert parse_warning_offsets("") == [30, 5, 1]
     assert parse_warning_offsets("15, 5 ,1") == [15, 5, 1]

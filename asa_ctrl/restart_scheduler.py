@@ -86,9 +86,14 @@ class CronSchedule:
                 resolved = int(value)
             except ValueError as exc:  # pragma: no cover - defensive
                 raise ValueError(f"Invalid cron value '{value}'") from exc
-            if allow_seven and resolved == 7:
-                return 0
             return resolved
+
+        def in_bounds(value: int) -> bool:
+            if minimum <= value <= maximum:
+                return True
+            if allow_seven and value == 7:
+                return True
+            return False
 
         values: List[int] = []
         for part in field.split(","):
@@ -121,16 +126,17 @@ class CronSchedule:
                 start = resolve(range_part)
                 end = start
 
-            if start < minimum or end > maximum:
+            if not in_bounds(start) or not in_bounds(end):
                 raise ValueError(f"Cron value out of bounds in segment '{part}'")
             if end < start:
                 raise ValueError(f"Invalid range '{part}' in cron field")
 
             for candidate in range(start, end + 1, step):
-                if candidate < minimum or candidate > maximum:
+                if not in_bounds(candidate):
                     continue
-                if candidate not in values:
-                    values.append(candidate)
+                normalized = 0 if allow_seven and candidate == 7 else candidate
+                if normalized not in values:
+                    values.append(normalized)
 
         values.sort()
         return CronField(tuple(values), is_wildcard)
