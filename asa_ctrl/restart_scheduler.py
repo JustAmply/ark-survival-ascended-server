@@ -8,13 +8,14 @@ import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from .logging_config import configure_logging, get_logger
 
 
 DEFAULT_ASA_CTRL_BIN = "/usr/local/bin/asa-ctrl"
 MAX_SLEEP_INTERVAL_SECONDS = 30
+POST_RESTART_DELAY_SECONDS = 10
 
 
 @dataclass(frozen=True)
@@ -353,7 +354,7 @@ def run_scheduler() -> None:
                 break
 
         # Small delay before computing next window to avoid tight loops when server is down
-        time.sleep(5)
+        time.sleep(POST_RESTART_DELAY_SECONDS)
 
 
 __all__ = ["CronSchedule", "parse_warning_offsets", "run_scheduler"]
