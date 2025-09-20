@@ -6,6 +6,7 @@ services:
       - ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50 -clusterid=default -ClusterDirOverride="/home/gameserver/cluster-shared"
       - ENABLE_DEBUG=0
       - SERVER_RESTART_CRON=0 4 * * *
+      - TZ=UTC
     ports:
       # Game port for player connections through the server browser
       - 7777:7777/udp
@@ -16,12 +17,12 @@ services:
       - steamcmd-1:/home/gameserver/steamcmd:rw
       - server-files-1:/home/gameserver/server-files:rw
       - cluster-shared:/home/gameserver/cluster-shared:rw
-      - /etc/localtime:/etc/localtime:ro
 #  asa-server-2:
 #    container_name: asa-server-2
 #    image: ghcr.io/justamply/asa-linux-server:latest
 #    environment:
 #      - ASA_START_PARAMS=ScorchedEarth_WP?listen?Port=7778?RCONPort=27021?RCONEnabled=True -WinLiveMaxPlayers=50 -clusterid=default -ClusterDirOverride="/home/gameserver/cluster-shared"
+#      - TZ=UTC
 #    ports:
 #      # Game port for player connections through the server browser
 #      - 7778:7778/udp
@@ -32,7 +33,6 @@ services:
 #      - steamcmd-2:/home/gameserver/steamcmd:rw
 #      - server-files-2:/home/gameserver/server-files:rw
 #      - cluster-shared:/home/gameserver/cluster-shared:rw
-#      - /etc/localtime:/etc/localtime:ro
 volumes:
   cluster-shared:
   steam-1:
