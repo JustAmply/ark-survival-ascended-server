@@ -14,6 +14,37 @@ log() {
   echo "[asa-restart] $*"
 }
 
+drop_privileges_if_needed() {
+  if [ "$(id -u)" != "0" ]; then
+    return 0
+  fi
+
+  if ! id -u gameserver >/dev/null 2>&1; then
+    log "Warning: gameserver user not found; continuing as root."
+    return 0
+  fi
+
+  if command -v runuser >/dev/null 2>&1; then
+    exec runuser -u gameserver -- "$0" "$@"
+  fi
+
+  if command -v su >/dev/null 2>&1; then
+    local args cmd
+    args=("$0" "$@")
+    cmd=""
+    local arg
+    for arg in "${args[@]}"; do
+      cmd+=" $(printf '%q' "$arg")"
+    done
+    cmd=${cmd# }
+    exec su -s /bin/bash -c "$cmd" gameserver
+  fi
+
+  log "Warning: unable to drop privileges to gameserver; continuing as root."
+}
+
+drop_privileges_if_needed "$@"
+
 broadcast_message() {
   local message="$1"
   if [ -z "$message" ]; then
