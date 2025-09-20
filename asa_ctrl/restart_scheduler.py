@@ -276,7 +276,7 @@ def _trigger_restart(supervisor_pid_file: Optional[str], logger) -> None:
         return
     logger.info("Triggering scheduled restart via signal to PID %s", pid)
     try:
-        os.kill(pid, signal.SIGUSR1)
+        os.kill(pid, signal.SIGUSR1) # type: ignore // SIGUSR1 may not be defined on Windows
     except ProcessLookupError:
         logger.error("Failed to trigger restart - supervisor process %s not found", pid)
 
