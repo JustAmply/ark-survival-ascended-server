@@ -57,6 +57,8 @@ docker exec asa-server-1 cat server-files/ShooterGame/Saved/Config/WindowsServer
 
 This shows something like `SessionName=ARK #334850`. Search for that number in the **Unofficial** server browser!
 
+![Server browser with "Show Player Servers"](assets/show-player-servers.jpg)
+
 ## ⚙️ Server Configuration
 
 ### 🎮 Customize Your Server
