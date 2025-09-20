@@ -29,13 +29,18 @@ ASA_BINARY_NAME="ArkAscendedServer.exe"
 ASA_PLUGIN_BINARY_NAME="AsaApiLoader.exe"
 FALLBACK_PROTON_VERSION="8-21"
 PID_FILE="/home/gameserver/.asa-server.pid"
-RESTART_CRON_FILE="/etc/cron.d/asa-server-restart"
-RESTART_FLAG_FILE="/home/gameserver/.asa-restart-requested"
-RESTART_CRON_USER="root"
-RESTART_CRON_COMMAND="/usr/bin/restart_server.sh"
 ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
+SHUTDOWN_IN_PROGRESS=0
+SUPERVISOR_EXIT_REQUESTED=0
+RESTART_REQUESTED=0
+SUPERVISOR_PID_FILE="/home/gameserver/.asa-supervisor.pid"
+RESTART_SCHEDULER_PID=""
 
 log() { echo "[asa-start] $*"; }
+
+register_supervisor_pid() {
+  echo "$$" >"$SUPERVISOR_PID_FILE"
+}
 
 configure_timezone() {
   local tz zoneinfo
@@ -81,160 +86,6 @@ configure_timezone() {
     log "Using timezone '$tz' via TZ environment variable only."
   fi
 }
-
-compute_warning_cron_entries() {
-  local schedule="$1"
-  local restore_glob=0
-  case $- in
-    *f*) restore_glob=1 ;;
-    *) set -f ;;
-  esac
-  # shellcheck disable=SC2086
-  set -- $schedule
-  if [ "$restore_glob" = "0" ]; then
-    set +f
-  fi
-  if [ "$#" -ne 5 ]; then
-    return 0
-  fi
-
-  local minute="$1" hour="$2" dom="$3" mon="$4" dow="$5"
-
-  if [ "$dom" != "*" ] || [ "$mon" != "*" ] || [ "$dow" != "*" ]; then
-    return 0
-  fi
-
-  # POSIX-compatible numeric validation
-  case "$minute" in
-    ''|*[!0-9]*) return 0 ;;
-  esac
-  case "$hour" in
-    ''|*[!0-9]*) return 0 ;;
-  esac
-
-  local minute_i hour_i
-  # The 10# prefix forces base-10 interpretation to handle leading zeros (e.g., "08"),
-  # preventing Bash from interpreting such values as octal, which would cause errors.
-  minute_i=$((10#$minute))
-  hour_i=$((10#$hour))
-
-  if [ "$minute_i" -lt 0 ] || [ "$minute_i" -gt 59 ] || [ "$hour_i" -lt 0 ] || [ "$hour_i" -gt 23 ]; then
-    return 0
-  fi
-
-  local warnings=(
-    "30:Server restart in 30 minutes."
-    "5:Server restart in 5 minutes."
-    "1:Server restart in 1 minute."
-  )
-
-  local day_minutes=$(( (hour_i % 24) * 60 + (minute_i % 60) ))
-  local output=""
-
-  local entry offset message target warn_hour warn_minute quoted line
-  for entry in "${warnings[@]}"; do
-    offset="${entry%%:*}"
-    message="${entry#*:}"
-
-    # POSIX-compatible numeric validation for offset
-    case "$offset" in
-      ''|*[!0-9]*) continue ;;
-    esac
-
-    target=$(( (day_minutes - offset + 1440) % 1440 ))
-    warn_hour=$(( target / 60 ))
-    warn_minute=$(( target % 60 ))
-    quoted=$(printf '%q' "$message")
-    
-    # Build cron entry for restart warning
-    cron_time=$(printf '%02d %02d %s %s %s' "$warn_minute" "$warn_hour" "$dom" "$mon" "$dow")
-    cron_user="$RESTART_CRON_USER"
-    cron_cmd="$RESTART_CRON_COMMAND warn $quoted >> /proc/1/fd/1 2>&1"
-    line="${cron_time} ${cron_user} ${cron_cmd}
-"
-    output+="$line"
-  done
-
-  printf '%s' "$output"
-}
-
-
-#############################
-# Cron-based scheduled restarts
-#############################
-setup_restart_cron() {
-  if [ "$(id -u)" != "0" ]; then
-    return 0
-  fi
-
-  rm -f "$RESTART_CRON_FILE"
-
-  local schedule="${SERVER_RESTART_CRON:-}"
-  if [ -z "$schedule" ]; then
-    return 0
-  fi
-
-  log "Configuring scheduled restart (cron): $schedule"
-  cat >"$RESTART_CRON_FILE" <<EOF
-MAILTO=""
-SHELL=/bin/bash
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-$schedule $RESTART_CRON_USER $RESTART_CRON_COMMAND >> /proc/1/fd/1 2>&1
-EOF
-
-  local warning_lines
-  warning_lines="$(compute_warning_cron_entries "$schedule" || true)"
-  if [ -n "$warning_lines" ]; then
-    printf '%s' "$warning_lines" >>"$RESTART_CRON_FILE"
-    log "Configured restart warning cron entries for $schedule"
-    while IFS= read -r warn_line; do
-      [ -z "$warn_line" ] && continue
-      log "  $warn_line"
-    done <<<"$warning_lines"
-  fi
-  chmod 0644 "$RESTART_CRON_FILE"
-
-  # Start cron daemon with proper container-friendly method
-  if command -v service >/dev/null 2>&1; then
-    if ! service cron start >/dev/null 2>&1; then
-      log "Failed to start cron daemon via service; scheduled restarts disabled."
-      return 1
-    fi
-  elif [ -x "/etc/init.d/cron" ]; then
-    if ! /etc/init.d/cron start >/dev/null 2>&1; then
-      log "Failed to start cron daemon via init.d; scheduled restarts disabled."
-      return 1
-    fi
-  elif command -v cron >/dev/null 2>&1; then
-    # Fallback to direct cron command
-    if ! cron >/dev/null 2>&1; then
-      log "Failed to start cron daemon; scheduled restarts disabled."
-      return 1
-    fi
-  else
-    log "Cron binary not found; scheduled restarts disabled."
-    return 1
-  fi
-
-  # Verify cron daemon is actually running
-  sleep 1
-  if command -v service >/dev/null 2>&1; then
-    # Use service status check if available
-    if ! service cron status >/dev/null 2>&1; then
-      log "Cron daemon failed to start properly; scheduled restarts disabled."
-      return 1
-    fi
-  else
-    # Fallback to process check using /proc
-    if ! find /proc -maxdepth 2 -name comm 2>/dev/null | xargs grep -l cron >/dev/null 2>&1; then
-      log "Cron daemon failed to start properly; scheduled restarts disabled."
-      return 1
-    fi
-  fi
-
-  log "Cron daemon started successfully for scheduled restarts."
-}
-
 
 #############################
 # 1. Debug Hold
@@ -464,77 +315,89 @@ launch_server() {
 #############################
 # Process Supervision
 #############################
-handle_shutdown_signal() {
-  local signal="$1"
-  log "Received signal $signal - initiating graceful shutdown"
-  
-  # Check if this is a restart request
-  if [ -f "$RESTART_FLAG_FILE" ]; then
-    log "Restart flag detected - this is a restart, not a shutdown"
-    rm -f "$RESTART_FLAG_FILE" || true
-    # For restart, we only shutdown the server process, not the container
-    local restart_mode=1
-  else
-    # For container shutdown, set the global shutdown flag
-    SHUTDOWN_REQUESTED=1
-    local restart_mode=0
+perform_shutdown_sequence() {
+  local signal="$1" purpose="$2"
+  if [ "${SHUTDOWN_IN_PROGRESS:-0}" = "1" ]; then
+    log "Signal $signal received but shutdown already in progress"
+    return 0
   fi
-  
+  SHUTDOWN_IN_PROGRESS=1
+  log "Received signal $signal for $purpose - saving world and stopping server"
+
   if [ -z "${SERVER_PID:-}" ] || ! kill -0 "$SERVER_PID" 2>/dev/null; then
-    log "No server process to shutdown"
+    if [ -z "${SERVER_PID:-}" ]; then
+      log "Shutdown requested before server launch - nothing to do"
+    else
+      log "Server process already stopped"
+    fi
     return 0
   fi
 
-  # Graceful shutdown: save world first, then send SIGTERM
-  local saveworld_flag saveworld_delay shutdown_timeout
-  saveworld_flag="${ASA_SHUTDOWN_SAVEWORLD:-1}"
+  local saveworld_delay shutdown_timeout
   saveworld_delay="${ASA_SHUTDOWN_SAVEWORLD_DELAY:-15}"
   shutdown_timeout="${ASA_SHUTDOWN_TIMEOUT:-180}"
 
-  if [ "$saveworld_flag" != "0" ]; then
-    log "Issuing saveworld via RCON before shutdown"
-    if "$ASA_CTRL_BIN" rcon --exec 'saveworld' >/dev/null 2>&1; then
-      log "Saveworld command sent successfully, waiting ${saveworld_delay}s for save completion"
-      sleep "$saveworld_delay" || true
-    else
-      log "Warning: failed to execute saveworld command via RCON"
-    fi
+  log "Issuing saveworld via RCON before shutdown"
+  if "$ASA_CTRL_BIN" rcon --exec 'saveworld' >/dev/null 2>&1; then
+    log "Saveworld command sent successfully, waiting ${saveworld_delay}s for save completion"
+    sleep "$saveworld_delay" || true
+  else
+    log "Warning: failed to execute saveworld command via RCON"
   fi
 
   log "Sending SIGTERM to server process $SERVER_PID"
   kill -TERM "$SERVER_PID" 2>/dev/null || true
 
-  # Wait for graceful shutdown with timeout
-  local remaining="$shutdown_timeout"
-  local sleep_interval=1
-  local max_sleep=5
-  while kill -0 "$SERVER_PID" 2>/dev/null; do
-    if [ "$remaining" -le 0 ]; then
-      log "Server did not stop within ${shutdown_timeout}s - forcing termination"
-      kill -KILL "$SERVER_PID" 2>/dev/null || true
-      break
-    fi
-    # Sleep for the smaller of sleep_interval or remaining time
-    local this_sleep=$sleep_interval
-    if [ "$remaining" -lt "$sleep_interval" ]; then
-      this_sleep=$remaining
-    fi
-    sleep "$this_sleep"
-    remaining=$((remaining - this_sleep))
-    # Exponential backoff: double sleep_interval up to max_sleep
-    if [ "$sleep_interval" -lt "$max_sleep" ]; then
-      sleep_interval=$((sleep_interval * 2))
-      if [ "$sleep_interval" -gt "$max_sleep" ]; then
-        sleep_interval=$max_sleep
-      fi
-    fi
+  local elapsed=0
+  while kill -0 "$SERVER_PID" 2>/dev/null && [ "$elapsed" -lt "$shutdown_timeout" ]; do
+    sleep 1
+    elapsed=$((elapsed + 1))
   done
 
-  if [ "$restart_mode" = "1" ]; then
-    log "Graceful restart completed - server will restart"
+  if kill -0 "$SERVER_PID" 2>/dev/null; then
+    log "Server did not stop within ${shutdown_timeout}s - forcing termination"
+    kill -KILL "$SERVER_PID" 2>/dev/null || true
   else
-    log "Graceful shutdown completed"
+    log "Server process stopped cleanly"
   fi
+}
+
+handle_shutdown_signal() {
+  local signal="$1"
+  SUPERVISOR_EXIT_REQUESTED=1
+  perform_shutdown_sequence "$signal" "container shutdown"
+}
+
+handle_restart_signal() {
+  local signal="$1"
+  RESTART_REQUESTED=1
+  perform_shutdown_sequence "$signal" "scheduled restart"
+}
+
+start_restart_scheduler() {
+  local cron_expression
+  cron_expression="${SERVER_RESTART_CRON:-}"
+  if [ -z "$cron_expression" ]; then
+    return 0
+  fi
+
+  if [ ! -x "$ASA_CTRL_BIN" ]; then
+    log "Restart scheduler requested but asa-ctrl CLI missing; skipping"
+    return 0
+  fi
+
+  if [ -n "${RESTART_SCHEDULER_PID:-}" ] && kill -0 "$RESTART_SCHEDULER_PID" 2>/dev/null; then
+    return 0
+  fi
+
+  export SERVER_RESTART_CRON
+  export SERVER_RESTART_WARNINGS="${SERVER_RESTART_WARNINGS:-30,5,1}"
+  export ASA_SUPERVISOR_PID_FILE="$SUPERVISOR_PID_FILE"
+  export ASA_SERVER_PID_FILE="$PID_FILE"
+
+  "$ASA_CTRL_BIN" restart-scheduler &
+  RESTART_SCHEDULER_PID=$!
+  log "Started restart scheduler (PID $RESTART_SCHEDULER_PID) with cron '$SERVER_RESTART_CRON'"
 }
 
 cleanup() {
@@ -543,57 +406,63 @@ cleanup() {
     wait "$SERVER_PID" 2>/dev/null || true
   fi
   rm -f "$PID_FILE" || true
-  rm -f "$RESTART_FLAG_FILE" || true
+  rm -f "$SUPERVISOR_PID_FILE" || true
   if [ -n "${LOG_STREAMER_PID:-}" ] && kill -0 "$LOG_STREAMER_PID" 2>/dev/null; then
     kill "$LOG_STREAMER_PID" 2>/dev/null || true
   fi
+  if [ -n "${RESTART_SCHEDULER_PID:-}" ] && kill -0 "$RESTART_SCHEDULER_PID" 2>/dev/null; then
+    kill "$RESTART_SCHEDULER_PID" 2>/dev/null || true
+    wait "$RESTART_SCHEDULER_PID" 2>/dev/null || true
+  fi
 }
 
-run_server_loop() {
+supervisor_loop() {
+  local exit_code restart_delay
+  restart_delay="${SERVER_RESTART_DELAY:-15}"
+
+  while true; do
+    run_server
+    exit_code=$?
+
+    if [ "${SUPERVISOR_EXIT_REQUESTED:-0}" = "1" ]; then
+      log "Supervisor exit requested - stopping with code $exit_code"
+      return "$exit_code"
+    fi
+
+    if [ "${RESTART_REQUESTED:-0}" = "1" ]; then
+      log "Scheduled restart completed - relaunching server after ${restart_delay}s"
+    else
+      log "Server exited unexpectedly with code $exit_code - restarting after ${restart_delay}s"
+    fi
+
+    RESTART_REQUESTED=0
+    SHUTDOWN_IN_PROGRESS=0
+
+    sleep "$restart_delay" || true
+  done
+}
+
+run_server() {
   trap 'handle_shutdown_signal TERM' TERM
   trap 'handle_shutdown_signal INT' INT
   trap 'handle_shutdown_signal HUP' HUP
+  trap 'handle_restart_signal USR1' USR1
   trap cleanup EXIT
 
-  local base_params
-  base_params="${ASA_START_PARAMS:-}"
-  local backoff
-  backoff="${SERVER_RESTART_BACKOFF:-15}"
-  SHUTDOWN_REQUESTED=0
+  update_server_files
+  resolve_proton_version
+  install_proton_if_needed
+  ensure_proton_compat_data
+  inject_mods_param
+  prepare_runtime_env
+  handle_plugin_loader
+  start_log_streamer
 
-  while true; do
-    if [ "${SHUTDOWN_REQUESTED:-0}" = "1" ]; then
-      log "Shutdown requested before launch - exiting server loop."
-      return 0
-    fi
-
-    ASA_START_PARAMS="$base_params"
-    export ASA_START_PARAMS
-
-    update_server_files
-    resolve_proton_version
-    install_proton_if_needed
-    ensure_proton_compat_data
-    inject_mods_param
-    prepare_runtime_env
-    handle_plugin_loader
-    start_log_streamer
-
-    local exit_code=0
-    if ! launch_server; then
-      exit_code=$?
-    fi
-    rm -f "$PID_FILE" || true
-    SERVER_PID=""
-
-    if [ "${SHUTDOWN_REQUESTED:-0}" = "1" ]; then
-      log "Shutdown requested - exiting server loop."
-      return 0
-    fi
-
-    log "Server exited with code $exit_code - restarting in ${backoff}s..."
-    sleep "$backoff" || true
-  done
+  launch_server
+  local exit_code=$?
+  rm -f "$PID_FILE" || true
+  SERVER_PID=""
+  return $exit_code
 }
 
 #############################
@@ -603,7 +472,9 @@ if [ "$(id -u)" = "0" ]; then
   configure_timezone
 fi
 maybe_debug
-setup_restart_cron
 ensure_permissions
+register_supervisor_pid
+start_restart_scheduler
 ensure_steamcmd
-run_server_loop
+supervisor_loop
+exit $?

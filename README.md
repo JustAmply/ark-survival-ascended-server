@@ -29,6 +29,7 @@ Your server will be discoverable in the "Unofficial" server browser once setup i
 - **🎮 Mod Support**: Simple mod management via console
 - **🌐 Cluster Ready**: Multi-server setups with character/dino transfer
 - **🔄 Auto-Updates**: Automatic game updates on container restart
+- **⏰ Scheduled Restarts**: Built-in cron scheduler with in-game warnings
 - **📊 Monitoring**: Debug mode and comprehensive logging
 - **🔌 Plugin Support**: ServerAPI plugin loader integration
 
@@ -74,7 +75,7 @@ environment:
 - **Change map**: Replace `TheIsland_WP` with `ScorchedEarth_WP`, `TheCenter_WP`, etc.
 - **Change ports**: Modify `Port=7777` and `RCONPort=27020`
 - **Player limit**: Adjust `-WinLiveMaxPlayers=50`
-- **Timezone**: Add `TZ=Europe/Berlin` (or your region) to the environment to run cron jobs and logs in local time (default: `UTC`)
+- **Timezone**: Add `TZ=Europe/Berlin` (or your region) to keep server logs and saves in local time (default: `UTC`)
 
 ## 🎮 Server Management
 
@@ -114,13 +115,16 @@ docker exec asa-server-1 asa-ctrl rcon --exec 'serverchat Hello players!'
 docker exec asa-server-1 asa-ctrl rcon --exec 'kickplayer PlayerName'
 ```
 
-### Daily Restarts
-Schedule automatic restarts with updates directly inside the container by setting `SERVER_RESTART_CRON` in your `docker-compose.yml`:
+### Scheduled Restarts
+
+Automate maintenance windows without external tooling by defining a cron expression:
+
 ```yaml
 environment:
-  - SERVER_RESTART_CRON=0 4 * * *  # Restart daily at 04:00 (default)
+  - SERVER_RESTART_CRON=0 4 * * *
 ```
-The bundled cron helper triggers a graceful shutdown (saveworld + SIGTERM) and the entrypoint restarts the server automatically.
+
+The scheduler sends chat alerts 30, 5 and 1 minute before the restart and triggers a safe shutdown (including `saveworld`) so the server comes back online automatically. Adjust the warning offsets via `SERVER_RESTART_WARNINGS` (comma-separated minutes, for example `SERVER_RESTART_WARNINGS=60,15,5,1`). Leave `SERVER_RESTART_CRON` empty to disable the feature.
 
 ## 🏗️ Project History
 
