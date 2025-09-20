@@ -317,8 +317,12 @@ handle_shutdown_signal() {
   log "Received signal $signal - saving world and shutting down"
 
   if [ -z "${SERVER_PID:-}" ] || ! kill -0 "$SERVER_PID" 2>/dev/null; then
-    log "No running server process to stop"
-    return 0
+    if [ -z "${SERVER_PID:-}" ]; then
+      log "Shutdown requested before server launch - exiting"
+    else
+      log "Server process already stopped"
+    fi
+    exit 0
   fi
 
   local saveworld_delay shutdown_timeout
