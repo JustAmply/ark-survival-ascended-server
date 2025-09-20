@@ -31,6 +31,8 @@ FALLBACK_PROTON_VERSION="8-21"
 PID_FILE="/home/gameserver/.asa-server.pid"
 RESTART_CRON_FILE="/etc/cron.d/asa-server-restart"
 RESTART_FLAG_FILE="/home/gameserver/.asa-restart-requested"
+RESTART_CRON_USER="root"
+RESTART_CRON_COMMAND="/usr/bin/restart_server.sh"
 ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
 
 log() { echo "[asa-start] $*"; }
@@ -146,8 +148,8 @@ compute_warning_cron_entries() {
     
     # Build cron entry for restart warning
     cron_time=$(printf '%02d %02d %s %s %s' "$warn_minute" "$warn_hour" "$dom" "$mon" "$dow")
-    cron_user="gameserver"
-    cron_cmd="/usr/bin/restart_server.sh warn $quoted >> /proc/1/fd/1 2>&1"
+    cron_user="$RESTART_CRON_USER"
+    cron_cmd="$RESTART_CRON_COMMAND warn $quoted >> /proc/1/fd/1 2>&1"
     line="${cron_time} ${cron_user} ${cron_cmd}
 "
     output+="$line"
@@ -177,7 +179,7 @@ setup_restart_cron() {
 MAILTO=""
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-$schedule gameserver /usr/bin/restart_server.sh >> /proc/1/fd/1 2>&1
+$schedule $RESTART_CRON_USER $RESTART_CRON_COMMAND >> /proc/1/fd/1 2>&1
 EOF
 
   local warning_lines
