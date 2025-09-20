@@ -69,27 +69,30 @@ RCONPort=27020
 ServerAdminPassword=testpass
 """
     
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
-        f.write(ini_content)
-        f.flush()
-        
-        try:
-            # This should now work with the fix (strict=False)
-            config = IniConfigHelper.parse_ini(f.name)
-            assert config is not None, "Config should not be None"
-            assert len(config.sections()) == 2, "Should have 2 sections"
-            
-            # Test that duplicate key uses the last value
-            game_section = config['/Script/ShooterGame.ShooterGameUserSettings']
-            assert game_section['LastJoinedSessionPerCategory'] == 'test_value', "Should use last duplicate value"
-            assert game_section['RCONPort'] == '27020', "RCONPort should be accessible"
-            
-            # Test ServerSettings section
-            server_section = config['ServerSettings']
-            assert server_section['ServerAdminPassword'] == 'testpass', "ServerAdminPassword should be accessible"
-            
-        finally:
-            os.unlink(f.name)
+    temp_path = None
+
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
+            f.write(ini_content)
+            f.flush()
+            temp_path = f.name
+
+        # This should now work with the fix (strict=False)
+        config = IniConfigHelper.parse_ini(temp_path)
+        assert config is not None, "Config should not be None"
+        assert len(config.sections()) == 2, "Should have 2 sections"
+
+        # Test that duplicate key uses the last value
+        game_section = config['/Script/ShooterGame.ShooterGameUserSettings']
+        assert game_section['LastJoinedSessionPerCategory'] == 'test_value', "Should use last duplicate value"
+        assert game_section['RCONPort'] == '27020', "RCONPort should be accessible"
+
+        # Test ServerSettings section
+        server_section = config['ServerSettings']
+        assert server_section['ServerAdminPassword'] == 'testpass', "ServerAdminPassword should be accessible"
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
     
     print("✓ IniConfigHelper duplicate keys tests passed")
 
