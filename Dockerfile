@@ -13,8 +13,13 @@ LABEL org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.description="Dockerized ARK: Survival Ascended server with asa_ctrl management tool" \
       org.opencontainers.image.source="https://github.com/JustAmply/ark-survival-ascended-server"
 
+# Ensure timezone data is available and default to UTC inside the container
+ENV TZ=UTC
+ARG DEBIAN_FRONTEND=noninteractive
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     locales \
+    tzdata \
     wget \
     unzip \
     cron \

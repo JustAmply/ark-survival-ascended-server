@@ -74,6 +74,7 @@ environment:
 - **Change map**: Replace `TheIsland_WP` with `ScorchedEarth_WP`, `TheCenter_WP`, etc.
 - **Change ports**: Modify `Port=7777` and `RCONPort=27020`
 - **Player limit**: Adjust `-WinLiveMaxPlayers=50`
+- **Timezone**: Add `TZ=Europe/Berlin` (or your region) to the environment to run cron jobs and logs in local time (default: `UTC`)
 
 ## 🎮 Server Management
 

@@ -35,6 +35,51 @@ ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
 
 log() { echo "[asa-start] $*"; }
 
+configure_timezone() {
+  local tz zoneinfo
+  tz="${TZ:-}"
+
+  if [ -z "$tz" ]; then
+    log "No timezone specified via TZ environment variable; using container default."
+    return 0
+  fi
+
+  zoneinfo="/usr/share/zoneinfo/$tz"
+  if [ ! -e "$zoneinfo" ]; then
+    log "Requested timezone '$tz' not found - falling back to UTC."
+    tz="UTC"
+    zoneinfo="/usr/share/zoneinfo/$tz"
+    if [ ! -e "$zoneinfo" ]; then
+      log "Timezone data for '$tz' unavailable; cannot update /etc/localtime."
+      return 0
+    fi
+  fi
+
+  if [ "$(id -u)" != "0" ]; then
+    log "Insufficient permissions to update /etc/localtime; continuing with TZ='$tz'."
+    export TZ="$tz"
+    return 0
+  fi
+
+  local linked=0
+  if ln -sf "$zoneinfo" /etc/localtime; then
+    linked=1
+  else
+    log "Failed to update /etc/localtime for timezone '$tz'."
+  fi
+
+  if ! printf '%s\n' "$tz" >/etc/timezone 2>/dev/null; then
+    log "Failed to write /etc/timezone for '$tz'; continuing."
+  fi
+
+  export TZ="$tz"
+  if [ "$linked" = "1" ]; then
+    log "Configured container timezone to '$tz'."
+  else
+    log "Using timezone '$tz' via TZ environment variable only."
+  fi
+}
+
 compute_warning_cron_entries() {
   local schedule="$1"
   local restore_glob=0
@@ -552,6 +597,9 @@ run_server_loop() {
 #############################
 # Main Flow
 #############################
+if [ "$(id -u)" = "0" ]; then
+  configure_timezone
+fi
 maybe_debug
 setup_restart_cron
 ensure_permissions

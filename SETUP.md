@@ -72,6 +72,7 @@ environment:
 - **🗺️ Change map**: Replace `TheIsland_WP` with `ScorchedEarth_WP`, `TheCenter_WP`, `Aberration_WP`, `Extinction_WP`
 - **🔢 Change ports**: Modify `Port=7777` and `RCONPort=27020`
 - **👥 Player limit**: Adjust `-WinLiveMaxPlayers=50`
+- **🕒 Timezone**: Set `TZ=Europe/Berlin` (or your region) to control cron schedules and logs (default: `UTC`)
 
 ### 📂 File Locations
 
