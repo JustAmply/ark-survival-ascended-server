@@ -74,7 +74,7 @@ environment:
 - **Change map**: Replace `TheIsland_WP` with `ScorchedEarth_WP`, `TheCenter_WP`, etc.
 - **Change ports**: Modify `Port=7777` and `RCONPort=27020`
 - **Player limit**: Adjust `-WinLiveMaxPlayers=50`
-- **Timezone**: Add `TZ=Europe/Berlin` (or your region) to the environment to run cron jobs and logs in local time (default: `UTC`)
+- **Timezone**: Add `TZ=Europe/Berlin` (or your region) to keep server logs and saves in local time (default: `UTC`)
 
 ## 🎮 Server Management
 
@@ -113,14 +113,6 @@ docker exec asa-server-1 asa-ctrl rcon --exec 'serverchat Hello players!'
 # Kick player
 docker exec asa-server-1 asa-ctrl rcon --exec 'kickplayer PlayerName'
 ```
-
-### Daily Restarts
-Schedule automatic restarts with updates directly inside the container by setting `SERVER_RESTART_CRON` in your `docker-compose.yml`:
-```yaml
-environment:
-  - SERVER_RESTART_CRON=0 4 * * *  # Restart daily at 04:00 (default)
-```
-The bundled cron helper triggers a graceful shutdown (saveworld + SIGTERM) and the entrypoint restarts the server automatically.
 
 ## 🏗️ Project History
 
