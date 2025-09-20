@@ -14,6 +14,7 @@ from .rcon import execute_rcon_command
 from .mods import ModDatabase, format_mod_list_for_server
 from .logging_config import configure_logging, get_logger
 from .config import parse_start_params
+from .restart_scheduler import run_scheduler
 from .errors import (
     RconPasswordNotFoundError, 
     RconAuthenticationError, 
@@ -193,6 +194,22 @@ class ModsCommand:
         print(format_mod_list_for_server(), end="")
 
 
+class RestartSchedulerCommand:
+    """Internal command to run the restart scheduler loop."""
+
+    @staticmethod
+    def add_parser(subparsers) -> None:
+        parser = subparsers.add_parser(
+            'restart-scheduler',
+            help='Run the internal restart scheduler (used by entrypoint)',
+        )
+        parser.set_defaults(func=RestartSchedulerCommand.execute)
+
+    @staticmethod
+    def execute(_args) -> None:
+        run_scheduler()
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the main argument parser."""
     parser = argparse.ArgumentParser(
@@ -205,6 +222,7 @@ def create_parser() -> argparse.ArgumentParser:
     # Add command parsers
     RconCommand.add_parser(subparsers)
     ModsCommand.add_parser(subparsers)
+    RestartSchedulerCommand.add_parser(subparsers)
 
     # Hidden helper replacing external bash wrapper to output mods string
     hidden = subparsers.add_parser('mods-string', help=argparse.SUPPRESS)

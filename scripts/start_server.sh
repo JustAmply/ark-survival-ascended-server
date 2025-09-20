@@ -31,8 +31,16 @@ FALLBACK_PROTON_VERSION="8-21"
 PID_FILE="/home/gameserver/.asa-server.pid"
 ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
 SHUTDOWN_IN_PROGRESS=0
+SUPERVISOR_EXIT_REQUESTED=0
+RESTART_REQUESTED=0
+SUPERVISOR_PID_FILE="/home/gameserver/.asa-supervisor.pid"
+RESTART_SCHEDULER_PID=""
 
 log() { echo "[asa-start] $*"; }
+
+register_supervisor_pid() {
+  echo "$$" >"$SUPERVISOR_PID_FILE"
+}
 
 configure_timezone() {
   local tz zoneinfo
@@ -307,22 +315,22 @@ launch_server() {
 #############################
 # Process Supervision
 #############################
-handle_shutdown_signal() {
-  local signal="$1"
+perform_shutdown_sequence() {
+  local signal="$1" purpose="$2"
   if [ "${SHUTDOWN_IN_PROGRESS:-0}" = "1" ]; then
     log "Signal $signal received but shutdown already in progress"
     return 0
   fi
   SHUTDOWN_IN_PROGRESS=1
-  log "Received signal $signal - saving world and shutting down"
+  log "Received signal $signal for $purpose - saving world and stopping server"
 
   if [ -z "${SERVER_PID:-}" ] || ! kill -0 "$SERVER_PID" 2>/dev/null; then
     if [ -z "${SERVER_PID:-}" ]; then
-      log "Shutdown requested before server launch - exiting"
+      log "Shutdown requested before server launch - nothing to do"
     else
       log "Server process already stopped"
     fi
-    exit 0
+    return 0
   fi
 
   local saveworld_delay shutdown_timeout
@@ -354,21 +362,91 @@ handle_shutdown_signal() {
   fi
 }
 
+handle_shutdown_signal() {
+  local signal="$1"
+  SUPERVISOR_EXIT_REQUESTED=1
+  perform_shutdown_sequence "$signal" "container shutdown"
+}
+
+handle_restart_signal() {
+  local signal="$1"
+  RESTART_REQUESTED=1
+  perform_shutdown_sequence "$signal" "scheduled restart"
+}
+
+start_restart_scheduler() {
+  local cron_expression
+  cron_expression="${SERVER_RESTART_CRON:-}"
+  if [ -z "$cron_expression" ]; then
+    return 0
+  fi
+
+  if [ ! -x "$ASA_CTRL_BIN" ]; then
+    log "Restart scheduler requested but asa-ctrl CLI missing; skipping"
+    return 0
+  fi
+
+  if [ -n "${RESTART_SCHEDULER_PID:-}" ] && kill -0 "$RESTART_SCHEDULER_PID" 2>/dev/null; then
+    return 0
+  fi
+
+  export SERVER_RESTART_CRON
+  export SERVER_RESTART_WARNINGS="${SERVER_RESTART_WARNINGS:-30,5,1}"
+  export ASA_SUPERVISOR_PID_FILE="$SUPERVISOR_PID_FILE"
+  export ASA_SERVER_PID_FILE="$PID_FILE"
+
+  "$ASA_CTRL_BIN" restart-scheduler &
+  RESTART_SCHEDULER_PID=$!
+  log "Started restart scheduler (PID $RESTART_SCHEDULER_PID) with cron '$SERVER_RESTART_CRON'"
+}
+
 cleanup() {
   if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
   rm -f "$PID_FILE" || true
+  rm -f "$SUPERVISOR_PID_FILE" || true
   if [ -n "${LOG_STREAMER_PID:-}" ] && kill -0 "$LOG_STREAMER_PID" 2>/dev/null; then
     kill "$LOG_STREAMER_PID" 2>/dev/null || true
   fi
+  if [ -n "${RESTART_SCHEDULER_PID:-}" ] && kill -0 "$RESTART_SCHEDULER_PID" 2>/dev/null; then
+    kill "$RESTART_SCHEDULER_PID" 2>/dev/null || true
+    wait "$RESTART_SCHEDULER_PID" 2>/dev/null || true
+  fi
+}
+
+supervisor_loop() {
+  local exit_code restart_delay
+  restart_delay="${SERVER_RESTART_DELAY:-15}"
+
+  while true; do
+    run_server
+    exit_code=$?
+
+    if [ "${SUPERVISOR_EXIT_REQUESTED:-0}" = "1" ]; then
+      log "Supervisor exit requested - stopping with code $exit_code"
+      return "$exit_code"
+    fi
+
+    if [ "${RESTART_REQUESTED:-0}" = "1" ]; then
+      log "Scheduled restart completed - relaunching server after ${restart_delay}s"
+    else
+      log "Server exited unexpectedly with code $exit_code - restarting after ${restart_delay}s"
+    fi
+
+    RESTART_REQUESTED=0
+    SHUTDOWN_IN_PROGRESS=0
+
+    sleep "$restart_delay" || true
+  done
 }
 
 run_server() {
   trap 'handle_shutdown_signal TERM' TERM
   trap 'handle_shutdown_signal INT' INT
   trap 'handle_shutdown_signal HUP' HUP
+  trap 'handle_restart_signal USR1' USR1
   trap cleanup EXIT
 
   update_server_files
@@ -395,6 +473,8 @@ if [ "$(id -u)" = "0" ]; then
 fi
 maybe_debug
 ensure_permissions
+register_supervisor_pid
+start_restart_scheduler
 ensure_steamcmd
-run_server
+supervisor_loop
 exit $?

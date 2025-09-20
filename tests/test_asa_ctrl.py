@@ -105,7 +105,8 @@ def test_cli_mods_string():
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, 'mods.json')
         os.environ['ASA_MOD_DATABASE_PATH'] = db_path
-        db = ModDatabase.get_instance()  # singleton will pick overridden path first time
+        db = ModDatabase(db_path)
+        ModDatabase._instance = db  # ensure CLI helper uses the temporary database
         db.enable_mod(111)
         db.enable_mod(222)
         # Capture stdout
@@ -116,6 +117,7 @@ def test_cli_mods_string():
             cli_main(['mods-string'])
         out = buf.getvalue().strip()
         assert out in ('-mods=111,222', '-mods=222,111')  # order not guaranteed
+        ModDatabase._instance = None
     print("\u2713 CLI mods-string tests passed")
 
     with tempfile.TemporaryDirectory() as temp_dir:

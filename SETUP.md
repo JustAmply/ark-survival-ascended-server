@@ -159,7 +159,22 @@ Stopping the container (e.g., `docker stop`) triggers a `saveworld` via RCON bef
 - `ASA_SHUTDOWN_SAVEWORLD_DELAY=15` – wait time (seconds) after saving before signalling shutdown
 - `ASA_SHUTDOWN_TIMEOUT=180` – graceful shutdown timeout (seconds) before the process is force-killed
 
-If you need recurring restarts, schedule them externally (for example via host cron) and let the container exit normally. The entrypoint no longer performs automatic relaunches.
+## 🔁 Scheduled Restarts
+
+Enable automated maintenance windows with the built-in scheduler:
+
+```yaml
+environment:
+  - SERVER_RESTART_CRON=0 4 * * *
+```
+
+The cron expression follows the standard five-field format (`minute hour day month weekday`). When active, the container:
+
+1. Sends chat warnings 30, 5 and 1 minute before the restart
+2. Executes `saveworld` and waits for the configured grace period
+3. Restarts the server process automatically (the container keeps running)
+
+Customize the warning cadence with `SERVER_RESTART_WARNINGS=60,15,5,1` (comma-separated minutes) and adjust the relaunch delay with `SERVER_RESTART_DELAY=15` (seconds to wait before booting again). Omit `SERVER_RESTART_CRON` to disable the scheduler entirely.
 
 ## 🔧 Debug Mode
 
