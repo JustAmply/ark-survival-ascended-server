@@ -36,79 +36,7 @@ RESTART_REQUESTED=0
 SUPERVISOR_PID_FILE="/home/gameserver/.asa-supervisor.pid"
 RESTART_SCHEDULER_PID=""
 
-LOG_USE_COLOR=0
-if [ -t 1 ]; then
-  LOG_USE_COLOR=1
-fi
-
-log() {
-  local level="INFO"
-  case "$1" in
-    INFO|WARN|ERROR|SUCCESS|STEP|DEBUG)
-      level="$1"
-      shift
-      ;;
-  esac
-
-  local message="$*"
-  case "$level" in
-    STEP)
-      message="→ $message"
-      ;;
-    SUCCESS)
-      message="✓ $message"
-      ;;
-    WARN)
-      message="⚠ $message"
-      ;;
-    ERROR)
-      message="✖ $message"
-      ;;
-  esac
-
-  local timestamp
-  timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-
-  if [ "$LOG_USE_COLOR" = "1" ]; then
-    local reset='\033[0m'
-    local color=''
-    case "$level" in
-      INFO)
-        color='\033[36m'
-        ;;
-      WARN)
-        color='\033[33m'
-        ;;
-      ERROR)
-        color='\033[31m'
-        ;;
-      SUCCESS)
-        color='\033[32m'
-        ;;
-      STEP)
-        color='\033[35m'
-        ;;
-      DEBUG)
-        color='\033[90m'
-        ;;
-    esac
-    printf '[asa-start] %s | %s%-7s%s | %s%s%s\n' \
-      "$timestamp" "$color" "$level" "$reset" "$color" "$message" "$reset"
-  else
-    printf '[asa-start] %s | %-7s | %s\n' "$timestamp" "$level" "$message"
-  fi
-}
-
-log_info() { log INFO "$@"; }
-log_warn() { log WARN "$@"; }
-log_error() { log ERROR "$@"; }
-log_success() { log SUCCESS "$@"; }
-log_step() { log STEP "$@"; }
-
-log_section() {
-  local title="$*"
-  log STEP "──── $title"
-}
+log() { echo "[asa-start] $*"; }
 
 register_supervisor_pid() {
   echo "$$" >"$SUPERVISOR_PID_FILE"
@@ -119,23 +47,23 @@ configure_timezone() {
   tz="${TZ:-}"
 
   if [ -z "$tz" ]; then
-    log_info "No timezone specified via TZ environment variable; using container default."
+    log "No timezone specified via TZ environment variable; using container default."
     return 0
   fi
 
   zoneinfo="/usr/share/zoneinfo/$tz"
   if [ ! -e "$zoneinfo" ]; then
-    log_warn "Requested timezone '$tz' not found - falling back to UTC."
+    log "Requested timezone '$tz' not found - falling back to UTC."
     tz="UTC"
     zoneinfo="/usr/share/zoneinfo/$tz"
     if [ ! -e "$zoneinfo" ]; then
-      log_warn "Timezone data for '$tz' unavailable; cannot update /etc/localtime."
+      log "Timezone data for '$tz' unavailable; cannot update /etc/localtime."
       return 0
     fi
   fi
 
   if [ "$(id -u)" != "0" ]; then
-    log_warn "Insufficient permissions to update /etc/localtime; continuing with TZ='$tz'."
+    log "Insufficient permissions to update /etc/localtime; continuing with TZ='$tz'."
     export TZ="$tz"
     return 0
   fi
@@ -144,18 +72,18 @@ configure_timezone() {
   if ln -sf "$zoneinfo" /etc/localtime; then
     linked=1
   else
-    log_warn "Failed to update /etc/localtime for timezone '$tz'."
+    log "Failed to update /etc/localtime for timezone '$tz'."
   fi
 
   if ! printf '%s\n' "$tz" >/etc/timezone 2>/dev/null; then
-    log_warn "Failed to write /etc/timezone for '$tz'; continuing."
+    log "Failed to write /etc/timezone for '$tz'; continuing."
   fi
 
   export TZ="$tz"
   if [ "$linked" = "1" ]; then
-    log_success "Configured container timezone to '$tz'."
+    log "Configured container timezone to '$tz'."
   else
-    log_info "Using timezone '$tz' via TZ environment variable only."
+    log "Using timezone '$tz' via TZ environment variable only."
   fi
 }
 
@@ -164,7 +92,7 @@ configure_timezone() {
 #############################
 maybe_debug() {
   if [ "${ENABLE_DEBUG:-0}" = "1" ]; then
-    log_step "Entering debug mode (sleep)..."
+    log "Entering debug mode (sleep)..."
     sleep 999999999
     exit 0
   fi
@@ -208,14 +136,14 @@ ensure_permissions() {
 #############################
 ensure_steamcmd() {
   if [ ! -d "$STEAMCMD_DIR/linux32" ]; then
-    log_step "Installing steamcmd..."
+    log "Installing steamcmd..."
     mkdir -p "$STEAMCMD_DIR"
     (cd "$STEAMCMD_DIR" && wget -q https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz && tar xf steamcmd_linux.tar.gz)
   fi
 }
 
 update_server_files() {
-  log_step "Updating / validating ASA server files..."
+  log "Updating / validating ASA server files..."
   (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
 }
 
@@ -267,7 +195,7 @@ find_latest_release_with_assets() {
 resolve_proton_version() {
   local detected=""
   if [ -z "${PROTON_VERSION:-}" ]; then
-    log_step "Detecting latest Proton GE version..."
+    log "Detecting latest Proton GE version..."
     if json=$(wget -qO- https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest 2>/dev/null || true); then
       # Try jq first if present (most reliable)
       if command -v jq >/dev/null 2>&1; then
@@ -282,15 +210,15 @@ resolve_proton_version() {
         # Basic validation: must start with a digit and contain only allowed chars (digits, dots, dashes)
         if printf '%s' "$ver" | grep -Eq '^[0-9][0-9A-Za-z._-]*$'; then
           detected="$ver"
-          log_info "Using detected GE-Proton version: $detected"
+          log "Using detected GE-Proton version: $detected"
         else
-          log_warn "Detected tag_name malformed ('$ver'); ignoring"
+          log "Detected tag_name malformed ('$ver'); ignoring"
         fi
       else
-        log_warn "Failed to parse latest release tag_name"
+        log "Failed to parse latest release tag_name"
       fi
     else
-      log_warn "Could not query GitHub API for Proton releases"
+      log "Could not query GitHub API for Proton releases"
     fi
   else
     detected="$PROTON_VERSION"
@@ -301,23 +229,23 @@ resolve_proton_version() {
     if check_proton_release_assets "$detected"; then
       resolved="$detected"
     else
-      log_warn "Latest GE-Proton release GE-Proton$detected missing assets; searching previous releases..."
+      log "Latest GE-Proton release GE-Proton$detected missing assets; searching previous releases..."
     fi
   fi
 
   if [ -z "$resolved" ] && [ -z "${PROTON_VERSION:-}" ]; then
     if fallback_ver=$(find_latest_release_with_assets "$detected"); then
       resolved="$fallback_ver"
-      log_info "Using fallback GE-Proton release: $resolved"
+      log "Using fallback GE-Proton release: $resolved"
     else
-      log_warn "No suitable Proton release with assets found via GitHub API"
+      log "No suitable Proton release with assets found via GitHub API"
     fi
   fi
 
   if [ -z "$resolved" ]; then
     resolved="${PROTON_VERSION:-$FALLBACK_PROTON_VERSION}"
     if [ "$resolved" = "$FALLBACK_PROTON_VERSION" ]; then
-      log_warn "Falling back to default Proton version: $resolved"
+      log "Falling back to default Proton version: $resolved"
     fi
   fi
 
@@ -329,42 +257,32 @@ resolve_proton_version() {
 
 install_proton_if_needed() {
   if [ -d "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME" ]; then return 0; fi
-  log_step "Downloading Proton $PROTON_DIR_NAME..."
+  log "Downloading Proton $PROTON_DIR_NAME..."
   mkdir -p "$STEAM_COMPAT_DIR"
   local base="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton$PROTON_VERSION"
   local archive="/tmp/$PROTON_ARCHIVE_NAME"
   local sumfile="/tmp/GE-Proton$PROTON_VERSION.sha512sum"
   if ! wget -q -O "$archive" "$base/$PROTON_ARCHIVE_NAME"; then
-    log_error "Failed to download Proton archive."
-    exit 200
+    echo "Error: failed to download Proton archive."; exit 200
   fi
-  log_step "Verifying checksum..."
+  log "Verifying checksum..."
   if wget -q -O "$sumfile" "$base/GE-Proton$PROTON_VERSION.sha512sum"; then
     if (cd /tmp && sha512sum -c "$(basename "$sumfile")" 2>/dev/null | grep -q "$PROTON_ARCHIVE_NAME: OK"); then
-      log_success "Checksum OK"
+      log "Checksum OK"
     else
-      log_error "sha512 checksum verification failed."
-      if [ "${PROTON_SKIP_CHECKSUM:-0}" != "1" ]; then
-        exit 201
-      else
-        log_warn "Skipping checksum (override)"
-      fi
+      echo "Error: sha512 checksum verification failed.";
+      if [ "${PROTON_SKIP_CHECKSUM:-0}" != "1" ]; then exit 201; else log "Skipping checksum (override)"; fi
     fi
     rm -f "$sumfile" || true
   else
-    log_warn "Checksum file unavailable"
-    if [ "${PROTON_SKIP_CHECKSUM:-0}" != "1" ]; then
-      exit 201
-    else
-      log_warn "Continuing without verification"
-    fi
+    log "Checksum file unavailable"; [ "${PROTON_SKIP_CHECKSUM:-0}" != "1" ] && exit 201 || log "Continuing without verification"
   fi
   tar -xf "$archive" -C "$STEAM_COMPAT_DIR" && rm -f "$archive"
 }
 
 ensure_proton_compat_data() {
   if [ ! -d "$ASA_COMPAT_DATA" ]; then
-    log_step "Setting up Proton compat data..."
+    log "Setting up Proton compat data..."
     mkdir -p "$STEAM_COMPAT_DATA"
     cp -r "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx" "$ASA_COMPAT_DATA"
   fi
@@ -390,7 +308,7 @@ prepare_runtime_env() {
   uid="$(id -u)"
   if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
     if [ ! -d "$XDG_RUNTIME_DIR" ] || [ ! -w "$XDG_RUNTIME_DIR" ]; then
-      log_warn "XDG_RUNTIME_DIR '$XDG_RUNTIME_DIR' not writable; falling back"
+      log "XDG_RUNTIME_DIR '$XDG_RUNTIME_DIR' not writable; falling back";
       XDG_RUNTIME_DIR="/tmp/xdg-runtime-$uid"
     fi
   else
@@ -415,12 +333,12 @@ handle_plugin_loader() {
   local archive
   archive=$(basename "$ASA_BINARY_DIR"/AsaApi_*.zip 2>/dev/null || true)
   if [ -f "$ASA_BINARY_DIR/$archive" ]; then
-    log_step "Extracting plugin loader archive $archive"
+    log "Extracting plugin loader archive $archive"
     (cd "$ASA_BINARY_DIR" && unzip -o "$archive" >/dev/null 2>&1 && rm "$archive")
   fi
   if [ -f "$ASA_BINARY_DIR/$ASA_PLUGIN_BINARY_NAME" ]; then
     LAUNCH_BINARY_NAME="$ASA_PLUGIN_BINARY_NAME"
-    log_info "Plugin loader detected - using $ASA_PLUGIN_BINARY_NAME"
+    log "Plugin loader detected - using $ASA_PLUGIN_BINARY_NAME"
   else
     LAUNCH_BINARY_NAME="$ASA_BINARY_NAME"
   fi
@@ -447,8 +365,8 @@ start_log_streamer() {
 # 9. Launch Server
 #############################
 launch_server() {
-  log_step "Starting ASA dedicated server..."
-  log_info "Start parameters: $ASA_START_PARAMS"
+  log "Starting ASA dedicated server..."
+  log "Start parameters: $ASA_START_PARAMS"
   cd "$ASA_BINARY_DIR"
   local runner
   if command -v stdbuf >/dev/null 2>&1; then
@@ -461,11 +379,7 @@ launch_server() {
   echo "$SERVER_PID" > "$PID_FILE"
   wait "$SERVER_PID"
   local exit_code=$?
-  if [ "$exit_code" -eq 0 ]; then
-    log_success "Server process exited with code $exit_code"
-  else
-    log_warn "Server process exited with code $exit_code"
-  fi
+  log "Server process exited with code $exit_code"
   return $exit_code
 }
 
@@ -475,18 +389,17 @@ launch_server() {
 perform_shutdown_sequence() {
   local signal="$1" purpose="$2"
   if [ "${SHUTDOWN_IN_PROGRESS:-0}" = "1" ]; then
-    log_warn "Signal $signal received but shutdown already in progress"
+    log "Signal $signal received but shutdown already in progress"
     return 0
   fi
   SHUTDOWN_IN_PROGRESS=1
-  log_section "Shutdown sequence ($purpose)"
-  log_step "Received signal $signal - saving world and stopping server"
+  log "Received signal $signal for $purpose - saving world and stopping server"
 
   if [ -z "${SERVER_PID:-}" ] || ! kill -0 "$SERVER_PID" 2>/dev/null; then
     if [ -z "${SERVER_PID:-}" ]; then
-      log_info "Shutdown requested before server launch - nothing to do"
+      log "Shutdown requested before server launch - nothing to do"
     else
-      log_info "Server process already stopped"
+      log "Server process already stopped"
     fi
     return 0
   fi
@@ -495,15 +408,15 @@ perform_shutdown_sequence() {
   saveworld_delay="${ASA_SHUTDOWN_SAVEWORLD_DELAY:-15}"
   shutdown_timeout="${ASA_SHUTDOWN_TIMEOUT:-180}"
 
-  log_step "Issuing saveworld via RCON before shutdown"
+  log "Issuing saveworld via RCON before shutdown"
   if "$ASA_CTRL_BIN" rcon --exec 'saveworld' >/dev/null 2>&1; then
-    log_success "Saveworld command sent successfully, waiting ${saveworld_delay}s for save completion"
+    log "Saveworld command sent successfully, waiting ${saveworld_delay}s for save completion"
     sleep "$saveworld_delay" || true
   else
-    log_warn "Failed to execute saveworld command via RCON"
+    log "Warning: failed to execute saveworld command via RCON"
   fi
 
-  log_step "Sending SIGTERM to server process $SERVER_PID"
+  log "Sending SIGTERM to server process $SERVER_PID"
   kill -TERM "$SERVER_PID" 2>/dev/null || true
 
   local elapsed=0
@@ -513,10 +426,10 @@ perform_shutdown_sequence() {
   done
 
   if kill -0 "$SERVER_PID" 2>/dev/null; then
-    log_warn "Server did not stop within ${shutdown_timeout}s - forcing termination"
+    log "Server did not stop within ${shutdown_timeout}s - forcing termination"
     kill -KILL "$SERVER_PID" 2>/dev/null || true
   else
-    log_success "Server process stopped cleanly"
+    log "Server process stopped cleanly"
   fi
 }
 
@@ -540,7 +453,7 @@ start_restart_scheduler() {
   fi
 
   if [ ! -x "$ASA_CTRL_BIN" ]; then
-    log_warn "Restart scheduler requested but asa-ctrl CLI missing; skipping"
+    log "Restart scheduler requested but asa-ctrl CLI missing; skipping"
     return 0
   fi
 
@@ -555,7 +468,7 @@ start_restart_scheduler() {
 
   "$ASA_CTRL_BIN" restart-scheduler &
   RESTART_SCHEDULER_PID=$!
-  log_success "Started restart scheduler (PID $RESTART_SCHEDULER_PID) with cron '$SERVER_RESTART_CRON'"
+  log "Started restart scheduler (PID $RESTART_SCHEDULER_PID) with cron '$SERVER_RESTART_CRON'"
 }
 
 cleanup() {
@@ -583,20 +496,19 @@ supervisor_loop() {
     exit_code=$?
 
     if [ "${SUPERVISOR_EXIT_REQUESTED:-0}" = "1" ]; then
-      log_info "Supervisor exit requested - stopping with code $exit_code"
+      log "Supervisor exit requested - stopping with code $exit_code"
       return "$exit_code"
     fi
 
     if [ "${RESTART_REQUESTED:-0}" = "1" ]; then
-      log_info "Scheduled restart completed - relaunching server after ${restart_delay}s"
+      log "Scheduled restart completed - relaunching server after ${restart_delay}s"
     else
-      log_warn "Server exited unexpectedly with code $exit_code - restarting after ${restart_delay}s"
+      log "Server exited unexpectedly with code $exit_code - restarting after ${restart_delay}s"
     fi
 
     RESTART_REQUESTED=0
     SHUTDOWN_IN_PROGRESS=0
 
-    log_step "Waiting ${restart_delay}s before next launch"
     sleep "$restart_delay" || true
   done
 }
@@ -608,7 +520,6 @@ run_server() {
   trap 'handle_restart_signal USR1' USR1
   trap cleanup EXIT
 
-  log_section "Server preparation"
   update_server_files
   resolve_proton_version
   install_proton_if_needed
@@ -618,7 +529,6 @@ run_server() {
   handle_plugin_loader
   start_log_streamer
 
-  log_section "Server launch"
   launch_server
   local exit_code=$?
   rm -f "$PID_FILE" || true
