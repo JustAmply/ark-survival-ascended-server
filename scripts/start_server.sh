@@ -150,7 +150,50 @@ update_server_files() {
 #############################
 # 4. Proton Handling
 #############################
+check_proton_release_assets() {
+  local version="$1"
+  if [ -z "$version" ]; then return 1; fi
+  local base="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton$version"
+  local archive_url="$base/GE-Proton$version.tar.gz"
+  local sum_url="$base/GE-Proton$version.sha512sum"
+  if wget --spider -q "$archive_url" 2>/dev/null && wget --spider -q "$sum_url" 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+find_latest_release_with_assets() {
+  local skip_version="${1:-}"
+  local page json tags tag version
+  for page in 1 2 3; do
+    json=$(wget -qO- "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases?per_page=10&page=$page" 2>/dev/null || true)
+    if [ -z "$json" ]; then
+      continue
+    fi
+    if command -v jq >/dev/null 2>&1; then
+      tags=$(printf '%s' "$json" | jq -r '.[].tag_name' 2>/dev/null || true)
+    else
+      tags=$(printf '%s' "$json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(GE-Proton[^"]*\)".*/\1/p')
+    fi
+    for tag in $tags; do
+      version=${tag#GE-Proton}
+      if [ -z "$version" ] || ! printf '%s' "$version" | grep -Eq '^[0-9][0-9A-Za-z._-]*$'; then
+        continue
+      fi
+      if [ -n "$skip_version" ] && [ "$version" = "$skip_version" ]; then
+        continue
+      fi
+      if check_proton_release_assets "$version"; then
+        printf '%s' "$version"
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+
 resolve_proton_version() {
+  local detected=""
   if [ -z "${PROTON_VERSION:-}" ]; then
     log "Detecting latest Proton GE version..."
     if json=$(wget -qO- https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest 2>/dev/null || true); then
@@ -166,8 +209,8 @@ resolve_proton_version() {
         ver=${ver#GE-Proton}
         # Basic validation: must start with a digit and contain only allowed chars (digits, dots, dashes)
         if printf '%s' "$ver" | grep -Eq '^[0-9][0-9A-Za-z._-]*$'; then
-          PROTON_VERSION="$ver"
-          log "Using detected GE-Proton version: $PROTON_VERSION"
+          detected="$ver"
+          log "Using detected GE-Proton version: $detected"
         else
           log "Detected tag_name malformed ('$ver'); ignoring"
         fi
@@ -177,8 +220,36 @@ resolve_proton_version() {
     else
       log "Could not query GitHub API for Proton releases"
     fi
+  else
+    detected="$PROTON_VERSION"
   fi
-  PROTON_VERSION="${PROTON_VERSION:-$FALLBACK_PROTON_VERSION}"
+
+  local resolved="${PROTON_VERSION:-}"
+  if [ -z "$resolved" ] && [ -n "$detected" ]; then
+    if check_proton_release_assets "$detected"; then
+      resolved="$detected"
+    else
+      log "Latest GE-Proton release GE-Proton$detected missing assets; searching previous releases..."
+    fi
+  fi
+
+  if [ -z "$resolved" ] && [ -z "${PROTON_VERSION:-}" ]; then
+    if fallback_ver=$(find_latest_release_with_assets "$detected"); then
+      resolved="$fallback_ver"
+      log "Using fallback GE-Proton release: $resolved"
+    else
+      log "No suitable Proton release with assets found via GitHub API"
+    fi
+  fi
+
+  if [ -z "$resolved" ]; then
+    resolved="${PROTON_VERSION:-$FALLBACK_PROTON_VERSION}"
+    if [ "$resolved" = "$FALLBACK_PROTON_VERSION" ]; then
+      log "Falling back to default Proton version: $resolved"
+    fi
+  fi
+
+  PROTON_VERSION="$resolved"
   export PROTON_VERSION
   PROTON_DIR_NAME="GE-Proton$PROTON_VERSION"
   PROTON_ARCHIVE_NAME="$PROTON_DIR_NAME.tar.gz"
