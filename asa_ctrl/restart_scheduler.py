@@ -7,7 +7,7 @@ import signal
 import subprocess
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from .logging_config import configure_logging, get_logger
 
@@ -88,7 +88,7 @@ class CronSchedule:
             except ValueError as exc:  # pragma: no cover - defensive
                 raise ValueError(f"Invalid value '{token}' in cron field '{label}'") from exc
 
-        values: set[int] = set()
+        values: Set[int] = set()
         for chunk in raw.split(","):
             chunk = chunk.strip()
             if not chunk:
