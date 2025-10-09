@@ -7,6 +7,7 @@ import signal
 import subprocess
 import time
 from datetime import datetime, timedelta
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
 from .logging_config import configure_logging, get_logger
@@ -43,15 +44,25 @@ _WEEKDAY_NAMES: Dict[str, int] = {
 }
 
 
+@dataclass(frozen=True)
+class FieldSpec:
+    name: str
+    minimum: int
+    maximum: int
+    allow_question: bool
+    names: Dict[str, int]
+    wrap_seven_to_zero: bool = False
+
+
 class CronSchedule:
     """Lightweight cron evaluator supporting the subset we rely on."""
 
-    _FIELD_SPECS: Tuple[Tuple[str, int, int, bool, Dict[str, int]], ...] = (
-        ("minute", 0, 59, False, {}),
-        ("hour", 0, 23, False, {}),
-        ("day", 1, 31, True, {}),
-        ("month", 1, 12, False, _MONTH_NAMES),
-        ("weekday", 0, 6, True, _WEEKDAY_NAMES),
+    _FIELD_SPECS: Tuple[FieldSpec, ...] = (
+        FieldSpec("minute", 0, 59, False, {}),
+        FieldSpec("hour", 0, 23, False, {}),
+        FieldSpec("day", 1, 31, True, {}),
+        FieldSpec("month", 1, 12, False, _MONTH_NAMES),
+        FieldSpec("weekday", 0, 6, True, _WEEKDAY_NAMES, wrap_seven_to_zero=True),
     )
 
     def __init__(self, expression: str) -> None:
@@ -63,18 +74,15 @@ class CronSchedule:
 
         self._fields: List[Optional[Tuple[int, ...]]] = []
         for value, spec in zip(parts, self._FIELD_SPECS):
-            self._fields.append(self._parse_field(value, *spec))
+            self._fields.append(self._parse_field(value, spec))
 
     @staticmethod
     def _parse_field(
         raw: str,
-        label: str,
-        minimum: int,
-        maximum: int,
-        allow_question: bool,
-        names: Dict[str, int],
+        spec: FieldSpec,
     ) -> Optional[Tuple[int, ...]]:
-        if allow_question and raw == "?":
+        label = spec.name
+        if spec.allow_question and raw == "?":
             raw = "*"
         if raw == "*":
             return None
@@ -82,8 +90,8 @@ class CronSchedule:
         def resolve(token: str) -> int:
             token = token.strip()
             token_key = token.lower()
-            if token_key in names:
-                return names[token_key]
+            if token_key in spec.names:
+                return spec.names[token_key]
             try:
                 return int(token)
             except ValueError as exc:  # pragma: no cover - defensive
@@ -112,7 +120,7 @@ class CronSchedule:
                 base = chunk
 
             if base in {"*", ""}:
-                start, end = minimum, maximum
+                start, end = spec.minimum, spec.maximum
             elif "-" in base:
                 start_text, end_text = base.split("-", 1)
                 start, end = resolve(start_text), resolve(end_text)
@@ -123,8 +131,8 @@ class CronSchedule:
                 raise ValueError(f"Invalid range '{chunk}' in cron field '{label}'")
 
             for candidate in range(start, end + 1, step):
-                normalized = 0 if label == "weekday" and candidate == 7 else candidate
-                if not (minimum <= normalized <= maximum):
+                normalized = 0 if spec.wrap_seven_to_zero and candidate == 7 else candidate
+                if not (spec.minimum <= normalized <= spec.maximum):
                     raise ValueError(
                         f"Value {candidate} out of bounds for cron field '{label}'"
                     )
