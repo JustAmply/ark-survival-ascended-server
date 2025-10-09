@@ -55,7 +55,7 @@ class CronSchedule:
     )
 
     def __init__(self, expression: str) -> None:
-        parts = [part.strip().lower() for part in expression.split() if part.strip()]
+        parts = [part.strip() for part in expression.split() if part.strip()]
         if len(parts) != 5:
             raise ValueError(
                 "Cron expression must have exactly 5 fields (minute hour day month weekday)"
@@ -81,8 +81,9 @@ class CronSchedule:
 
         def resolve(token: str) -> int:
             token = token.strip()
-            if token in names:
-                return names[token]
+            token_key = token.lower()
+            if token_key in names:
+                return names[token_key]
             try:
                 return int(token)
             except ValueError as exc:  # pragma: no cover - defensive
