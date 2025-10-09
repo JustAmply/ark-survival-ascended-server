@@ -6,9 +6,9 @@ import os
 import signal
 import subprocess
 import time
-from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import List, Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Set, Tuple
 
 from .logging_config import configure_logging, get_logger
 
@@ -18,170 +18,158 @@ MAX_SLEEP_INTERVAL_SECONDS = 30
 POST_RESTART_DELAY_SECONDS = 10
 
 
-@dataclass(frozen=True)
-class CronField:
-    """Represents a parsed cron field."""
+_MONTH_NAMES: Dict[str, int] = {
+    "jan": 1,
+    "feb": 2,
+    "mar": 3,
+    "apr": 4,
+    "may": 5,
+    "jun": 6,
+    "jul": 7,
+    "aug": 8,
+    "sep": 9,
+    "oct": 10,
+    "nov": 11,
+    "dec": 12,
+}
 
-    values: Sequence[int]
-    is_wildcard: bool
+_WEEKDAY_NAMES: Dict[str, int] = {
+    "sun": 0,
+    "mon": 1,
+    "tue": 2,
+    "wed": 3,
+    "thu": 4,
+    "fri": 5,
+    "sat": 6,
+}
+
+
+@dataclass(frozen=True)
+class FieldSpec:
+    name: str
+    minimum: int
+    maximum: int
+    allow_question: bool
+    names: Dict[str, int]
+    wrap_seven_to_zero: bool = False
 
 
 class CronSchedule:
-    """Simple cron schedule evaluator supporting 5-field expressions."""
+    """Lightweight cron evaluator supporting the subset we rely on."""
+
+    _FIELD_SPECS: Tuple[FieldSpec, ...] = (
+        FieldSpec("minute", 0, 59, False, {}),
+        FieldSpec("hour", 0, 23, False, {}),
+        FieldSpec("day", 1, 31, True, {}),
+        FieldSpec("month", 1, 12, False, _MONTH_NAMES),
+        FieldSpec("weekday", 0, 6, True, _WEEKDAY_NAMES, wrap_seven_to_zero=True),
+    )
 
     def __init__(self, expression: str) -> None:
-        self.expression = expression
         parts = [part.strip() for part in expression.split() if part.strip()]
         if len(parts) != 5:
-            raise ValueError("Cron expression must have exactly 5 fields (minute hour day month weekday)")
+            raise ValueError(
+                "Cron expression must have exactly 5 fields (minute hour day month weekday)"
+            )
 
-        self.minutes = self._parse_field(parts[0], 0, 59)
-        self.hours = self._parse_field(parts[1], 0, 23)
-        self.days = self._parse_field(parts[2], 1, 31, allow_question=True)
-        self.months = self._parse_field(parts[3], 1, 12, allow_names=True)
-        self.weekdays = self._parse_field(parts[4], 0, 6, allow_names=True, allow_question=True, allow_seven=True)
+        self._fields: List[Optional[Tuple[int, ...]]] = []
+        for value, spec in zip(parts, self._FIELD_SPECS):
+            self._fields.append(self._parse_field(value, spec))
 
     @staticmethod
     def _parse_field(
-        field: str,
-        minimum: int,
-        maximum: int,
-        *,
-        allow_names: bool = False,
-        allow_question: bool = False,
-        allow_seven: bool = False,
-    ) -> CronField:
-        if not field:
-            raise ValueError("Empty cron field")
+        raw: str,
+        spec: FieldSpec,
+    ) -> Optional[Tuple[int, ...]]:
+        label = spec.name
+        if spec.allow_question and raw == "?":
+            raw = "*"
+        if raw == "*":
+            return None
 
-        original_field = field
-        if allow_question and field == "?":
-            field = "*"
-
-        is_wildcard = field == "*"
-        names = {}
-        if allow_names:
-            names = {
-                "jan": 1,
-                "feb": 2,
-                "mar": 3,
-                "apr": 4,
-                "may": 5,
-                "jun": 6,
-                "jul": 7,
-                "aug": 8,
-                "sep": 9,
-                "oct": 10,
-                "nov": 11,
-                "dec": 12,
-                "sun": 0,
-                "mon": 1,
-                "tue": 2,
-                "wed": 3,
-                "thu": 4,
-                "fri": 5,
-                "sat": 6,
-            }
-
-        def resolve(value: str) -> int:
-            value_lower = value.lower()
-            if allow_names and value_lower in names:
-                return names[value_lower]
+        def resolve(token: str) -> int:
+            token = token.strip()
+            token_key = token.lower()
+            if token_key in spec.names:
+                return spec.names[token_key]
             try:
-                resolved = int(value)
+                return int(token)
             except ValueError as exc:  # pragma: no cover - defensive
-                raise ValueError(f"Invalid cron value '{value}'") from exc
-            return resolved
+                raise ValueError(f"Invalid value '{token}' in cron field '{label}'") from exc
 
-        def in_bounds(value: int) -> bool:
-            if minimum <= value <= maximum:
-                return True
-            if allow_seven and value == 7:
-                return True
-            return False
-
-        values: List[int] = []
-        for part in field.split(","):
-            part = part.strip()
-            if not part:
-                raise ValueError(f"Empty cron field segment in '{original_field}'")
+        values: Set[int] = set()
+        for chunk in raw.split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                raise ValueError(f"Empty value in cron field '{label}'")
 
             step = 1
-            if "/" in part:
-                range_part, step_part = part.split("/", 1)
-                if not step_part:
-                    raise ValueError(f"Missing step in cron segment '{part}'")
+            if "/" in chunk:
+                base, step_text = chunk.split("/", 1)
+                if not step_text:
+                    raise ValueError(f"Missing step in cron field '{label}' segment '{chunk}'")
                 try:
-                    step = int(step_part)
+                    step = int(step_text)
                 except ValueError as exc:
-                    raise ValueError(f"Invalid step '{step_part}' in cron segment '{part}'") from exc
+                    raise ValueError(
+                        f"Invalid step '{step_text}' in cron field '{label}' segment '{chunk}'"
+                    ) from exc
                 if step <= 0:
-                    raise ValueError(f"Step must be positive in cron segment '{part}'")
+                    raise ValueError(f"Step must be positive in cron field '{label}' segment '{chunk}'")
             else:
-                range_part = part
+                base = chunk
 
-            if range_part in {"*", ""}:
-                start = minimum
-                end = maximum
-            elif "-" in range_part:
-                start_str, end_str = range_part.split("-", 1)
-                start = resolve(start_str)
-                end = resolve(end_str)
+            if base in {"*", ""}:
+                start, end = spec.minimum, spec.maximum
+            elif "-" in base:
+                start_text, end_text = base.split("-", 1)
+                start, end = resolve(start_text), resolve(end_text)
             else:
-                start = resolve(range_part)
-                end = start
+                start = end = resolve(base)
 
-            if not in_bounds(start) or not in_bounds(end):
-                raise ValueError(f"Cron value out of bounds in segment '{part}'")
             if end < start:
-                raise ValueError(f"Invalid range '{part}' in cron field")
+                raise ValueError(f"Invalid range '{chunk}' in cron field '{label}'")
 
             for candidate in range(start, end + 1, step):
-                if not in_bounds(candidate):
-                    continue
-                normalized = 0 if allow_seven and candidate == 7 else candidate
-                if normalized not in values:
-                    values.append(normalized)
+                normalized = 0 if spec.wrap_seven_to_zero and candidate == 7 else candidate
+                if not (spec.minimum <= normalized <= spec.maximum):
+                    raise ValueError(
+                        f"Value {candidate} out of bounds for cron field '{label}'"
+                    )
+                values.add(normalized)
 
-        values.sort()
-        return CronField(tuple(values), is_wildcard)
+        if not values:
+            raise ValueError(f"No values resolved for cron field '{label}'")
+        return tuple(sorted(values))
 
     def next_run(self, reference: datetime) -> datetime:
         """Return the next scheduled time strictly after ``reference``."""
 
-        # Work on minute precision
         current = reference.replace(second=0, microsecond=0) + timedelta(minutes=1)
-
-        attempts = 0
         limit = 366 * 24 * 60  # One year of minutes safety limit
-        while attempts <= limit:
+        for _ in range(limit):
             if self._matches(current):
                 return current
             current += timedelta(minutes=1)
-            attempts += 1
         raise ValueError("Unable to resolve next cron run within one year")
 
     def _matches(self, candidate: datetime) -> bool:
-        if candidate.minute not in self.minutes.values:
+        minute_values, hour_values, day_values, month_values, weekday_values = self._fields
+
+        if minute_values is not None and candidate.minute not in minute_values:
             return False
-        if candidate.hour not in self.hours.values:
+        if hour_values is not None and candidate.hour not in hour_values:
             return False
-        if candidate.month not in self.months.values:
+        if month_values is not None and candidate.month not in month_values:
             return False
 
-        day_match = candidate.day in self.days.values
+        day_match = day_values is None or candidate.day in day_values
         cron_weekday = (candidate.weekday() + 1) % 7
-        weekday_match = cron_weekday in self.weekdays.values
+        weekday_match = weekday_values is None or cron_weekday in weekday_values
 
-        if not self.days.is_wildcard and not self.weekdays.is_wildcard:
-            if not (day_match or weekday_match):
-                return False
-        else:
-            if not self.days.is_wildcard and not day_match:
-                return False
-            if not self.weekdays.is_wildcard and not weekday_match:
-                return False
-        return True
+        if day_values is not None and weekday_values is not None:
+            return (candidate.day in day_values) or (cron_weekday in weekday_values)
+        return day_match and weekday_match
 
 
 def parse_warning_offsets(raw: str) -> List[int]:
