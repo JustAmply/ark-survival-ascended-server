@@ -80,7 +80,7 @@ class CronSchedule:
             return None
 
         def resolve(token: str) -> int:
-            token = token.strip().lower()
+            token = token.strip()
             if token in names:
                 return names[token]
             try:
