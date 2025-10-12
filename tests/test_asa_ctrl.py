@@ -123,6 +123,32 @@ def test_cli_mods_string():
         ModDatabase._instance = None
     print("\u2713 CLI mods-string tests passed")
 
+    print("Testing CLI mods removal...")
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = os.path.join(temp_dir, 'mods.json')
+        os.environ['ASA_MOD_DATABASE_PATH'] = db_path
+        db = ModDatabase(db_path)
+        ModDatabase._instance = db
+
+        mod_id = 98765
+        db.enable_mod(mod_id)
+        assert db.get_mod(mod_id) is not None
+
+        from io import StringIO
+        import contextlib
+
+        buf = StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli_main(['mods', 'remove', str(mod_id)])
+        assert db.get_mod(mod_id) is None
+        output = buf.getvalue()
+        assert "Removed mod id" in output
+
+        ModDatabase._instance = None
+        os.environ.pop('ASA_MOD_DATABASE_PATH', None)
+
+    print("\u2713 CLI mods removal tests passed")
+
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, "mods.json")
         db = ModDatabase(db_path)
