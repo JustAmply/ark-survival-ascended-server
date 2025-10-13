@@ -120,7 +120,11 @@ class ModsCommand:
         # Disable mod command
         disable_parser = mod_subparsers.add_parser('disable', help='Disable a mod')
         disable_parser.add_argument('mod_id', type=int, help='The mod ID to disable')
-        
+
+        # Remove mod command
+        remove_parser = mod_subparsers.add_parser('remove', help='Remove a mod entry entirely')
+        remove_parser.add_argument('mod_id', type=int, help='The mod ID to remove from the database')
+
         # List mods command
         list_parser = mod_subparsers.add_parser('list', help='List all mods')
         list_parser.add_argument('--enabled-only', action='store_true', 
@@ -136,10 +140,12 @@ class ModsCommand:
                 ModsCommand._enable_mod(args.mod_id)
             elif args.mod_action == 'disable':
                 ModsCommand._disable_mod(args.mod_id)
+            elif args.mod_action == 'remove':
+                ModsCommand._remove_mod(args.mod_id)
             elif args.mod_action == 'list':
                 ModsCommand._list_mods(args.enabled_only)
             else:
-                print("Please specify a mod action: enable, disable, or list")
+                print("Please specify a mod action: enable, disable, remove, or list")
                 sys.exit(ExitCodes.OK)
                 
         except CorruptedModsDatabaseError as e:
@@ -167,7 +173,16 @@ class ModsCommand:
             print(f"Disabled mod id '{mod_id}' successfully.")
         else:
             print(f"Mod id '{mod_id}' was not found in the database.")
-    
+
+    @staticmethod
+    def _remove_mod(mod_id: int) -> None:
+        """Remove a mod entry entirely."""
+        db = ModDatabase.get_instance()
+        if db.remove_mod(mod_id):
+            print(f"Removed mod id '{mod_id}' successfully.")
+        else:
+            print(f"Mod id '{mod_id}' was not found in the database.")
+
     @staticmethod
     def _list_mods(enabled_only: bool = False) -> None:
         """List mods."""

@@ -97,6 +97,9 @@ docker exec asa-server-1 asa-ctrl mods enable 67891
 # List enabled mods
 docker exec asa-server-1 asa-ctrl mods list --enabled-only
 
+# Remove mods you no longer need (deletes the database entry)
+docker exec asa-server-1 asa-ctrl mods remove 12345
+
 # Restart to download and activate mods
 docker restart asa-server-1
 ```
