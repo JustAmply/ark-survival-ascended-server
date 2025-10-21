@@ -52,6 +52,13 @@ Look for something like `SessionName=ARK #334850` - search for the number part!
 
 **A:** **Don't use Ubuntu 22.04!** It has known issues with this container. Switch to Ubuntu 24.04 or Debian 12.
 
+### **Q: Can I run the server on ARM hardware?**
+
+**A:** Yes! The container now provides a native `linux/arm64` variant with Box64 baked in so Proton can run the Windows
+server binaries on aarch64 hosts. Just deploy the regular `ghcr.io/justamply/asa-linux-server:latest` image on your ARM
+machine and Docker will automatically pull the right architecture – no additional compatibility helpers required. If you
+prefer to build locally, use `docker buildx build --platform linux/arm64 ...`.
+
 ### **Q: Server won't start/keeps crashing**
 
 **A:** Check these common causes:

@@ -1,5 +1,7 @@
 FROM python:3.12-slim
 
+ARG TARGETARCH
+
 # Build arguments for metadata
 ARG VERSION="unknown"
 ARG GIT_COMMIT="unknown"
@@ -17,19 +19,39 @@ LABEL org.opencontainers.image.version="${VERSION}" \
 ENV TZ=UTC
 ARG DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    locales \
-    tzdata \
-    wget \
-    unzip \
-    libc6-dev \
-    lib32stdc++6 \
-    lib32z1 \
-    lib32gcc-s1 \
-    libfreetype6 \
-    && rm -rf /var/lib/apt/lists/* && \
-    echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen && \
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        locales \
+        tzdata \
+        wget \
+        unzip \
+        libc6-dev \
+        lib32stdc++6 \
+        lib32z1 \
+        lib32gcc-s1 \
+        libfreetype6 \
+        ca-certificates; \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            git \
+            ninja-build \
+            pkg-config; \
+    fi; \
+    rm -rf /var/lib/apt/lists/*; \
+    echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen; \
     locale-gen
+
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        set -eux; \
+        git clone --depth 1 https://github.com/ptitSeb/box64.git /tmp/box64; \
+        cmake -S /tmp/box64 -B /tmp/box64/build -DCMAKE_BUILD_TYPE=RelWithDebInfo; \
+        cmake --build /tmp/box64/build -- -j"$(nproc)"; \
+        cmake --install /tmp/box64/build; \
+        rm -rf /tmp/box64; \
+    fi
 
 # Set locale-related environment variables early (inherit to runtime)
 ENV LANG=en_US.UTF-8 \

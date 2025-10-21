@@ -12,6 +12,18 @@ Your complete guide to getting an amazing ARK server up and running! This covers
 
 **⚠️ Avoid Ubuntu 22.04** - Known issues cause high CPU usage and server startup failures.
 
+#### 🧠 Using ARM hardware
+
+The container includes a native `linux/arm64` build that ships with Box64, allowing Proton and the Windows dedicated server to
+run on aarch64 hosts with no manual setup. Pulling `ghcr.io/justamply/asa-linux-server:latest` on an ARM system will automatically
+select the correct image variant – just follow the regular quick-start instructions.
+
+If you build the image yourself, use BuildKit's multi-architecture support:
+
+```bash
+docker buildx build --platform linux/arm64 -t my-asa-server .
+```
+
 ### 🐳 Prerequisites
 - Docker and Docker Compose installed on your system
 - Basic command line knowledge

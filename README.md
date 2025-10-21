@@ -40,6 +40,22 @@ Your server will be discoverable in the "Unofficial" server browser once setup i
 - **OS**: Linux with Docker support
 - **Tested on**: Ubuntu 24.04, Debian 12, Docker Desktop on Windows
 
+### Running on ARM hosts
+
+Yes – the image now ships with a native `linux/arm64` variant that bundles [Box64](https://github.com/ptitSeb/box64)
+so Proton and the Windows dedicated server can run transparently on ARM machines. Docker will automatically pull the
+correct architecture when you deploy on aarch64 hardware, so no additional compatibility scripts or manual binfmt
+registration is required.
+
+To build the image yourself on ARM hardware, use BuildKit's multi-architecture support:
+
+```bash
+docker buildx build --platform linux/arm64 -t yourname/asa-linux-server .
+```
+
+When using Docker Compose, simply run `docker compose up -d` as described in the quick start. The compose template no
+longer forces the amd64 platform, allowing ARM hosts to pull the native image automatically.
+
 ## 🎯 Main Use Cases
 
 ### Single Server Setup

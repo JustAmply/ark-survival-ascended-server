@@ -327,6 +327,34 @@ prepare_runtime_env() {
 }
 
 #############################
+# ARM64 Emulation Helpers
+#############################
+is_arm_host() {
+  case "$(uname -m)" in
+    aarch64|arm64)
+      return 0 ;;
+    *)
+      return 1 ;;
+  esac
+}
+
+configure_box64_runtime() {
+  local proton_root="$1"
+
+  if ! command -v box64 >/dev/null 2>&1; then
+    log "box64 runtime not found but required for ARM64 hosts"
+    return 1
+  fi
+
+  export BOX64_NOBANNER=1
+  export BOX64_LOG=0
+  export BOX64_DYNAREC=1
+  export BOX64_PATH="$proton_root/files/bin:$proton_root/files/lib64:$proton_root/files/lib:${BOX64_PATH:-}"
+  export BOX64_LD_LIBRARY_PATH="$proton_root/files/lib64:$proton_root/files/lib:${BOX64_LD_LIBRARY_PATH:-}"
+  return 0
+}
+
+#############################
 # 7. Plugin Loader Handling
 #############################
 handle_plugin_loader() {
@@ -368,12 +396,25 @@ launch_server() {
   log "Starting ASA dedicated server..."
   log "Start parameters: $ASA_START_PARAMS"
   cd "$ASA_BINARY_DIR"
-  local runner
+  local runner proton_root proton_script
+  proton_root="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME"
+  proton_script="$proton_root/proton"
+  runner=()
+
   if command -v stdbuf >/dev/null 2>&1; then
-    runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-  else
-    runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    runner+=(stdbuf -oL -eL)
   fi
+
+  if is_arm_host; then
+    if ! configure_box64_runtime "$proton_root"; then
+      log "Failed to prepare box64 runtime for ARM64 execution"
+      return 120
+    fi
+    runner+=("box64" "$proton_script" "run" "$LAUNCH_BINARY_NAME")
+  else
+    runner+=("$proton_script" "run" "$LAUNCH_BINARY_NAME")
+  fi
+
   "${runner[@]}" $ASA_START_PARAMS &
   SERVER_PID=$!
   echo "$SERVER_PID" > "$PID_FILE"
