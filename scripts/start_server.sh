@@ -410,10 +410,9 @@ launch_server() {
       log "Failed to prepare box64 runtime for ARM64 execution"
       return 120
     fi
-    runner+=("box64" "$proton_script" "run" "$LAUNCH_BINARY_NAME")
-  else
-    runner+=("$proton_script" "run" "$LAUNCH_BINARY_NAME")
   fi
+
+  runner+=("$proton_script" "run" "$LAUNCH_BINARY_NAME")
 
   "${runner[@]}" $ASA_START_PARAMS &
   SERVER_PID=$!
