@@ -18,6 +18,7 @@ ENV TZ=UTC
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
     locales \
     tzdata \
     wget \
@@ -65,8 +66,9 @@ RUN echo 'export PYTHONPATH=/usr/share:$PYTHONPATH' > /etc/profile.d/asa_ctrl.sh
 # Copy server management script
 COPY scripts/start_server.sh /usr/bin/start_server.sh
 
-# Set permissions
-RUN chmod +x /usr/bin/start_server.sh
+# Set permissions and ensure Unix line endings (avoid ARM exec format errors)
+RUN chmod +x /usr/bin/start_server.sh \
+    && sed -i 's/\r$//' /usr/bin/start_server.sh
 
 # Declare persistent data volumes
 VOLUME ["/home/gameserver/Steam", \
@@ -78,4 +80,4 @@ VOLUME ["/home/gameserver/Steam", \
 WORKDIR /home/gameserver
 
 # Entry point
-ENTRYPOINT ["/usr/bin/start_server.sh"]
+ENTRYPOINT ["/usr/bin/env", "bash", "/usr/bin/start_server.sh"]
