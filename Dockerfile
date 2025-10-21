@@ -27,9 +27,6 @@ RUN set -eux; \
         wget \
         unzip \
         libc6-dev \
-        lib32stdc++6 \
-        lib32z1 \
-        lib32gcc-s1 \
         libfreetype6 \
         ca-certificates; \
     if [ "$TARGETARCH" = "arm64" ]; then \
@@ -39,6 +36,11 @@ RUN set -eux; \
             git \
             ninja-build \
             pkg-config; \
+    else \
+        apt-get install -y --no-install-recommends \
+            lib32stdc++6 \
+            lib32z1 \
+            lib32gcc-s1; \
     fi; \
     rm -rf /var/lib/apt/lists/*; \
     echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen; \
