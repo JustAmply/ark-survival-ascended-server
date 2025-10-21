@@ -96,6 +96,9 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Generated tags: ${TAGS//$'\n'/, }"
 
+      - name: Set up QEMU (emulation)
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -111,6 +114,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          platforms: linux/amd64,linux/arm64/v8
           push: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
           tags: ${{ steps.metadata.outputs.tags }}
           build-args: |
