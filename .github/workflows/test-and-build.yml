@@ -1,0 +1,117 @@
+name: Test and Build Docker Image
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+      - '[0-9]+.*'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  test-and-build:
+    name: Run tests and build Docker image
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_BASENAME: ${{ github.repository_owner }}/asa-linux-server
+    outputs:
+      image-tags: ${{ steps.metadata.outputs.tags }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+          pip install .
+
+      - name: Run tests
+        if: ${{ hashFiles('tests/**/*.py') != '' }}
+        run: |
+          pytest -q
+
+      - name: Extract version from pyproject.toml
+        id: version
+        run: |
+          VERSION=$(python3 -c "
+          import tomllib
+          with open('pyproject.toml', 'rb') as f:
+              data = tomllib.load(f)
+          print(data['project']['version'])
+          ")
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            SHORT_SHA="${{ github.event.pull_request.head.sha }}"
+            SHORT_SHA="${SHORT_SHA:0:7}"
+            FINAL_VERSION="${VERSION}-pr${PR_NUMBER}-${SHORT_SHA}"
+          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+            FINAL_VERSION="${{ github.ref_name }}"
+            FINAL_VERSION="${FINAL_VERSION#v}"
+          else
+            FINAL_VERSION="${VERSION}"
+          fi
+
+          echo "version=${FINAL_VERSION}" >> $GITHUB_OUTPUT
+          echo "Determined version: ${FINAL_VERSION}"
+
+      - name: Generate image metadata
+        id: metadata
+        run: |
+          IMAGE_BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
+          VERSION="${{ steps.version.outputs.version }}"
+
+          TAGS="${IMAGE_BASE}:${VERSION}"
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            PR_SHA="${{ github.event.pull_request.head.sha }}"
+            PR_SHA_SHORT="${PR_SHA:0:7}"
+            TAGS="${TAGS}"$'\n'"${IMAGE_BASE}:pr-${PR_NUMBER}"
+            TAGS="${TAGS}"$'\n'"${IMAGE_BASE}:pr-${PR_NUMBER}-${PR_SHA_SHORT}"
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            TAGS="${TAGS}"$'\n'"${IMAGE_BASE}:latest"
+          fi
+
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "Generated tags: ${TAGS//$'\n'/, }"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
+          tags: ${{ steps.metadata.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.run_id }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
