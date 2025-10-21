@@ -44,7 +44,7 @@ jobs:
           pip install .
 
       - name: Run tests
-        if: ${{ hashFiles('tests/**/*.py') != '' }}
+        if: ${{ hashFiles('tests/**/*.py') }}
         run: |
           pytest -q
 
