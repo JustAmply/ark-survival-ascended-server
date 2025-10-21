@@ -89,7 +89,11 @@ jobs:
             TAGS="${TAGS}"$'\n'"${IMAGE_BASE}:latest"
           fi
 
-          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          {
+            echo "tags<<__EOF__"
+            echo "${TAGS}"
+            echo "__EOF__"
+          } >> "$GITHUB_OUTPUT"
           echo "Generated tags: ${TAGS//$'\n'/, }"
 
       - name: Set up Docker Buildx
