@@ -4,6 +4,7 @@ FROM python:3.12-slim
 ARG VERSION="unknown"
 ARG GIT_COMMIT="unknown"
 ARG BUILD_DATE="unknown"
+ARG TARGETARCH
 
 # Add metadata labels
 LABEL org.opencontainers.image.version="${VERSION}" \
@@ -17,19 +18,35 @@ LABEL org.opencontainers.image.version="${VERSION}" \
 ENV TZ=UTC
 ARG DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash \
-    locales \
-    tzdata \
-    wget \
-    unzip \
-    libc6-dev \
-    lib32stdc++6 \
-    lib32z1 \
-    lib32gcc-s1 \
-    libfreetype6 \
-    && rm -rf /var/lib/apt/lists/* && \
-    echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen && \
+RUN set -eux; \
+    if [ "${TARGETARCH}" != "amd64" ]; then \
+      dpkg --add-architecture amd64; \
+    fi; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      bash \
+      locales \
+      tzdata \
+      wget \
+      unzip; \
+    if [ "${TARGETARCH}" = "amd64" ]; then \
+      apt-get install -y --no-install-recommends \
+        libc6-dev \
+        lib32stdc++6 \
+        lib32z1 \
+        lib32gcc-s1 \
+        libfreetype6; \
+    else \
+      apt-get install -y --no-install-recommends \
+        libc6:amd64 \
+        libc6-dev:amd64 \
+        lib32stdc++6:amd64 \
+        lib32z1:amd64 \
+        lib32gcc-s1:amd64 \
+        libfreetype6:amd64; \
+    fi; \
+    rm -rf /var/lib/apt/lists/*; \
+    echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen; \
     locale-gen
 
 # Set locale-related environment variables early (inherit to runtime)
