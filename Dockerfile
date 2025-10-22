@@ -38,35 +38,26 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
             lib32gcc-s1 \
         && rm -rf /var/lib/apt/lists/*; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
-        # For ARM64: Install dependencies for Box64/Box86 and Wine \
         apt-get update && apt-get install -y --no-install-recommends \
-            git \
-            build-essential \
-            cmake \
-        && rm -rf /var/lib/apt/lists/* \
-        # Build and install Box64 from source (for x86_64 emulation) \
-        && cd /tmp \
-        && git clone https://github.com/ptitSeb/box64.git --depth 1 \
-        && cd box64 \
-        && mkdir build && cd build \
-        && cmake .. -DARM_DYNAREC=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        && make -j$(nproc) \
-        && make install \
-        && cd /tmp && rm -rf box64 \
-        # Build and install Box86 from source (for x86 32-bit emulation) \
-        && git clone https://github.com/ptitSeb/box86.git --depth 1 \
-        && cd box86 \
-        && mkdir build && cd build \
-        && cmake .. -DARM_DYNAREC=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        && make -j$(nproc) \
-        && make install \
-        && cd /tmp && rm -rf box86 \
-        # Clean up build dependencies to reduce image size \
-        && apt-get remove -y git build-essential cmake \
-        && apt-get autoremove -y \
-        # Install Wine for ARM64 from Debian repositories \
+            ca-certificates \
+            curl \
+            gnupg \
+        && mkdir -p /usr/share/keyrings \
+        && curl -fsSL https://ryanfortner.github.io/box64-debs/KEY.gpg \
+            | gpg --batch --yes --dearmor -o /usr/share/keyrings/box64-archive-keyring.gpg \
+        && echo "deb [arch=arm64 signed-by=/usr/share/keyrings/box64-archive-keyring.gpg] https://ryanfortner.github.io/box64-debs/debian ./" \
+            > /etc/apt/sources.list.d/box64.list \
+        && curl -fsSL https://ryanfortner.github.io/box86-debs/KEY.gpg \
+            | gpg --batch --yes --dearmor -o /usr/share/keyrings/box86-archive-keyring.gpg \
+        && echo "deb [arch=armhf signed-by=/usr/share/keyrings/box86-archive-keyring.gpg] https://ryanfortner.github.io/box86-debs/debian ./" \
+            > /etc/apt/sources.list.d/box86.list \
+        && dpkg --add-architecture armhf \
         && apt-get update \
-        && apt-get install -y --no-install-recommends wine wine64 \
+        && apt-get install -y --no-install-recommends \
+            box64 \
+            box86-generic-arm:armhf \
+            wine \
+            wine64 \
         && rm -rf /var/lib/apt/lists/*; \
     fi
 
