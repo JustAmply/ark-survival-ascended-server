@@ -155,8 +155,10 @@ ensure_steamcmd() {
 update_server_files() {
   log "Updating / validating ASA server files..."
   if [ "$IS_ARM64" = "1" ]; then
-    # On ARM64, run the SteamCMD shell wrapper normally but force box86 to execute the binary
-    (cd "$STEAMCMD_DIR" && DEBUGGER=box86 ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+    # On ARM64, execute the Linux32 SteamCMD binary directly via box86.
+    # Running the shell wrapper itself under box86 fails because it is a POSIX script,
+    # so we instead invoke the actual x86 binary that the wrapper launches.
+    (cd "$STEAMCMD_DIR" && box86 ./linux32/steamcmd +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
   else
     # On x86_64, run SteamCMD natively
     (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
