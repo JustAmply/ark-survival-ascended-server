@@ -284,8 +284,10 @@ class RconClient:
         packet_size = 10 + len(data_bytes)
         packet_id = int(time.time()) % 2**31  # Use timestamp as packet ID for uniqueness
         
-        # Pack the packet: size, id, type, body (null-terminated), extra null byte
-        packet_data = struct.pack('<III', packet_size, packet_id, packet_type)
+        # Pack the packet: size, id, type, body (null-terminated), extra null byte.
+        # IDs and types must be encoded as signed integers because the RCON
+        # protocol uses -1 as the authentication failure sentinel.
+        packet_data = struct.pack('<Iii', packet_size, packet_id, packet_type)
         packet_data += data_bytes + b'\x00\x00'
         
         try:
@@ -303,7 +305,8 @@ class RconClient:
             if len(response_data) < 12:
                 raise RconPacketError(f"Response too short: {len(response_data)} bytes")
             
-            size, response_id, response_type = struct.unpack('<III', response_data[:12])
+            # IDs and types are signed because the server returns -1 on auth failure.
+            size, response_id, response_type = struct.unpack('<Iii', response_data[:12])
             
             # Validate response packet structure
             if size < 10:
@@ -412,11 +415,16 @@ class RconClient:
         """
         try:
             response = self._send_packet(self.password, RconPacketTypes.AUTH)
-            self._authenticated = (response.id != -1)
-            return self._authenticated
         except (RconPacketError, RconTimeoutError, RconConnectionError):
             self._authenticated = False
             raise
+
+        if response.id == -1:
+            self._authenticated = False
+            raise RconAuthenticationError("RCON authentication failed: server returned -1 response ID")
+
+        self._authenticated = True
+        return True
     
     def connect(self, timeout: Optional[float] = None) -> None:
         """
