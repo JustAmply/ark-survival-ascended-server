@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from types import MethodType
+from unittest.mock import patch
 
 # Ensure project root is on sys.path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,14 +22,16 @@ from asa_ctrl.mods import ModDatabase, ModRecord  # noqa: E402
 from asa_ctrl.config import StartParamsHelper, parse_start_params  # noqa: E402
 from asa_ctrl.constants import ExitCodes  # noqa: E402
 from asa_ctrl.cli import main as cli_main  # noqa: E402
-from asa_ctrl.rcon import RconClient  # noqa: E402
+from asa_ctrl.rcon import RconClient, RconPacket  # noqa: E402
 from asa_ctrl.errors import (  # noqa: E402
-    RconPortNotFoundError, 
+    RconPortNotFoundError,
     RconPasswordNotFoundError,
     RconConnectionError,
     RconPacketError,
-    RconTimeoutError
+    RconTimeoutError,
+    RconAuthenticationError,
 )
+from asa_ctrl.constants import RconPacketTypes  # noqa: E402
 
 
 def test_start_params_helper():
@@ -248,8 +252,61 @@ def test_rcon_validation():
         assert False, "Should have raised RconPacketError for small packet"
     except RconPacketError:
         pass  # Expected
-    
+
     print("✓ RCON validation tests passed")
+
+
+def test_rcon_authenticate_failure_propagates_error():
+    """Ensure _authenticate raises when the server reports a failure."""
+
+    client = RconClient.__new__(RconClient)
+    client.password = "test"
+    client._authenticated = False
+    client._connected = True
+
+    def fake_send_packet(self, data, packet_type):
+        assert packet_type == RconPacketTypes.AUTH
+        return RconPacket(10, -1, RconPacketTypes.AUTH_RESPONSE, "")
+
+    client._send_packet = MethodType(fake_send_packet, client)
+
+    try:
+        client._authenticate()
+        assert False, "_authenticate should raise RconAuthenticationError on -1 response ID"
+    except RconAuthenticationError:
+        assert client._authenticated is False
+
+
+def test_rcon_connect_propagates_auth_failure():
+    """Ensure connect() surfaces authentication failures."""
+
+    client = RconClient(server_ip='127.0.0.1', port=27020, password='secret', retry_count=0)
+
+    def fake_send_packet(self, data, packet_type):
+        assert packet_type == RconPacketTypes.AUTH
+        return RconPacket(10, -1, RconPacketTypes.AUTH_RESPONSE, "")
+
+    client._send_packet = MethodType(fake_send_packet, client)
+
+    class DummySocket:
+        def __init__(self, *args, **kwargs):
+            self.closed = False
+
+        def settimeout(self, value):  # pragma: no cover - trivial setter
+            self.timeout = value
+
+        def connect(self, address):  # pragma: no cover - trivial connector
+            self.address = address
+
+        def close(self):  # pragma: no cover - trivial closer
+            self.closed = True
+
+    with patch('asa_ctrl.rcon.socket.socket', return_value=DummySocket()):
+        try:
+            client.connect()
+            assert False, "connect() should raise RconAuthenticationError when auth fails"
+        except RconAuthenticationError:
+            assert client._authenticated is False
 
 
 def main():  # pragma: no cover - simple runner
