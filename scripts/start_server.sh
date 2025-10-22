@@ -142,16 +142,25 @@ ensure_permissions() {
 # 3. SteamCMD / Server Files
 #############################
 ensure_steamcmd() {
-  if [ ! -d "$STEAMCMD_DIR/linux32" ]; then
+  if [ ! -d "$STEAMCMD_DIR/linux32" ] && [ ! -d "$STEAMCMD_DIR/linux64" ]; then
     log "Installing steamcmd..."
     mkdir -p "$STEAMCMD_DIR"
     (cd "$STEAMCMD_DIR" && wget -q https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz && tar xf steamcmd_linux.tar.gz)
+    if [ "$IS_ARM64" = "1" ]; then
+      log "ARM64 detected - SteamCMD will run via Box64 emulation"
+    fi
   fi
 }
 
 update_server_files() {
   log "Updating / validating ASA server files..."
-  (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+  if [ "$IS_ARM64" = "1" ]; then
+    # On ARM64, run SteamCMD through Box86 (it's a 32-bit binary)
+    (cd "$STEAMCMD_DIR" && box86 ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+  else
+    # On x86_64, run SteamCMD natively
+    (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+  fi
 }
 
 #############################
@@ -347,10 +356,15 @@ prepare_runtime_env() {
   chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
 
   if [ "$IS_ARM64" = "1" ]; then
-    # ARM64: Set up Wine prefix
+    # ARM64: Set up Wine prefix and Box64 environment
     export WINEPREFIX="$ASA_COMPAT_DATA"
     mkdir -p "$WINEPREFIX" || true
     log "Using Wine prefix at $WINEPREFIX"
+    # Box64 configuration for better compatibility
+    export BOX64_NOBANNER=1
+    export BOX64_LOG=0
+    export BOX64_DYNAREC_BIGBLOCK=1
+    export BOX64_DYNAREC_STRONGMEM=1
   else
     # x86_64: Set up Proton compat paths
     export STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/gameserver/Steam"

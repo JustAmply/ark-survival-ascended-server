@@ -42,7 +42,7 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
             lib32gcc-s1 \
         && rm -rf /var/lib/apt/lists/*; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
-        # For ARM64: Install dependencies for Box64 and Wine \
+        # For ARM64: Install dependencies for Box64/Box86 and Wine \
         apt-get update && apt-get install -y --no-install-recommends \
             git \
             build-essential \
@@ -50,7 +50,7 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
             gcc-arm-linux-gnueabihf \
             libc6:armhf \
         && rm -rf /var/lib/apt/lists/* \
-        # Build and install Box64 from source \
+        # Build and install Box64 from source (for x86_64 emulation) \
         && cd /tmp \
         && git clone https://github.com/ptitSeb/box64.git --depth 1 \
         && cd box64 \
@@ -59,6 +59,14 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
         && make -j$(nproc) \
         && make install \
         && cd /tmp && rm -rf box64 \
+        # Build and install Box86 from source (for x86 32-bit emulation) \
+        && git clone https://github.com/ptitSeb/box86.git --depth 1 \
+        && cd box86 \
+        && mkdir build && cd build \
+        && cmake .. -DARM_DYNAREC=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        && make -j$(nproc) \
+        && make install \
+        && cd /tmp && rm -rf box86 \
         # Clean up build dependencies to reduce image size \
         && apt-get remove -y git build-essential cmake gcc-arm-linux-gnueabihf \
         && apt-get autoremove -y \
