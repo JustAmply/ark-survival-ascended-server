@@ -13,7 +13,7 @@ Your complete guide to getting an amazing ARK server up and running! This covers
 
 **⚠️ Avoid Ubuntu 22.04** - Known issues cause high CPU usage and server startup failures.
 
-**ℹ️ ARM64 Note**: ARM64 support uses emulation (Box64) and may have lower performance compared to native x86_64 hardware. Recommended for testing or low-population servers.
+**ℹ️ ARM64 Note**: ARM64 support uses emulation (FEX-Emu running Proton) and may have lower performance compared to native x86_64 hardware. Recommended for testing or low-population servers.
 
 ### 🐳 Prerequisites
 - Docker and Docker Compose installed on your system
@@ -45,7 +45,7 @@ Your complete guide to getting an amazing ARK server up and running! This covers
 ### 🎉 First Launch
 
 Your server will automatically:
-- ✅ Download Steam & compatibility layer (Proton on x86_64, Box64+Wine on ARM64)
+- ✅ Download Steam & compatibility layer (Proton on x86_64, FEX-Emu + Proton on ARM64)
 - ✅ Download ARK server files (~31GB)
 - ✅ Generate a random server name
 - ✅ Start accepting connections in ~5-10 minutes

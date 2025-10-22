@@ -43,6 +43,17 @@ if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
   IS_ARM64=1
 fi
 
+if [ "$IS_ARM64" = "1" ]; then
+  FEX_WRAPPER="${FEX_WRAPPER:-FEXInterpreter}"
+  if ! command -v "$FEX_WRAPPER" >/dev/null 2>&1; then
+    if command -v FEX >/dev/null 2>&1; then
+      FEX_WRAPPER="FEX"
+    else
+      FEX_WRAPPER="FEXInterpreter"
+    fi
+  fi
+fi
+
 log() { echo "[asa-start] $*"; }
 
 on_error() {
@@ -156,9 +167,7 @@ ensure_steamcmd() {
     log "Installing steamcmd..."
     mkdir -p "$STEAMCMD_DIR"
     (cd "$STEAMCMD_DIR" && wget -q https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz && tar xf steamcmd_linux.tar.gz)
-    if [ "$IS_ARM64" = "1" ]; then
-      log "ARM64 detected - SteamCMD will run via Box86 emulation"
-    fi
+    [ "$IS_ARM64" = "1" ] && log "ARM64 detected - SteamCMD will run via FEX"
   else
     log "SteamCMD already present in $STEAMCMD_DIR - skipping install"
   fi
@@ -167,25 +176,22 @@ ensure_steamcmd() {
 update_server_files() {
   log "Updating / validating ASA server files..."
   if [ "$IS_ARM64" = "1" ]; then
-    local box86_path attempt exit_code
-    if box86_path=$(command -v box86 2>/dev/null); then
-      log "Using box86 located at $box86_path to launch SteamCMD"
-    else
-      log "Warning: box86 not found in PATH - SteamCMD update will likely fail"
+    local attempt exit_code wrapper
+    wrapper="${FEX_WRAPPER:-FEXInterpreter}"
+    if ! command -v "$wrapper" >/dev/null 2>&1; then
+      log "Error: $wrapper not found in PATH - FEX runtime missing?"
+      return 1
     fi
-    log "Running: box86 ./linux32/steamcmd +force_install_dir '$SERVER_FILES_DIR' +login anonymous +app_update 2430930 validate +quit"
-    # On ARM64, execute the Linux32 SteamCMD binary directly via box86.
-    # Running the shell wrapper itself under box86 fails because it is a POSIX script,
-    # so we instead invoke the actual x86 binary that the wrapper launches.
+    log "Running: $wrapper ./linux64/steamcmd +force_install_dir '$SERVER_FILES_DIR' +login anonymous +app_update 2430930 validate +quit"
     attempt=1
     while true; do
-      log "SteamCMD update attempt $attempt (ARM64 via box86)"
-      if (cd "$STEAMCMD_DIR" && box86 ./linux32/steamcmd +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit); then
+      log "SteamCMD update attempt $attempt (ARM64 via FEX)"
+      if (cd "$STEAMCMD_DIR" && "$wrapper" ./linux64/steamcmd +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit); then
         break
       fi
       exit_code=$?
       if [ "$exit_code" -eq 42 ]; then
-        log "SteamCMD requested restart after self-update (exit 42) - retrying via box86"
+        log "SteamCMD requested restart after self-update (exit 42) - retrying via FEX"
         attempt=$((attempt + 1))
         sleep 1
         continue
@@ -246,12 +252,6 @@ find_latest_release_with_assets() {
 }
 
 resolve_proton_version() {
-  # Skip Proton resolution on ARM64 - we use Box64 + Wine instead
-  if [ "$IS_ARM64" = "1" ]; then
-    log "ARM64 architecture detected - skipping Proton (using Box64 + Wine)"
-    return 0
-  fi
-
   local detected=""
   if [ -z "${PROTON_VERSION:-}" ]; then
     log "Detecting latest Proton GE version..."
@@ -315,11 +315,6 @@ resolve_proton_version() {
 }
 
 install_proton_if_needed() {
-  # Skip Proton installation on ARM64
-  if [ "$IS_ARM64" = "1" ]; then
-    return 0
-  fi
-
   if [ -d "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME" ]; then return 0; fi
   log "Downloading Proton $PROTON_DIR_NAME..."
   mkdir -p "$STEAM_COMPAT_DIR"
@@ -345,11 +340,6 @@ install_proton_if_needed() {
 }
 
 ensure_proton_compat_data() {
-  # Skip Proton compat data setup on ARM64
-  if [ "$IS_ARM64" = "1" ]; then
-    return 0
-  fi
-
   if [ ! -d "$ASA_COMPAT_DATA" ]; then
     log "Setting up Proton compat data..."
     mkdir -p "$STEAM_COMPAT_DATA"
@@ -392,21 +382,8 @@ prepare_runtime_env() {
   mkdir -p "$XDG_RUNTIME_DIR" || true
   chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
 
-  if [ "$IS_ARM64" = "1" ]; then
-    # ARM64: Set up Wine prefix and Box64 environment
-    export WINEPREFIX="$ASA_COMPAT_DATA"
-    mkdir -p "$WINEPREFIX" || true
-    log "Using Wine prefix at $WINEPREFIX"
-    # Box64 configuration for better compatibility
-    export BOX64_NOBANNER=1
-    export BOX64_LOG=0
-    export BOX64_DYNAREC_BIGBLOCK=1
-    export BOX64_DYNAREC_STRONGMEM=1
-  else
-    # x86_64: Set up Proton compat paths
-    export STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/gameserver/Steam"
-    export STEAM_COMPAT_DATA_PATH="$ASA_COMPAT_DATA"
-  fi
+  export STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/gameserver/Steam"
+  export STEAM_COMPAT_DATA_PATH="$ASA_COMPAT_DATA"
 }
 
 #############################
@@ -454,12 +431,17 @@ launch_server() {
   local runner
 
   if [ "$IS_ARM64" = "1" ]; then
-    # ARM64: Use Box64 + Wine
-    log "Using Box64 + Wine for ARM64 emulation"
+    # ARM64: Use FEX + Proton
+    local wrapper="${FEX_WRAPPER:-FEXInterpreter}"
+    log "Using $wrapper with Proton for ARM64 emulation"
+    if ! command -v "$wrapper" >/dev/null 2>&1; then
+      log "Error: $wrapper not found in PATH - cannot launch server"
+      return 1
+    fi
     if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL box64 wine64 "$LAUNCH_BINARY_NAME")
+      runner=(stdbuf -oL -eL "$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
     else
-      runner=(box64 wine64 "$LAUNCH_BINARY_NAME")
+      runner=("$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
     fi
   else
     # x86_64: Use Proton
