@@ -23,11 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     locales \
     tzdata \
     wget \
-    curl \
     unzip \
-    ca-certificates \
-    gnupg2 \
-    software-properties-common \
     libc6-dev \
     libfreetype6 \
     && rm -rf /var/lib/apt/lists/* && \
