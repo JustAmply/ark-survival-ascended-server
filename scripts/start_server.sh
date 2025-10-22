@@ -167,7 +167,7 @@ ensure_steamcmd() {
 update_server_files() {
   log "Updating / validating ASA server files..."
   if [ "$IS_ARM64" = "1" ]; then
-    local box86_path
+    local box86_path attempt exit_code
     if box86_path=$(command -v box86 2>/dev/null); then
       log "Using box86 located at $box86_path to launch SteamCMD"
     else
@@ -177,7 +177,21 @@ update_server_files() {
     # On ARM64, execute the Linux32 SteamCMD binary directly via box86.
     # Running the shell wrapper itself under box86 fails because it is a POSIX script,
     # so we instead invoke the actual x86 binary that the wrapper launches.
-    (cd "$STEAMCMD_DIR" && box86 ./linux32/steamcmd +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+    attempt=1
+    while true; do
+      log "SteamCMD update attempt $attempt (ARM64 via box86)"
+      if (cd "$STEAMCMD_DIR" && box86 ./linux32/steamcmd +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit); then
+        break
+      fi
+      exit_code=$?
+      if [ "$exit_code" -eq 42 ]; then
+        log "SteamCMD requested restart after self-update (exit 42) - retrying via box86"
+        attempt=$((attempt + 1))
+        sleep 1
+        continue
+      fi
+      return "$exit_code"
+    done
   else
     log "Running: ./steamcmd.sh +force_install_dir '$SERVER_FILES_DIR' +login anonymous +app_update 2430930 validate +quit"
     # On x86_64, run SteamCMD natively
