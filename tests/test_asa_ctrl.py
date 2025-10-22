@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
+import struct
 import tempfile
 from pathlib import Path
 from types import MethodType
@@ -276,6 +277,52 @@ def test_rcon_validation():
         pass  # Expected
 
     print("✓ RCON validation tests passed")
+
+
+def test_rcon_send_packet_collects_multi_part_response():
+    """Ensure multi-part RCON responses are combined correctly."""
+
+    client = RconClient.__new__(RconClient)
+    client._connected = True
+    client.read_timeout = 1.0
+
+    class DummySocket:
+        def __init__(self):
+            self.timeout = None
+            self.sent_data = []
+
+        def settimeout(self, value):  # pragma: no cover - trivial setter
+            self.timeout = value
+
+        def sendall(self, data):  # pragma: no cover - records sent payload
+            self.sent_data.append(data)
+
+    client.socket = DummySocket()
+
+    packet_id = 1234
+
+    def build_packet(pid, packet_type, body_bytes):
+        size = len(body_bytes) + 10
+        return struct.pack('<Iii', size, pid, packet_type) + body_bytes + b'\x00\x00'
+
+    packets = [
+        build_packet(packet_id, RconPacketTypes.RESPONSE_VALUE, b'Part one '),
+        build_packet(packet_id, RconPacketTypes.RESPONSE_VALUE, b'Part two\x00ignored'),
+        build_packet(packet_id, RconPacketTypes.RESPONSE_VALUE, b''),
+    ]
+
+    def fake_receive_full_packet(self):
+        if not packets:
+            raise AssertionError("No further packets expected")
+        return packets.pop(0)
+
+    client._receive_full_packet = MethodType(fake_receive_full_packet, client)
+
+    response = client._send_packet('listplayers', RconPacketTypes.EXEC_COMMAND)
+
+    assert response.body == 'Part one Part two'
+    assert response.id == packet_id
+    assert packets == []
 
 
 def test_rcon_authenticate_failure_propagates_error():

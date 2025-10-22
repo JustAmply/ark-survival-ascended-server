@@ -295,42 +295,93 @@ class RconClient:
             self.socket.settimeout(self.read_timeout)
             self.socket.sendall(packet_data)
             
-            # Receive response with proper buffer management
-            response_data = self._receive_full_packet()
-            
-            # Validate response
-            self._validate_packet_data(response_data)
-            
-            # Unpack response: size, id, type, then body
-            if len(response_data) < 12:
-                raise RconPacketError(f"Response too short: {len(response_data)} bytes")
-            
-            # IDs and types are signed because the server returns -1 on auth failure.
-            size, response_id, response_type = struct.unpack('<Iii', response_data[:12])
-            
-            # Validate response packet structure
-            if size < 10:
-                raise RconPacketError(f"Invalid response size: {size}")
-            if size != len(response_data) - 4:  # Size field doesn't include itself
-                raise RconPacketError(f"Size mismatch: declared {size}, actual {len(response_data) - 4}")
-            
-            # Extract body
-            body_data = response_data[12:]
-            if body_data and body_data[-1:] == b'\x00':
-                body_data = body_data[:-1]  # Remove trailing null
-            
-            # Find first null terminator for body
-            null_pos = body_data.find(b'\x00')
-            if null_pos >= 0:
-                body_data = body_data[:null_pos]
-            
+            combined_body = bytearray()
+            first_response_id: Optional[int] = None
+            first_response_type: Optional[int] = None
+            last_response_id: Optional[int] = None
+            last_response_type: Optional[int] = None
+            last_size: int = 0
+            packets_received = 0
+
+            while True:
+                try:
+                    response_data = self._receive_full_packet()
+                except RconTimeoutError:
+                    if packets_received == 0:
+                        raise
+                    # We've already received at least one packet; treat timeout as end-of-response
+                    break
+
+                # Validate response
+                self._validate_packet_data(response_data)
+
+                # Unpack response: size, id, type, then body
+                if len(response_data) < 12:
+                    raise RconPacketError(f"Response too short: {len(response_data)} bytes")
+
+                packets_received += 1
+
+                # IDs and types are signed because the server returns -1 on auth failure.
+                size, response_id, response_type = struct.unpack('<Iii', response_data[:12])
+
+                # Validate response packet structure
+                if size < 10:
+                    raise RconPacketError(f"Invalid response size: {size}")
+                if size != len(response_data) - 4:  # Size field doesn't include itself
+                    raise RconPacketError(
+                        f"Size mismatch: declared {size}, actual {len(response_data) - 4}"
+                    )
+
+                if first_response_id is None:
+                    first_response_id = response_id
+                    first_response_type = response_type
+
+                last_response_id = response_id
+                last_response_type = response_type
+                last_size = size
+
+                # Extract body
+                body_data = response_data[12:]
+                if body_data:
+                    body_data = body_data.rstrip(b'\x00')
+
+                # Find first null terminator for body to remove potential padding
+                null_pos = body_data.find(b'\x00') if body_data else -1
+                if null_pos >= 0:
+                    body_data = body_data[:null_pos]
+
+                if body_data:
+                    combined_body.extend(body_data)
+
+                # Determine if we've reached the end of a multi-part response.
+                if packet_type != RconPacketTypes.EXEC_COMMAND:
+                    break
+
+                # Empty body signals end of response for multi-part packets.
+                if not body_data:
+                    break
+
+                # Some servers send follow-up packets with a distinct terminator ID.
+                if response_id not in {packet_id, first_response_id}:
+                    break
+
+                if packets_received >= 256:
+                    raise RconPacketError("Too many response packets without termination")
+
+            body_bytes = bytes(combined_body).replace(b'\x00', b'')
+
             try:
-                body = body_data.decode('utf-8', errors='replace')
+                body = body_bytes.decode('utf-8', errors='replace')
             except UnicodeDecodeError:
-                body = body_data.decode('utf-8', errors='ignore')
-            
-            return RconPacket(size, response_id, response_type, body)
-            
+                body = body_bytes.decode('utf-8', errors='ignore')
+
+            response_id = first_response_id if first_response_id is not None else last_response_id or 0
+            response_type = (
+                first_response_type if first_response_type is not None else last_response_type or 0
+            )
+
+            return RconPacket(last_size, response_id, response_type, body)
+
         except socket.timeout as e:
             raise RconTimeoutError(f"Packet operation timed out after {self.read_timeout}s") from e
         except socket.error as e:
