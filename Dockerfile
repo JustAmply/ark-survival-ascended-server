@@ -62,6 +62,15 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
             libstdc++6:armhf \
             libgcc-s1:armhf \
             zlib1g:armhf \
+        && if ! command -v wine64 >/dev/null 2>&1; then \
+            wine64_path="$(find /usr -maxdepth 5 -type f -name wine64 | head -n 1)"; \
+            if [ -n "$wine64_path" ]; then \
+                ln -s "$wine64_path" /usr/local/bin/wine64; \
+            else \
+                echo \"wine64 binary not found after installation\" >&2; \
+                exit 1; \
+            fi; \
+        fi \
         && rm -rf /var/lib/apt/lists/*; \
     fi
 
