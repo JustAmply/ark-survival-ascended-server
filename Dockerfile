@@ -58,6 +58,10 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
             box64 \
             box86-generic-arm:armhf \
             wine64:amd64 \
+            libc6:armhf \
+            libstdc++6:armhf \
+            libgcc-s1:armhf \
+            zlib1g:armhf \
         && rm -rf /var/lib/apt/lists/*; \
     fi
 
