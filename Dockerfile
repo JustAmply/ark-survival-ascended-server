@@ -43,11 +43,9 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
             curl \
             gnupg \
         && mkdir -p /usr/share/keyrings \
-        && curl -fsSL -o /tmp/fex-archive.key https://fex-emu.com/archive.key \
-        && test -s /tmp/fex-archive.key \
-        && gpg --batch --yes --dearmor -o /usr/share/keyrings/fex-archive-keyring.gpg /tmp/fex-archive.key \
-        && rm -f /tmp/fex-archive.key \
-        && echo "deb [arch=arm64 signed-by=/usr/share/keyrings/fex-archive-keyring.gpg] https://fex-emu.com/repos/apt/debian stable main" \
+        && curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xEDB98BFE8A2310DC9C4A376E76DBFEBEA206F5AC" \
+            | gpg --batch --yes --dearmor -o /usr/share/keyrings/fex-archive-keyring.gpg \
+        && echo "deb [arch=arm64 signed-by=/usr/share/keyrings/fex-archive-keyring.gpg] https://ppa.launchpadcontent.net/fex-emu/fex/ubuntu jammy main" \
             > /etc/apt/sources.list.d/fex-emu.list \
         && apt-get update \
         && apt-get install -y --no-install-recommends \
