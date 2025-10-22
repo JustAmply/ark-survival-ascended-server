@@ -5,6 +5,7 @@ ARG VERSION="unknown"
 ARG GIT_COMMIT="unknown"
 ARG BUILD_DATE="unknown"
 ARG TARGETARCH
+ARG FEX_PACKAGE="fex-emu-armv8.0"
 
 # Add metadata labels
 LABEL org.opencontainers.image.version="${VERSION}" \
@@ -49,7 +50,7 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
             > /etc/apt/sources.list.d/fex-emu.list \
         && apt-get update \
         && apt-get install -y --no-install-recommends \
-            fex-emu \
+            "$FEX_PACKAGE" \
         && rm -rf /var/lib/apt/lists/*; \
     fi
 
