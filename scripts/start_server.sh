@@ -36,6 +36,13 @@ RESTART_REQUESTED=0
 SUPERVISOR_PID_FILE="/home/gameserver/.asa-supervisor.pid"
 RESTART_SCHEDULER_PID=""
 
+# Detect architecture
+ARCH=$(uname -m)
+IS_ARM64=0
+if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+  IS_ARM64=1
+fi
+
 log() { echo "[asa-start] $*"; }
 
 register_supervisor_pid() {
@@ -193,6 +200,12 @@ find_latest_release_with_assets() {
 }
 
 resolve_proton_version() {
+  # Skip Proton resolution on ARM64 - we use Box64 + Wine instead
+  if [ "$IS_ARM64" = "1" ]; then
+    log "ARM64 architecture detected - skipping Proton (using Box64 + Wine)"
+    return 0
+  fi
+
   local detected=""
   if [ -z "${PROTON_VERSION:-}" ]; then
     log "Detecting latest Proton GE version..."
@@ -256,6 +269,11 @@ resolve_proton_version() {
 }
 
 install_proton_if_needed() {
+  # Skip Proton installation on ARM64
+  if [ "$IS_ARM64" = "1" ]; then
+    return 0
+  fi
+
   if [ -d "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME" ]; then return 0; fi
   log "Downloading Proton $PROTON_DIR_NAME..."
   mkdir -p "$STEAM_COMPAT_DIR"
@@ -281,6 +299,11 @@ install_proton_if_needed() {
 }
 
 ensure_proton_compat_data() {
+  # Skip Proton compat data setup on ARM64
+  if [ "$IS_ARM64" = "1" ]; then
+    return 0
+  fi
+
   if [ ! -d "$ASA_COMPAT_DATA" ]; then
     log "Setting up Proton compat data..."
     mkdir -p "$STEAM_COMPAT_DATA"
@@ -320,10 +343,19 @@ prepare_runtime_env() {
     fi
   fi
   export XDG_RUNTIME_DIR
-  export STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/gameserver/Steam"
-  export STEAM_COMPAT_DATA_PATH="$ASA_COMPAT_DATA"
   mkdir -p "$XDG_RUNTIME_DIR" || true
   chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
+
+  if [ "$IS_ARM64" = "1" ]; then
+    # ARM64: Set up Wine prefix
+    export WINEPREFIX="$ASA_COMPAT_DATA"
+    mkdir -p "$WINEPREFIX" || true
+    log "Using Wine prefix at $WINEPREFIX"
+  else
+    # x86_64: Set up Proton compat paths
+    export STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/gameserver/Steam"
+    export STEAM_COMPAT_DATA_PATH="$ASA_COMPAT_DATA"
+  fi
 }
 
 #############################
@@ -369,11 +401,24 @@ launch_server() {
   log "Start parameters: $ASA_START_PARAMS"
   cd "$ASA_BINARY_DIR"
   local runner
-  if command -v stdbuf >/dev/null 2>&1; then
-    runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+
+  if [ "$IS_ARM64" = "1" ]; then
+    # ARM64: Use Box64 + Wine
+    log "Using Box64 + Wine for ARM64 emulation"
+    if command -v stdbuf >/dev/null 2>&1; then
+      runner=(stdbuf -oL -eL box64 wine64 "$LAUNCH_BINARY_NAME")
+    else
+      runner=(box64 wine64 "$LAUNCH_BINARY_NAME")
+    fi
   else
-    runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    # x86_64: Use Proton
+    if command -v stdbuf >/dev/null 2>&1; then
+      runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    else
+      runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    fi
   fi
+
   "${runner[@]}" $ASA_START_PARAMS &
   SERVER_PID=$!
   echo "$SERVER_PID" > "$PID_FILE"
