@@ -52,12 +52,12 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
         && echo "deb [arch=armhf signed-by=/usr/share/keyrings/box86-archive-keyring.gpg] https://ryanfortner.github.io/box86-debs/debian ./" \
             > /etc/apt/sources.list.d/box86.list \
         && dpkg --add-architecture armhf \
+        && dpkg --add-architecture amd64 \
         && apt-get update \
         && apt-get install -y --no-install-recommends \
             box64 \
             box86-generic-arm:armhf \
-            wine \
-            wine64 \
+            wine64:amd64 \
         && rm -rf /var/lib/apt/lists/*; \
     fi
 

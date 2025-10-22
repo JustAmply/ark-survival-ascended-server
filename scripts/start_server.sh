@@ -147,7 +147,7 @@ ensure_steamcmd() {
     mkdir -p "$STEAMCMD_DIR"
     (cd "$STEAMCMD_DIR" && wget -q https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz && tar xf steamcmd_linux.tar.gz)
     if [ "$IS_ARM64" = "1" ]; then
-      log "ARM64 detected - SteamCMD will run via Box64 emulation"
+      log "ARM64 detected - SteamCMD will run via Box86 emulation"
     fi
   fi
 }
@@ -155,8 +155,8 @@ ensure_steamcmd() {
 update_server_files() {
   log "Updating / validating ASA server files..."
   if [ "$IS_ARM64" = "1" ]; then
-    # On ARM64, run SteamCMD through Box86 (it's a 32-bit binary)
-    (cd "$STEAMCMD_DIR" && box86 ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+    # On ARM64, run the SteamCMD shell wrapper normally but force box86 to execute the binary
+    (cd "$STEAMCMD_DIR" && DEBUGGER=box86 ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
   else
     # On x86_64, run SteamCMD natively
     (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
