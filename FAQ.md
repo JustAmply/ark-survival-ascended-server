@@ -207,4 +207,53 @@ docker exec asa-server-1 cat server-files/ShooterGame/Saved/Config/WindowsServer
 docker exec asa-server-1 asa-ctrl mods enable 12345
 ```
 
+## 🖥️ ARM64 / Multi-Architecture
+
+### **Q: Does this work on ARM64/aarch64 processors?**
+
+**A:** Yes! The container now supports both AMD64 (x86_64) and ARM64 (aarch64) architectures. The correct version is automatically pulled based on your system.
+
+### **Q: What's different about ARM64 support?**
+
+**A:** ARM64 builds use:
+- **Box64** for x86_64 emulation (ARK server is Windows x86_64)
+- **Wine** for Windows compatibility
+- Automatic architecture detection
+
+### **Q: Is ARM64 performance as good as x86_64?**
+
+**A:** No, ARM64 uses emulation which introduces overhead:
+- Expect 20-40% lower performance compared to native x86_64
+- Suitable for testing and low-population servers
+- For production servers with many players, x86_64/AMD64 hardware is recommended
+
+### **Q: How do I check which architecture I'm running?**
+
+**A:** Check your architecture with:
+```bash
+# Check host architecture
+uname -m
+
+# Check container architecture
+docker exec asa-server-1 uname -m
+
+# View container logs for architecture detection
+docker logs asa-server-1 | grep -i "arm64\|architecture"
+```
+
+### **Q: Can I force a specific architecture?**
+
+**A:** Yes, you can specify the platform in docker-compose.yml:
+```yaml
+services:
+  asa-server-1:
+    platform: linux/amd64  # or linux/arm64
+    ...
+```
+
+Or when pulling:
+```bash
+docker pull --platform linux/arm64 ghcr.io/justamply/asa-linux-server:latest
+```
+
 Happy gaming! 🦕

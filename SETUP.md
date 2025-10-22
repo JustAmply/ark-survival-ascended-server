@@ -8,9 +8,12 @@ Your complete guide to getting an amazing ARK server up and running! This covers
 - **RAM**: ~13 GB per server (more = better performance!)
 - **Storage**: ~31 GB for server files + space for saves
 - **OS**: Any Linux with Docker support
+- **Architecture**: AMD64 (x86_64) or ARM64 (aarch64)
 - **Tested on**: Ubuntu 24.04, Debian 12
 
 **⚠️ Avoid Ubuntu 22.04** - Known issues cause high CPU usage and server startup failures.
+
+**ℹ️ ARM64 Note**: ARM64 support uses emulation (Box64) and may have lower performance compared to native x86_64 hardware. Recommended for testing or low-population servers.
 
 ### 🐳 Prerequisites
 - Docker and Docker Compose installed on your system
@@ -42,7 +45,7 @@ Your complete guide to getting an amazing ARK server up and running! This covers
 ### 🎉 First Launch
 
 Your server will automatically:
-- ✅ Download Steam & Proton compatibility layer
+- ✅ Download Steam & compatibility layer (Proton on x86_64, Box64+Wine on ARM64)
 - ✅ Download ARK server files (~31GB)
 - ✅ Generate a random server name
 - ✅ Start accepting connections in ~5-10 minutes

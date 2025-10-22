@@ -32,12 +32,14 @@ Your server will be discoverable in the "Unofficial" server browser once setup i
 - **⏰ Scheduled Restarts**: Built-in cron scheduler with in-game warnings
 - **📊 Monitoring**: Debug mode and comprehensive logging
 - **🔌 Plugin Support**: ServerAPI plugin loader integration
+- **💻 Multi-Architecture**: Native support for AMD64 (x86_64) and ARM64 (aarch64) platforms
 
 ## 📋 System Requirements
 
 - **RAM**: ~13 GB per server instance
 - **Storage**: ~31 GB (server files only)
 - **OS**: Linux with Docker support
+- **Architecture**: AMD64 (x86_64) or ARM64 (aarch64)
 - **Tested on**: Ubuntu 24.04, Debian 12, Docker Desktop on Windows
 
 ## 🎯 Main Use Cases
@@ -171,6 +173,33 @@ pip install -e .
 
 This registers the `asa-ctrl` command on your PATH while allowing you to modify the source code in-place.
 
+## 🖥️ ARM64 Support
+
+This container now supports ARM64 (aarch64) architecture in addition to AMD64 (x86_64). The implementation uses:
+
+- **Box64**: x86_64 emulation layer for ARM64 processors
+- **Wine**: Windows compatibility layer for running ARK server binaries
+- **Automatic detection**: The container automatically detects the architecture and configures itself accordingly
+
+### Performance Considerations
+
+- ARM64 builds use emulation (Box64) to run the x86_64 Windows binaries, which introduces overhead
+- Performance may be lower compared to native x86_64 hardware
+- Recommended for testing or low-population servers on ARM64 hardware
+- For production use, x86_64/AMD64 hardware is recommended for best performance
+
+### Building for ARM64
+
+The Docker image is built as a multi-architecture image and will automatically pull the correct version for your platform:
+
+```bash
+# Automatically pulls ARM64 version on ARM64 hosts
+docker compose up -d
+
+# Or explicitly specify platform
+docker pull --platform linux/arm64 ghcr.io/justamply/asa-linux-server:latest
+```
+
 ## 📞 Support
 
 - **🐛 Found a bug?** [Open an issue](https://github.com/JustAmply/ark-survival-ascended-server/issues)
@@ -181,4 +210,5 @@ This registers the `asa-ctrl` command on your PATH while allowing you to modify 
 
 - **mschnitzer** - [Original Ruby implementation of ARK Linux server image](https://github.com/mschnitzer/ark-survival-ascended-linux-container-image)
 - **GloriousEggroll** - [GE-Proton for running Windows ARK binaries on Linux](https://github.com/GloriousEggroll/proton-ge-custom)
+- **ptitSeb** - [Box64 for ARM64 x86_64 emulation](https://github.com/ptitSeb/box64)
 - **cdp1337** - [Linux ARK installation guidance](https://github.com/cdp1337/ARKSurvivalAscended-Linux)
