@@ -28,6 +28,13 @@ class RconPacketTypes:
 
 # File paths
 DEFAULT_MOD_DATABASE_PATH = '/home/gameserver/server-files/mods.json'
-MOD_DATABASE_PATH = os.environ.get('ASA_MOD_DATABASE_PATH', DEFAULT_MOD_DATABASE_PATH)
+
 GAME_USER_SETTINGS_PATH = '/home/gameserver/server-files/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini'
 GAME_INI_PATH = '/home/gameserver/server-files/ShooterGame/Saved/Config/WindowsServer/Game.ini'
+
+
+def get_mod_database_path():
+    """
+    Returns the current mod database path, checking the environment variable dynamically.
+    """
+    return os.environ.get('ASA_MOD_DATABASE_PATH', DEFAULT_MOD_DATABASE_PATH)
