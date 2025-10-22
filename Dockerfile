@@ -43,34 +43,13 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
             curl \
             gnupg \
         && mkdir -p /usr/share/keyrings \
-        && curl -fsSL https://ryanfortner.github.io/box64-debs/KEY.gpg \
-            | gpg --batch --yes --dearmor -o /usr/share/keyrings/box64-archive-keyring.gpg \
-        && echo "deb [arch=arm64 signed-by=/usr/share/keyrings/box64-archive-keyring.gpg] https://ryanfortner.github.io/box64-debs/debian ./" \
-            > /etc/apt/sources.list.d/box64.list \
-        && curl -fsSL https://ryanfortner.github.io/box86-debs/KEY.gpg \
-            | gpg --batch --yes --dearmor -o /usr/share/keyrings/box86-archive-keyring.gpg \
-        && echo "deb [arch=armhf signed-by=/usr/share/keyrings/box86-archive-keyring.gpg] https://ryanfortner.github.io/box86-debs/debian ./" \
-            > /etc/apt/sources.list.d/box86.list \
-        && dpkg --add-architecture armhf \
-        && dpkg --add-architecture amd64 \
+        && curl -fsSL https://fex-emu.com/archive.key \
+            | gpg --batch --yes --dearmor -o /usr/share/keyrings/fex-archive-keyring.gpg \
+        && echo "deb [arch=arm64 signed-by=/usr/share/keyrings/fex-archive-keyring.gpg] https://fex-emu.com/repos/apt/debian stable main" \
+            > /etc/apt/sources.list.d/fex-emu.list \
         && apt-get update \
         && apt-get install -y --no-install-recommends \
-            box64 \
-            box86-generic-arm:armhf \
-            wine64:amd64 \
-            libc6:armhf \
-            libstdc++6:armhf \
-            libgcc-s1:armhf \
-            zlib1g:armhf \
-        && if ! command -v wine64 >/dev/null 2>&1; then \
-            wine64_path="$(find /usr -maxdepth 5 -type f -name wine64 | head -n 1)"; \
-            if [ -n "$wine64_path" ]; then \
-                ln -s "$wine64_path" /usr/local/bin/wine64; \
-            else \
-                echo \"wine64 binary not found after installation\" >&2; \
-                exit 1; \
-            fi; \
-        fi \
+            fex-emu \
         && rm -rf /var/lib/apt/lists/*; \
     fi
 

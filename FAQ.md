@@ -216,13 +216,13 @@ docker exec asa-server-1 asa-ctrl mods enable 12345
 ### **Q: What's different about ARM64 support?**
 
 **A:** ARM64 builds use:
-- **Box64** for x86_64 emulation (ARK server is Windows x86_64)
-- **Wine** for Windows compatibility
+- **FEX-Emu** for x86/x86_64 emulation (the ARK server ships Windows binaries)
+- **GE-Proton (same build as AMD64)** for the Windows compatibility layer, executed through FEX
 - Automatic architecture detection
 
 ### **Q: Is ARM64 performance as good as x86_64?**
 
-**A:** No, ARM64 uses emulation which introduces overhead:
+**A:** No, ARM64 uses emulation (FEX running Proton) which introduces overhead:
 - Expect 20-40% lower performance compared to native x86_64
 - Suitable for testing and low-population servers
 - For production servers with many players, x86_64/AMD64 hardware is recommended

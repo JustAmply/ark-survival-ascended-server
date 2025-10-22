@@ -177,13 +177,13 @@ This registers the `asa-ctrl` command on your PATH while allowing you to modify 
 
 This container now supports ARM64 (aarch64) architecture in addition to AMD64 (x86_64). The implementation uses:
 
-- **Box64**: x86_64 emulation layer for ARM64 processors
-- **Wine**: Windows compatibility layer for running ARK server binaries
+- **FEX-Emu**: Official ARM64 user-space runtime for executing x86 and x86_64 binaries
+- **GE-Proton (same release as AMD64)**: Windows compatibility layer that now runs under FEX on ARM64
 - **Automatic detection**: The container automatically detects the architecture and configures itself accordingly
 
 ### Performance Considerations
 
-- ARM64 builds use emulation (Box64) to run the x86_64 Windows binaries, which introduces overhead
+- ARM64 builds use emulation (FEX-Emu) to run the x86_64 Windows binaries, which introduces overhead
 - Performance may be lower compared to native x86_64 hardware
 - Recommended for testing or low-population servers on ARM64 hardware
 - For production use, x86_64/AMD64 hardware is recommended for best performance
@@ -210,5 +210,5 @@ docker pull --platform linux/arm64 ghcr.io/justamply/asa-linux-server:latest
 
 - **mschnitzer** - [Original Ruby implementation of ARK Linux server image](https://github.com/mschnitzer/ark-survival-ascended-linux-container-image)
 - **GloriousEggroll** - [GE-Proton for running Windows ARK binaries on Linux](https://github.com/GloriousEggroll/proton-ge-custom)
-- **ptitSeb** - [Box64 for ARM64 x86_64 emulation](https://github.com/ptitSeb/box64)
+- **FEX-Emu Team** - [FEX runtime for running x86/x86_64 apps on ARM64](https://github.com/FEX-Emu/FEX)
 - **cdp1337** - [Linux ARK installation guidance](https://github.com/cdp1337/ARKSurvivalAscended-Linux)
