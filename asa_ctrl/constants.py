@@ -28,6 +28,8 @@ class RconPacketTypes:
 
 # File paths
 DEFAULT_MOD_DATABASE_PATH = '/home/gameserver/server-files/mods.json'
+# Backwards compatibility alias for modules still importing MOD_DATABASE_PATH directly.
+MOD_DATABASE_PATH = DEFAULT_MOD_DATABASE_PATH
 
 GAME_USER_SETTINGS_PATH = '/home/gameserver/server-files/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini'
 GAME_INI_PATH = '/home/gameserver/server-files/ShooterGame/Saved/Config/WindowsServer/Game.ini'
