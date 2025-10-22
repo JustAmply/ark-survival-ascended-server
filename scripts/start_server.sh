@@ -45,6 +45,16 @@ fi
 
 log() { echo "[asa-start] $*"; }
 
+on_error() {
+  local exit_code=$?
+  local cmd=${BASH_COMMAND:-unknown}
+  local line=${BASH_LINENO[0]:-unknown}
+  log "Error: command '${cmd}' exited with status ${exit_code} (line ${line})"
+  exit "$exit_code"
+}
+
+trap on_error ERR
+
 register_supervisor_pid() {
   echo "$$" >"$SUPERVISOR_PID_FILE"
 }
@@ -149,20 +159,31 @@ ensure_steamcmd() {
     if [ "$IS_ARM64" = "1" ]; then
       log "ARM64 detected - SteamCMD will run via Box86 emulation"
     fi
+  else
+    log "SteamCMD already present in $STEAMCMD_DIR - skipping install"
   fi
 }
 
 update_server_files() {
   log "Updating / validating ASA server files..."
   if [ "$IS_ARM64" = "1" ]; then
+    local box86_path
+    if box86_path=$(command -v box86 2>/dev/null); then
+      log "Using box86 located at $box86_path to launch SteamCMD"
+    else
+      log "Warning: box86 not found in PATH - SteamCMD update will likely fail"
+    fi
+    log "Running: box86 ./linux32/steamcmd +force_install_dir '$SERVER_FILES_DIR' +login anonymous +app_update 2430930 validate +quit"
     # On ARM64, execute the Linux32 SteamCMD binary directly via box86.
     # Running the shell wrapper itself under box86 fails because it is a POSIX script,
     # so we instead invoke the actual x86 binary that the wrapper launches.
     (cd "$STEAMCMD_DIR" && box86 ./linux32/steamcmd +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
   else
+    log "Running: ./steamcmd.sh +force_install_dir '$SERVER_FILES_DIR' +login anonymous +app_update 2430930 validate +quit"
     # On x86_64, run SteamCMD natively
     (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
   fi
+  log "SteamCMD update completed successfully"
 }
 
 #############################
