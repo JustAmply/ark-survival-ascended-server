@@ -43,8 +43,6 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
             git \
             build-essential \
             cmake \
-            gcc-arm-linux-gnueabihf \
-            libc6:armhf \
         && rm -rf /var/lib/apt/lists/* \
         # Build and install Box64 from source (for x86_64 emulation) \
         && cd /tmp \
@@ -64,7 +62,7 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
         && make install \
         && cd /tmp && rm -rf box86 \
         # Clean up build dependencies to reduce image size \
-        && apt-get remove -y git build-essential cmake gcc-arm-linux-gnueabihf \
+        && apt-get remove -y git build-essential cmake \
         && apt-get autoremove -y \
         # Install Wine for ARM64 from Debian repositories \
         && apt-get update \
