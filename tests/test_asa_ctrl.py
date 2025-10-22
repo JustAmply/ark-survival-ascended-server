@@ -8,6 +8,7 @@ Run with: `py -m tests.test_asa_ctrl` or `py tests/test_asa_ctrl.py`.
 from __future__ import annotations
 
 import os
+import struct
 import sys
 import tempfile
 
@@ -18,7 +19,7 @@ if PROJECT_ROOT not in sys.path:
 
 from asa_ctrl.mods import ModDatabase, ModRecord  # noqa: E402
 from asa_ctrl.config import StartParamsHelper, parse_start_params  # noqa: E402
-from asa_ctrl.constants import ExitCodes  # noqa: E402
+from asa_ctrl.constants import ExitCodes, RconPacketTypes  # noqa: E402
 from asa_ctrl.cli import main as cli_main  # noqa: E402
 from asa_ctrl.rcon import RconClient  # noqa: E402
 from asa_ctrl.errors import (  # noqa: E402
@@ -250,6 +251,63 @@ def test_rcon_validation():
         pass  # Expected
     
     print("✓ RCON validation tests passed")
+
+
+def test_rcon_multi_packet_response():
+    """Ensure multi-part RCON responses are reassembled correctly."""
+
+    print("Testing RCON multi-packet response assembly...")
+
+    class FakeSocket:
+        def __init__(self, responses):
+            self._responses = [bytearray(resp) for resp in responses]
+            self.sent_data = b""
+            self.timeout = None
+
+        def settimeout(self, timeout):
+            self.timeout = timeout
+
+        def sendall(self, data):
+            self.sent_data += data
+
+        def recv(self, bufsize):
+            if not self._responses:
+                raise AssertionError("No more data available for recv")
+
+            chunk = self._responses[0][:bufsize]
+            del self._responses[0][:len(chunk)]
+            if not self._responses[0]:
+                self._responses.pop(0)
+            return bytes(chunk)
+
+        def close(self):
+            pass
+
+    def build_response(packet_id: int, packet_type: int, body: str) -> bytes:
+        body_bytes = body.encode("utf-8")
+        size = 10 + len(body_bytes)
+        payload = struct.pack("<III", size, packet_id, packet_type)
+        return payload + body_bytes + b"\x00\x00"
+
+    response_id = 42
+    responses = [
+        build_response(response_id, RconPacketTypes.RESPONSE_VALUE, "Line1\n"),
+        build_response(response_id, RconPacketTypes.RESPONSE_VALUE, "Line2\x00"),
+        build_response(response_id, RconPacketTypes.RESPONSE_VALUE, ""),
+    ]
+
+    client = RconClient.__new__(RconClient)
+    client.socket = FakeSocket(responses)
+    client._connected = True
+    client._authenticated = True
+    client.read_timeout = 1.0
+    client.MAX_PACKET_SIZE = RconClient.MAX_PACKET_SIZE
+
+    packet = client._send_packet("listplayers", RconPacketTypes.EXEC_COMMAND)
+
+    assert packet.id == response_id
+    assert packet.body == "Line1\nLine2"
+    print("✓ RCON multi-packet response assembly passed")
 
 
 def main():  # pragma: no cover - simple runner

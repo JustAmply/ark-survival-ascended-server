@@ -292,47 +292,86 @@ class RconClient:
             # Send with timeout
             self.socket.settimeout(self.read_timeout)
             self.socket.sendall(packet_data)
-            
-            # Receive response with proper buffer management
+
+            # Receive the initial response packet
             response_data = self._receive_full_packet()
-            
-            # Validate response
-            self._validate_packet_data(response_data)
-            
-            # Unpack response: size, id, type, then body
-            if len(response_data) < 12:
-                raise RconPacketError(f"Response too short: {len(response_data)} bytes")
-            
-            size, response_id, response_type = struct.unpack('<III', response_data[:12])
-            
-            # Validate response packet structure
-            if size < 10:
-                raise RconPacketError(f"Invalid response size: {size}")
-            if size != len(response_data) - 4:  # Size field doesn't include itself
-                raise RconPacketError(f"Size mismatch: declared {size}, actual {len(response_data) - 4}")
-            
-            # Extract body
-            body_data = response_data[12:]
-            if body_data and body_data[-1:] == b'\x00':
-                body_data = body_data[:-1]  # Remove trailing null
-            
-            # Find first null terminator for body
-            null_pos = body_data.find(b'\x00')
-            if null_pos >= 0:
-                body_data = body_data[:null_pos]
-            
+            size, response_id, response_type, body_data = self._parse_response_packet(response_data)
+
+            # Collect additional packets if the server sends a multi-part response
+            body_chunks = [body_data]
+            followup_timeout = min(self.read_timeout, 0.5) if self.read_timeout > 0 else 0.5
+
+            while True:
+                self.socket.settimeout(followup_timeout)
+                try:
+                    extra_data = self._receive_full_packet()
+                except RconTimeoutError:
+                    break  # No more packets available within the follow-up window
+                finally:
+                    self.socket.settimeout(self.read_timeout)
+
+                extra_size, extra_id, extra_type, extra_body = self._parse_response_packet(extra_data)
+
+                # Break on protocol terminators (empty packet or explicit terminator ID)
+                if extra_id == -1:
+                    if extra_body:
+                        body_chunks.append(extra_body)
+                    break
+
+                if not extra_body:
+                    break
+
+                # Only aggregate packets that belong to the same response sequence
+                if extra_id != response_id or extra_type != response_type:
+                    break
+
+                body_chunks.append(extra_body)
+
+            combined_body = b''.join(body_chunks)
+
             try:
-                body = body_data.decode('utf-8', errors='replace')
+                body = combined_body.decode('utf-8', errors='replace')
             except UnicodeDecodeError:
-                body = body_data.decode('utf-8', errors='ignore')
-            
+                body = combined_body.decode('utf-8', errors='ignore')
+
             return RconPacket(size, response_id, response_type, body)
-            
+
         except socket.timeout as e:
             raise RconTimeoutError(f"Packet operation timed out after {self.read_timeout}s") from e
         except socket.error as e:
             self._connected = False
             raise RconConnectionError(f"Socket error during packet operation: {e}") from e
+
+    def _parse_response_packet(self, response_data: bytes) -> tuple[int, int, int, bytes]:
+        """Parse a raw response packet into structured components."""
+
+        # Validate response
+        self._validate_packet_data(response_data)
+
+        if len(response_data) < 12:
+            raise RconPacketError(f"Response too short: {len(response_data)} bytes")
+
+        size, response_id, response_type = struct.unpack('<III', response_data[:12])
+
+        # Validate response packet structure
+        if size < 10:
+            raise RconPacketError(f"Invalid response size: {size}")
+        if size != len(response_data) - 4:  # Size field doesn't include itself
+            raise RconPacketError(
+                f"Size mismatch: declared {size}, actual {len(response_data) - 4}"
+            )
+
+        # Extract body (null-terminated, with an additional null padding byte)
+        body_data = response_data[12:]
+        if body_data.endswith(b"\x00"):
+            body_data = body_data[:-1]
+
+        # Remove everything after the first null terminator
+        null_pos = body_data.find(b"\x00")
+        if null_pos >= 0:
+            body_data = body_data[:null_pos]
+
+        return size, response_id, response_type, body_data
     
     def _receive_full_packet(self) -> bytes:
         """
