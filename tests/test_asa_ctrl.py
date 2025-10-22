@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from pathlib import Path
 
 # Ensure project root is on sys.path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -108,44 +109,44 @@ def test_cli_mods_string():
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, 'mods.json')
         os.environ['ASA_MOD_DATABASE_PATH'] = db_path
-        db = ModDatabase(db_path)
-        ModDatabase._instance = db  # ensure CLI helper uses the temporary database
-        db.enable_mod(111)
-        db.enable_mod(222)
-        # Capture stdout
-        from io import StringIO
-        import contextlib
-        buf = StringIO()
-        with contextlib.redirect_stdout(buf):
-            cli_main(['mods-string'])
-        out = buf.getvalue().strip()
-        assert out in ('-mods=111,222', '-mods=222,111')  # order not guaranteed
-        ModDatabase._instance = None
+        try:
+            db = ModDatabase.get_instance()
+            db.enable_mod(111)
+            db.enable_mod(222)
+            # Capture stdout
+            from io import StringIO
+            import contextlib
+            buf = StringIO()
+            with contextlib.redirect_stdout(buf):
+                cli_main(['mods-string'])
+            out = buf.getvalue().strip()
+            assert out in ('-mods=111,222', '-mods=222,111')  # order not guaranteed
+        finally:
+            os.environ.pop('ASA_MOD_DATABASE_PATH', None)
     print("\u2713 CLI mods-string tests passed")
 
     print("Testing CLI mods removal...")
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, 'mods.json')
         os.environ['ASA_MOD_DATABASE_PATH'] = db_path
-        db = ModDatabase(db_path)
-        ModDatabase._instance = db
+        try:
+            db = ModDatabase.get_instance()
 
-        mod_id = 98765
-        db.enable_mod(mod_id)
-        assert db.get_mod(mod_id) is not None
+            mod_id = 98765
+            db.enable_mod(mod_id)
+            assert db.get_mod(mod_id) is not None
 
-        from io import StringIO
-        import contextlib
+            from io import StringIO
+            import contextlib
 
-        buf = StringIO()
-        with contextlib.redirect_stdout(buf):
-            cli_main(['mods', 'remove', str(mod_id)])
-        assert db.get_mod(mod_id) is None
-        output = buf.getvalue()
-        assert "Removed mod id" in output
-
-        ModDatabase._instance = None
-        os.environ.pop('ASA_MOD_DATABASE_PATH', None)
+            buf = StringIO()
+            with contextlib.redirect_stdout(buf):
+                cli_main(['mods', 'remove', str(mod_id)])
+            assert db.get_mod(mod_id) is None
+            output = buf.getvalue()
+            assert "Removed mod id" in output
+        finally:
+            os.environ.pop('ASA_MOD_DATABASE_PATH', None)
 
     print("\u2713 CLI mods removal tests passed")
 
@@ -174,6 +175,27 @@ def test_cli_mods_string():
         assert enabled_mods[0].mod_id == 67890
 
     print("✓ ModDatabase tests passed")
+
+
+def test_mod_database_get_instance_respects_env():
+    """Ensure ModDatabase singleton honours environment overrides."""
+    print("Testing ModDatabase.get_instance() with environment override...")
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = Path(temp_dir) / 'mods.json'
+        os.environ['ASA_MOD_DATABASE_PATH'] = str(db_path)
+        try:
+            db = ModDatabase.get_instance()
+            assert db.database_path == db_path
+
+            db.enable_mod(42)
+            assert db.database_path.exists()
+
+            same_db = ModDatabase.get_instance()
+            assert same_db is db
+        finally:
+            os.environ.pop('ASA_MOD_DATABASE_PATH', None)
+
+    print("✓ ModDatabase.get_instance() environment override tests passed")
 
 
 def test_exit_codes():
