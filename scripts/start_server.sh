@@ -177,15 +177,7 @@ update_server_files() {
     # On ARM64, execute the Linux32 SteamCMD binary directly via box86.
     # Running the shell wrapper itself under box86 fails because it is a POSIX script,
     # so we instead invoke the actual x86 binary that the wrapper launches.
-    set +e
     (cd "$STEAMCMD_DIR" && box86 ./linux32/steamcmd +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
-    local steamcmd_status=$?
-    set -e
-    if [ "$steamcmd_status" -eq 42 ]; then
-      log "SteamCMD exited with status 42 under box86; treating as success (update already applied)."
-    elif [ "$steamcmd_status" -ne 0 ]; then
-      return "$steamcmd_status"
-    fi
   else
     log "Running: ./steamcmd.sh +force_install_dir '$SERVER_FILES_DIR' +login anonymous +app_update 2430930 validate +quit"
     # On x86_64, run SteamCMD natively
