@@ -2,6 +2,9 @@
 Constants and exit codes for ASA Control.
 """
 
+import os
+
+
 class ExitCodes:
     """Exit codes for different error conditions."""
     OK = 0
@@ -24,6 +27,16 @@ class RconPacketTypes:
 
 
 # File paths
-MOD_DATABASE_PATH = '/home/gameserver/server-files/mods.json'
+DEFAULT_MOD_DATABASE_PATH = '/home/gameserver/server-files/mods.json'
+# Backwards compatibility alias for modules still importing MOD_DATABASE_PATH directly.
+MOD_DATABASE_PATH = DEFAULT_MOD_DATABASE_PATH
+
 GAME_USER_SETTINGS_PATH = '/home/gameserver/server-files/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini'
 GAME_INI_PATH = '/home/gameserver/server-files/ShooterGame/Saved/Config/WindowsServer/Game.ini'
+
+
+def get_mod_database_path():
+    """
+    Returns the current mod database path, checking the environment variable dynamically.
+    """
+    return os.environ.get('ASA_MOD_DATABASE_PATH', DEFAULT_MOD_DATABASE_PATH)

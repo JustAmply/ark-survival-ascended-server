@@ -8,6 +8,7 @@ Handles mod database operations including:
 """
 
 import json
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, asdict
@@ -63,8 +64,14 @@ class ModDatabase:
     @classmethod
     def get_instance(cls) -> 'ModDatabase':
         """Get the singleton instance of the mod database."""
-        if cls._instance is None:
-            cls._instance = cls()
+        env_path = os.environ.get('ASA_MOD_DATABASE_PATH')
+        desired_path = env_path or MOD_DATABASE_PATH
+
+        if (
+            cls._instance is None
+            or cls._instance.database_path != Path(desired_path)
+        ):
+            cls._instance = cls(desired_path)
         return cls._instance
     
     def _ensure_database_exists(self) -> None:
