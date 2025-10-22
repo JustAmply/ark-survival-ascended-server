@@ -38,12 +38,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv pip install --system pytest .
+          uv pip install --python 3.11 pytest .
 
       - name: Run tests
         if: ${{ hashFiles('tests/**/*.py') != '' }}
         run: |
-          pytest -q
+          uv run pytest -q
 
       - name: Extract version from pyproject.toml
         id: version
