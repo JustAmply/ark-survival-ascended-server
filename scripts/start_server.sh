@@ -431,17 +431,17 @@ launch_server() {
   local runner
 
   if [ "$IS_ARM64" = "1" ]; then
-    # ARM64: Use FEX + Proton
+    # ARM64: Proton runs natively; FEX handles the x86 binaries it spawns
     local wrapper="${FEX_WRAPPER:-FEXInterpreter}"
-    log "Using $wrapper with Proton for ARM64 emulation"
     if ! command -v "$wrapper" >/dev/null 2>&1; then
-      log "Error: $wrapper not found in PATH - cannot launch server"
+      log "Error: $wrapper not found in PATH - FEX runtime missing?"
       return 1
     fi
+    log "Using Proton with binfmt-managed FEX ($wrapper) for ARM64 emulation"
     if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL "$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
     else
-      runner=("$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
     fi
   else
     # x86_64: Use Proton
