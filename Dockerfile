@@ -70,6 +70,14 @@ RUN mkdir -p \
     /home/gameserver/steamcmd \
     /home/gameserver/server-files \
     /home/gameserver/cluster-shared && \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        mkdir -p /home/gameserver/.fex-emu/RootFS && \
+        wget -q -O /tmp/Ubuntu_22_04.sqsh https://rootfs.fex-emu.gg/RootFS/Ubuntu_22_04.sqsh && \
+        unsquashfs -f -d /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04 /tmp/Ubuntu_22_04.sqsh && \
+        rm /tmp/Ubuntu_22_04.sqsh && \
+        mkdir -p /lib64 && \
+        ln -sf /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 /lib64/ld-linux-x86-64.so.2; \
+    fi && \
     chown -R gameserver:gameserver /home/gameserver
 
 # Copy Python application

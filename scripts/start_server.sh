@@ -84,10 +84,6 @@ ensure_fex_rootfs() {
     return 0
   fi
 
-  local fetcher_log="/tmp/fex-rootfs-fetch.log"
-  local distro="${FEX_ROOTFS_DISTRO:-ubuntu}"
-  local version="${FEX_ROOTFS_VERSION:-22.04}"
-
   if [ -d "$FEX_ROOTFS_DIR" ] && [ -n "$(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -printf '1' -quit 2>/dev/null)" ]; then
     log "Detected existing FEX RootFS in $FEX_ROOTFS_DIR"
     if ! select_fex_rootfs; then
@@ -99,58 +95,8 @@ ensure_fex_rootfs() {
     return 0
   fi
 
-  if ! command -v FEXRootFSFetcher >/dev/null 2>&1; then
-    log "Error: FEXRootFSFetcher not found - cannot download RootFS automatically"
-    return 1
-  fi
-
-  log "FEX RootFS missing - downloading ${distro} ${version}"
-  if ! mkdir -p "$FEX_ROOTFS_DIR"; then
-    log "Error: Unable to create FEX rootfs directory $FEX_ROOTFS_DIR"
-    return 1
-  fi
-
-  local fetcher_args=(
-    --assume-yes
-    --force-ui
-    tty
-    --distro-name "$distro"
-    --distro-version "$version"
-    --distro-list-first
-    --as-is
-  )
-
-  if [ "$(id -u)" = "0" ]; then
-    if command -v runuser >/dev/null 2>&1; then
-      if ! runuser -u gameserver -- env HOME=/home/gameserver FEX_DATA_DIR="$FEX_DATA_DIR" FEX_ROOTFS_DIR="$FEX_ROOTFS_DIR" FEXRootFSFetcher "${fetcher_args[@]}" >"$fetcher_log" 2>&1; then
-        log "Error: FEXRootFSFetcher failed - see $fetcher_log for details"
-        tail -n 20 "$fetcher_log" 2>/dev/null | sed 's/^/[asa-start] FEXRootFSFetcher: /'
-        return 1
-      fi
-    else
-      if ! su -s /bin/bash gameserver -c "HOME=/home/gameserver FEX_DATA_DIR='$FEX_DATA_DIR' FEX_ROOTFS_DIR='$FEX_ROOTFS_DIR' FEXRootFSFetcher ${fetcher_args[*]} >'$fetcher_log' 2>&1"; then
-        log "Error: FEXRootFSFetcher failed (fallback) - see $fetcher_log for details"
-        tail -n 20 "$fetcher_log" 2>/dev/null | sed 's/^/[asa-start] FEXRootFSFetcher: /'
-        return 1
-      fi
-    fi
-  else
-    if ! FEXRootFSFetcher "${fetcher_args[@]}" >"$fetcher_log" 2>&1; then
-      log "Error: FEXRootFSFetcher failed - see $fetcher_log for details"
-      tail -n 20 "$fetcher_log" 2>/dev/null | sed 's/^/[asa-start] FEXRootFSFetcher: /'
-      return 1
-    fi
-  fi
-
-  rm -f "$fetcher_log" 2>/dev/null || true
-  log "FEX RootFS download completed"
-  if ! select_fex_rootfs; then
-    return 1
-  fi
-
-  if [ "$(id -u)" = "0" ] && [ -d "$FEX_DATA_DIR" ]; then
-    chown -R gameserver:gameserver "$FEX_DATA_DIR" 2>/dev/null || true
-  fi
+  log "Error: FEX RootFS not found in $FEX_ROOTFS_DIR. Please rebuild the container image to include the RootFS."
+  return 1
 }
 
 resolve_fex_rootfs_candidate() {
