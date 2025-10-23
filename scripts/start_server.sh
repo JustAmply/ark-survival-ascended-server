@@ -110,17 +110,36 @@ ensure_fex_rootfs() {
     return 1
   fi
 
-  if ! FEXRootFSFetcher \
-      --assume-yes \
-      --force-ui tty \
-      --distro-name "$distro" \
-      --distro-version "$version" \
-      --distro-list-first \
-      --as-is \
-      >"$fetcher_log" 2>&1; then
-    log "Error: FEXRootFSFetcher failed - see $fetcher_log for details"
-    tail -n 20 "$fetcher_log" 2>/dev/null | sed 's/^/[asa-start] FEXRootFSFetcher: /'
-    return 1
+  local fetcher_args=(
+    --assume-yes
+    --force-ui
+    tty
+    --distro-name "$distro"
+    --distro-version "$version"
+    --distro-list-first
+    --as-is
+  )
+
+  if [ "$(id -u)" = "0" ]; then
+    if command -v runuser >/dev/null 2>&1; then
+      if ! runuser -u gameserver -- env HOME=/home/gameserver FEX_DATA_DIR="$FEX_DATA_DIR" FEX_ROOTFS_DIR="$FEX_ROOTFS_DIR" FEXRootFSFetcher "${fetcher_args[@]}" >"$fetcher_log" 2>&1; then
+        log "Error: FEXRootFSFetcher failed - see $fetcher_log for details"
+        tail -n 20 "$fetcher_log" 2>/dev/null | sed 's/^/[asa-start] FEXRootFSFetcher: /'
+        return 1
+      fi
+    else
+      if ! su -s /bin/bash gameserver -c "HOME=/home/gameserver FEX_DATA_DIR='$FEX_DATA_DIR' FEX_ROOTFS_DIR='$FEX_ROOTFS_DIR' FEXRootFSFetcher ${fetcher_args[*]} >'$fetcher_log' 2>&1"; then
+        log "Error: FEXRootFSFetcher failed (fallback) - see $fetcher_log for details"
+        tail -n 20 "$fetcher_log" 2>/dev/null | sed 's/^/[asa-start] FEXRootFSFetcher: /'
+        return 1
+      fi
+    fi
+  else
+    if ! FEXRootFSFetcher "${fetcher_args[@]}" >"$fetcher_log" 2>&1; then
+      log "Error: FEXRootFSFetcher failed - see $fetcher_log for details"
+      tail -n 20 "$fetcher_log" 2>/dev/null | sed 's/^/[asa-start] FEXRootFSFetcher: /'
+      return 1
+    fi
   fi
 
   rm -f "$fetcher_log" 2>/dev/null || true
