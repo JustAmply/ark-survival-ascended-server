@@ -168,6 +168,9 @@ select_fex_rootfs() {
     if resolved=$(resolve_fex_rootfs_candidate "$FEX_ROOTFS"); then
       FEX_ROOTFS="$resolved"
       export FEX_ROOTFS
+      if [ -d "$FEX_ROOTFS" ]; then
+        export QEMU_LD_PREFIX="$FEX_ROOTFS"
+      fi
       log "Using preset FEX_ROOTFS='$FEX_ROOTFS'"
       return 0
     fi
@@ -180,6 +183,9 @@ select_fex_rootfs() {
     if resolved=$(resolve_fex_rootfs_candidate "$named_candidate"); then
       FEX_ROOTFS="$resolved"
       export FEX_ROOTFS
+      if [ -d "$FEX_ROOTFS" ]; then
+        export QEMU_LD_PREFIX="$FEX_ROOTFS"
+      fi
       log "Using FEX RootFS named '$FEX_ROOTFS_NAME' at '$FEX_ROOTFS'"
       return 0
     fi
@@ -203,6 +209,9 @@ select_fex_rootfs() {
     if resolved=$(resolve_fex_rootfs_candidate "$candidate"); then
       FEX_ROOTFS="$resolved"
       export FEX_ROOTFS
+      if [ -d "$FEX_ROOTFS" ]; then
+        export QEMU_LD_PREFIX="$FEX_ROOTFS"
+      fi
       log "Using FEX RootFS '$FEX_ROOTFS'"
       return 0
     fi
