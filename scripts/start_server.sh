@@ -79,6 +79,9 @@ ensure_fex_rootfs() {
 
   if [ -d "$FEX_ROOTFS_DIR" ] && [ -n "$(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -printf '1' -quit 2>/dev/null)" ]; then
     log "Detected existing FEX RootFS in $FEX_ROOTFS_DIR"
+    if ! select_fex_rootfs; then
+      return 1
+    fi
     return 0
   fi
 
@@ -105,6 +108,47 @@ ensure_fex_rootfs() {
 
   rm -f "$fetcher_log" 2>/dev/null || true
   log "FEX RootFS download completed"
+  if ! select_fex_rootfs; then
+    return 1
+  fi
+}
+
+select_fex_rootfs() {
+  if [ "$IS_ARM64" != "1" ]; then
+    return 0
+  fi
+
+  if [ -n "${FEX_ROOTFS:-}" ]; then
+    log "Using preset FEX_ROOTFS='$FEX_ROOTFS'"
+    return 0
+  fi
+
+  local candidate=""
+
+  if [ -n "${FEX_ROOTFS_NAME:-}" ]; then
+    candidate="$FEX_ROOTFS_DIR/${FEX_ROOTFS_NAME}"
+    if [ ! -e "$candidate" ]; then
+      log "Requested FEX_ROOTFS_NAME '$FEX_ROOTFS_NAME' not found under $FEX_ROOTFS_DIR"
+      candidate=""
+    fi
+  fi
+
+  if [ -z "$candidate" ] && [ -d "$FEX_ROOTFS_DIR" ]; then
+    candidate=$(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -type f \( -name '*.sqsh' -o -name '*.squashfs' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2-)
+  fi
+
+  if [ -z "$candidate" ] && [ -d "$FEX_ROOTFS_DIR" ]; then
+    candidate=$(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2-)
+  fi
+
+  if [ -n "$candidate" ]; then
+    export FEX_ROOTFS="$candidate"
+    log "Using FEX RootFS '$FEX_ROOTFS'"
+    return 0
+  fi
+
+  log "Warning: Unable to detect a usable FEX RootFS inside $FEX_ROOTFS_DIR"
+  return 1
 }
 
 register_supervisor_pid() {
@@ -217,17 +261,27 @@ ensure_steamcmd() {
 update_server_files() {
   log "Updating / validating ASA server files..."
   if [ "$IS_ARM64" = "1" ]; then
-    local attempt exit_code wrapper
+    local attempt exit_code wrapper steamcmd_binary
     wrapper="${FEX_WRAPPER:-FEXInterpreter}"
     if ! command -v "$wrapper" >/dev/null 2>&1; then
       log "Error: $wrapper not found in PATH - FEX runtime missing?"
       return 1
     fi
-    log "Running: $wrapper ./linux64/steamcmd +force_install_dir '$SERVER_FILES_DIR' +login anonymous +app_update 2430930 validate +quit"
+
+    if [ -x "$STEAMCMD_DIR/linux64/steamcmd" ]; then
+      steamcmd_binary="./linux64/steamcmd"
+    elif [ -x "$STEAMCMD_DIR/linux32/steamcmd" ]; then
+      steamcmd_binary="./linux32/steamcmd"
+    else
+      log "Error: Unable to locate steamcmd binary in $STEAMCMD_DIR"
+      return 1
+    fi
+
+    log "Running: $wrapper $steamcmd_binary +force_install_dir '$SERVER_FILES_DIR' +login anonymous +app_update 2430930 validate +quit"
     attempt=1
     while true; do
       log "SteamCMD update attempt $attempt (ARM64 via FEX)"
-      if (cd "$STEAMCMD_DIR" && "$wrapper" ./linux64/steamcmd +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit); then
+      if (cd "$STEAMCMD_DIR" && "$wrapper" "$steamcmd_binary" +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit); then
         break
       fi
       exit_code=$?
