@@ -217,17 +217,27 @@ ensure_steamcmd() {
 update_server_files() {
   log "Updating / validating ASA server files..."
   if [ "$IS_ARM64" = "1" ]; then
-    local attempt exit_code wrapper
+    local attempt exit_code wrapper steamcmd_exec
     wrapper="${FEX_WRAPPER:-FEXInterpreter}"
     if ! command -v "$wrapper" >/dev/null 2>&1; then
       log "Error: $wrapper not found in PATH - FEX runtime missing?"
       return 1
     fi
-    log "Running: $wrapper ./linux64/steamcmd +force_install_dir '$SERVER_FILES_DIR' +login anonymous +app_update 2430930 validate +quit"
+    if [ -x "$STEAMCMD_DIR/linux64/steamcmd" ]; then
+      steamcmd_exec="./linux64/steamcmd"
+    elif [ -x "$STEAMCMD_DIR/linux32/steamcmd" ]; then
+      steamcmd_exec="./linux32/steamcmd"
+    elif [ -x "$STEAMCMD_DIR/steamcmd.sh" ]; then
+      steamcmd_exec="./steamcmd.sh"
+    else
+      log "Error: Could not find SteamCMD executable in $STEAMCMD_DIR"
+      return 1
+    fi
+    log "Running: $wrapper $steamcmd_exec +force_install_dir '$SERVER_FILES_DIR' +login anonymous +app_update 2430930 validate +quit"
     attempt=1
     while true; do
       log "SteamCMD update attempt $attempt (ARM64 via FEX)"
-      if (cd "$STEAMCMD_DIR" && "$wrapper" ./linux64/steamcmd +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit); then
+      if (cd "$STEAMCMD_DIR" && "$wrapper" "$steamcmd_exec" +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit); then
         break
       fi
       exit_code=$?
