@@ -268,6 +268,11 @@ update_server_files() {
       return 1
     fi
 
+    if [ -n "${FEX_ROOTFS:-}" ] && [ ! -e "$FEX_ROOTFS" ]; then
+      log "Error: FEX_ROOTFS '$FEX_ROOTFS' not accessible"
+      return 1
+    fi
+
     if [ -x "$STEAMCMD_DIR/linux64/steamcmd" ]; then
       steamcmd_binary="./linux64/steamcmd"
     elif [ -x "$STEAMCMD_DIR/linux32/steamcmd" ]; then
@@ -277,11 +282,16 @@ update_server_files() {
       return 1
     fi
 
-    log "Running: $wrapper $steamcmd_binary +force_install_dir '$SERVER_FILES_DIR' +login anonymous +app_update 2430930 validate +quit"
+    local -a fex_prefix=("$wrapper")
+    if [ -n "${FEX_ROOTFS:-}" ]; then
+      fex_prefix+=("--rootfs" "$FEX_ROOTFS")
+    fi
+
+    log "Running: ${fex_prefix[*]} $steamcmd_binary +force_install_dir '$SERVER_FILES_DIR' +login anonymous +app_update 2430930 validate +quit"
     attempt=1
     while true; do
       log "SteamCMD update attempt $attempt (ARM64 via FEX)"
-      if (cd "$STEAMCMD_DIR" && "$wrapper" "$steamcmd_binary" +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit); then
+      if (cd "$STEAMCMD_DIR" && "${fex_prefix[@]}" "$steamcmd_binary" +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit); then
         break
       fi
       exit_code=$?
@@ -533,10 +543,19 @@ launch_server() {
       log "Error: $wrapper not found in PATH - cannot launch server"
       return 1
     fi
+    if [ -n "${FEX_ROOTFS:-}" ] && [ ! -e "$FEX_ROOTFS" ]; then
+      log "Error: FEX_ROOTFS '$FEX_ROOTFS' not accessible"
+      return 1
+    fi
+    local -a fex_prefix=("$wrapper")
+    if [ -n "${FEX_ROOTFS:-}" ]; then
+      fex_prefix+=("--rootfs" "$FEX_ROOTFS")
+    fi
+    log "FEX launch prefix: ${fex_prefix[*]}"
     if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL "$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      runner=(stdbuf -oL -eL "${fex_prefix[@]}" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
     else
-      runner=("$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      runner=("${fex_prefix[@]}" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
     fi
   else
     # x86_64: Use Proton
