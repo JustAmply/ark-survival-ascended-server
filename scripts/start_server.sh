@@ -35,6 +35,8 @@ SUPERVISOR_EXIT_REQUESTED=0
 RESTART_REQUESTED=0
 SUPERVISOR_PID_FILE="/home/gameserver/.asa-supervisor.pid"
 RESTART_SCHEDULER_PID=""
+FEX_DATA_DIR="${FEX_DATA_DIR:-$HOME/.fex-emu}"
+FEX_ROOTFS_DIR="${FEX_ROOTFS_DIR:-$FEX_DATA_DIR/RootFS}"
 
 # Detect architecture
 ARCH=$(uname -m)
@@ -65,6 +67,45 @@ on_error() {
 }
 
 trap on_error ERR
+
+ensure_fex_rootfs() {
+  if [ "$IS_ARM64" != "1" ]; then
+    return 0
+  fi
+
+  local fetcher_log="/tmp/fex-rootfs-fetch.log"
+  local distro="${FEX_ROOTFS_DISTRO:-ubuntu}"
+  local version="${FEX_ROOTFS_VERSION:-22.04}"
+
+  if [ -d "$FEX_ROOTFS_DIR" ] && [ -n "$(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -printf '1' -quit 2>/dev/null)" ]; then
+    log "Detected existing FEX RootFS in $FEX_ROOTFS_DIR"
+    return 0
+  fi
+
+  if ! command -v FEXRootFSFetcher >/dev/null 2>&1; then
+    log "Error: FEXRootFSFetcher not found - cannot download RootFS automatically"
+    return 1
+  fi
+
+  log "FEX RootFS missing - downloading ${distro} ${version}"
+  mkdir -p "$FEX_ROOTFS_DIR"
+
+  if ! FEXRootFSFetcher \
+      --assume-yes \
+      --force-ui tty \
+      --distro-name "$distro" \
+      --distro-version "$version" \
+      --distro-list-first \
+      --as-is \
+      >"$fetcher_log" 2>&1; then
+    log "Error: FEXRootFSFetcher failed - see $fetcher_log for details"
+    tail -n 20 "$fetcher_log" 2>/dev/null | sed 's/^/[asa-start] FEXRootFSFetcher: /'
+    return 1
+  fi
+
+  rm -f "$fetcher_log" 2>/dev/null || true
+  log "FEX RootFS download completed"
+}
 
 register_supervisor_pid() {
   echo "$$" >"$SUPERVISOR_PID_FILE"
@@ -598,6 +639,7 @@ run_server() {
   trap 'handle_restart_signal USR1' USR1
   trap cleanup EXIT
 
+  ensure_fex_rootfs
   update_server_files
   resolve_proton_version
   install_proton_if_needed
