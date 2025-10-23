@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
     wget \
     unzip \
+    squashfs-tools \
     libc6-dev \
     libfreetype6 \
     && rm -rf /var/lib/apt/lists/* && \

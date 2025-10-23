@@ -113,39 +113,100 @@ ensure_fex_rootfs() {
   fi
 }
 
+resolve_fex_rootfs_candidate() {
+  local input="$1"
+  if [ -z "$input" ]; then
+    return 1
+  fi
+
+  if [ -d "$input" ] && [ -n "$(find "$input" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+    printf '%s' "$input"
+    return 0
+  fi
+
+  case "$input" in
+    *.sqsh|*.squashfs)
+      local base="${input%.*}"
+      if [ -d "$base" ] && [ -n "$(find "$base" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+        printf '%s' "$base"
+        return 0
+      fi
+      if ! command -v unsquashfs >/dev/null 2>&1; then
+        log "Error: unsquashfs not available to extract $(basename "$input")"
+        return 1
+      fi
+      local tmp_dir="${base}.tmp.$$"
+      local log_file="/tmp/fex-unsquash-$$.log"
+      rm -rf "$tmp_dir"
+      log "Extracting FEX RootFS archive $(basename "$input")"
+      if unsquashfs -f -d "$tmp_dir" "$input" >"$log_file" 2>&1; then
+        rm -rf "$base"
+        mv "$tmp_dir" "$base"
+        rm -f "$log_file"
+        log "Extracted FEX RootFS to $base"
+        printf '%s' "$base"
+        return 0
+      else
+        log "Error: Failed to extract $(basename "$input"); see $log_file"
+        rm -rf "$tmp_dir"
+        return 1
+      fi
+      ;;
+  esac
+
+  log "Warning: FEX RootFS candidate '$input' is not a directory or squashfs image"
+  return 1
+}
+
 select_fex_rootfs() {
   if [ "$IS_ARM64" != "1" ]; then
     return 0
   fi
 
+  local resolved=""
   if [ -n "${FEX_ROOTFS:-}" ]; then
-    log "Using preset FEX_ROOTFS='$FEX_ROOTFS'"
-    return 0
+    if resolved=$(resolve_fex_rootfs_candidate "$FEX_ROOTFS"); then
+      FEX_ROOTFS="$resolved"
+      export FEX_ROOTFS
+      log "Using preset FEX_ROOTFS='$FEX_ROOTFS'"
+      return 0
+    fi
+    log "Error: Provided FEX_ROOTFS '$FEX_ROOTFS' is not usable"
+    return 1
   fi
-
-  local candidate=""
 
   if [ -n "${FEX_ROOTFS_NAME:-}" ]; then
-    candidate="$FEX_ROOTFS_DIR/${FEX_ROOTFS_NAME}"
-    if [ ! -e "$candidate" ]; then
-      log "Requested FEX_ROOTFS_NAME '$FEX_ROOTFS_NAME' not found under $FEX_ROOTFS_DIR"
-      candidate=""
+    local named_candidate="$FEX_ROOTFS_DIR/${FEX_ROOTFS_NAME}"
+    if resolved=$(resolve_fex_rootfs_candidate "$named_candidate"); then
+      FEX_ROOTFS="$resolved"
+      export FEX_ROOTFS
+      log "Using FEX RootFS named '$FEX_ROOTFS_NAME' at '$FEX_ROOTFS'"
+      return 0
     fi
+    log "Requested FEX_ROOTFS_NAME '$FEX_ROOTFS_NAME' not found or unusable under $FEX_ROOTFS_DIR"
   fi
 
-  if [ -z "$candidate" ] && [ -d "$FEX_ROOTFS_DIR" ]; then
-    candidate=$(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -type f \( -name '*.sqsh' -o -name '*.squashfs' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2-)
+  local -a candidates=()
+  if [ -d "$FEX_ROOTFS_DIR" ]; then
+    while IFS= read -r entry; do
+      candidates+=("${entry#* }")
+    done < <(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -nr)
+    while IFS= read -r entry; do
+      candidates+=("${entry#* }")
+    done < <(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -type f \( -name '*.sqsh' -o -name '*.squashfs' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr)
   fi
 
-  if [ -z "$candidate" ] && [ -d "$FEX_ROOTFS_DIR" ]; then
-    candidate=$(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2-)
-  fi
-
-  if [ -n "$candidate" ]; then
-    export FEX_ROOTFS="$candidate"
-    log "Using FEX RootFS '$FEX_ROOTFS'"
-    return 0
-  fi
+  for candidate in "${candidates[@]}"; do
+    if [ -z "$candidate" ]; then
+      continue
+    fi
+    if resolved=$(resolve_fex_rootfs_candidate "$candidate"); then
+      FEX_ROOTFS="$resolved"
+      export FEX_ROOTFS
+      log "Using FEX RootFS '$FEX_ROOTFS'"
+      return 0
+    fi
+  done
 
   log "Warning: Unable to detect a usable FEX RootFS inside $FEX_ROOTFS_DIR"
   return 1
