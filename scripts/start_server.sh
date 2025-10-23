@@ -35,6 +35,8 @@ SUPERVISOR_EXIT_REQUESTED=0
 RESTART_REQUESTED=0
 SUPERVISOR_PID_FILE="/home/gameserver/.asa-supervisor.pid"
 RESTART_SCHEDULER_PID=""
+FEX_DATA_DIR="${FEX_DATA_DIR:-$HOME/.fex-emu}"
+FEX_ROOTFS_DIR="${FEX_ROOTFS_DIR:-$FEX_DATA_DIR/RootFS}"
 
 # Detect architecture
 ARCH=$(uname -m)
@@ -52,6 +54,17 @@ if [ "$IS_ARM64" = "1" ]; then
       FEX_WRAPPER="FEXInterpreter"
     fi
   fi
+
+  if [ "$(id -u)" = "0" ]; then
+    FEX_DATA_DIR="/home/gameserver/.fex-emu"
+    FEX_ROOTFS_DIR="/home/gameserver/.fex-emu/RootFS"
+    if [ -n "${FEX_ROOTFS:-}" ] && [ "${FEX_ROOTFS#/root/}" != "$FEX_ROOTFS" ]; then
+      unset FEX_ROOTFS
+    fi
+  fi
+
+  export FEX_DATA_DIR
+  export FEX_ROOTFS_DIR
 fi
 
 log() { echo "[asa-start] $*"; }
@@ -65,6 +78,174 @@ on_error() {
 }
 
 trap on_error ERR
+
+ensure_fex_rootfs() {
+  if [ "$IS_ARM64" != "1" ]; then
+    return 0
+  fi
+
+  if [ -d "$FEX_ROOTFS_DIR" ] && [ -n "$(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -printf '1' -quit 2>/dev/null)" ]; then
+    log "Detected existing FEX RootFS in $FEX_ROOTFS_DIR"
+    if ! select_fex_rootfs; then
+      return 1
+    fi
+    if [ "$(id -u)" = "0" ] && [ -d "$FEX_DATA_DIR" ]; then
+      chown -R gameserver:gameserver "$FEX_DATA_DIR" 2>/dev/null || true
+    fi
+    return 0
+  fi
+
+  log "Error: FEX RootFS not found in $FEX_ROOTFS_DIR. Please rebuild the container image to include the RootFS."
+  return 1
+}
+
+resolve_fex_rootfs_candidate() {
+  local input="$1"
+  if [ -z "$input" ]; then
+    return 1
+  fi
+
+  if [ -d "$input" ] && [ -n "$(find "$input" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+    printf '%s' "$input"
+    return 0
+  fi
+
+  case "$input" in
+    *.sqsh|*.squashfs)
+      local base="${input%.*}"
+      if [ -d "$base" ] && [ -n "$(find "$base" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+        printf '%s' "$base"
+        return 0
+      fi
+      if ! command -v unsquashfs >/dev/null 2>&1; then
+        log "Error: unsquashfs not available to extract $(basename "$input")" >&2
+        return 1
+      fi
+      local tmp_dir="${base}.tmp.$$"
+      local log_file="/tmp/fex-unsquash-$$.log"
+      rm -rf "$tmp_dir"
+      log "Extracting FEX RootFS archive $(basename "$input")" >&2
+      if unsquashfs -f -d "$tmp_dir" "$input" >"$log_file" 2>&1; then
+        rm -rf "$base"
+        mv "$tmp_dir" "$base"
+        rm -f "$log_file"
+        log "Extracted FEX RootFS to $base" >&2
+        printf '%s' "$base"
+        return 0
+      else
+        log "Error: Failed to extract $(basename "$input"); see $log_file" >&2
+        rm -rf "$tmp_dir"
+        return 1
+      fi
+      ;;
+  esac
+
+  log "Warning: FEX RootFS candidate '$input' is not a directory or squashfs image" >&2
+  return 1
+}
+
+apply_fex_rootfs_selection() {
+  FEX_ROOTFS="$1"
+  export FEX_ROOTFS
+  if [ -d "$FEX_ROOTFS" ]; then
+    export QEMU_LD_PREFIX="$FEX_ROOTFS"
+    if [ -z "${QEMU_SET_ENV:-}" ]; then
+      export QEMU_SET_ENV="LD_LIBRARY_PATH=/lib/x86_64-linux-gnu:/lib64:/usr/lib/x86_64-linux-gnu"
+    fi
+    ensure_host_x86_loader
+  fi
+}
+
+ensure_host_x86_loader() {
+  if [ "$IS_ARM64" != "1" ]; then
+    return 0
+  fi
+  if [ -z "${FEX_ROOTFS:-}" ]; then
+    return 0
+  fi
+
+  local loader=""
+  local candidates=(
+    "$FEX_ROOTFS/lib64/ld-linux-x86-64.so.2"
+    "$FEX_ROOTFS/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+    "$FEX_ROOTFS/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+  )
+  for candidate in "${candidates[@]}"; do
+    if [ -e "$candidate" ]; then
+      loader="$candidate"
+      break
+    fi
+  done
+
+  if [ -z "$loader" ]; then
+    log "Warning: ld-linux-x86-64.so.2 not found under $FEX_ROOTFS"
+    return 0
+  fi
+
+  if [ "$(id -u)" != "0" ]; then
+    return 0
+  fi
+
+  mkdir -p /lib64
+  if [ -L /lib64/ld-linux-x86-64.so.2 ] || [ -e /lib64/ld-linux-x86-64.so.2 ]; then
+    return 0
+  fi
+
+  if ln -s "$loader" /lib64/ld-linux-x86-64.so.2 2>/dev/null; then
+    log "Linked /lib64/ld-linux-x86-64.so.2 to $loader for qemu compatibility"
+  fi
+}
+
+select_fex_rootfs() {
+  if [ "$IS_ARM64" != "1" ]; then
+    return 0
+  fi
+
+  local resolved=""
+  if [ -n "${FEX_ROOTFS:-}" ]; then
+    if resolved=$(resolve_fex_rootfs_candidate "$FEX_ROOTFS"); then
+      apply_fex_rootfs_selection "$resolved"
+      log "Using preset FEX_ROOTFS='$FEX_ROOTFS'"
+      return 0
+    fi
+    log "Error: Provided FEX_ROOTFS '$FEX_ROOTFS' is not usable"
+    return 1
+  fi
+
+  if [ -n "${FEX_ROOTFS_NAME:-}" ]; then
+    local named_candidate="$FEX_ROOTFS_DIR/${FEX_ROOTFS_NAME}"
+    if resolved=$(resolve_fex_rootfs_candidate "$named_candidate"); then
+      apply_fex_rootfs_selection "$resolved"
+      log "Using FEX RootFS named '$FEX_ROOTFS_NAME' at '$FEX_ROOTFS'"
+      return 0
+    fi
+    log "Requested FEX_ROOTFS_NAME '$FEX_ROOTFS_NAME' not found or unusable under $FEX_ROOTFS_DIR"
+  fi
+
+  local -a candidates=()
+  if [ -d "$FEX_ROOTFS_DIR" ]; then
+    while IFS= read -r entry; do
+      candidates+=("${entry#* }")
+    done < <(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -nr)
+    while IFS= read -r entry; do
+      candidates+=("${entry#* }")
+    done < <(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -type f \( -name '*.sqsh' -o -name '*.squashfs' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr)
+  fi
+
+  for candidate in "${candidates[@]}"; do
+    if [ -z "$candidate" ]; then
+      continue
+    fi
+    if resolved=$(resolve_fex_rootfs_candidate "$candidate"); then
+      apply_fex_rootfs_selection "$resolved"
+      log "Using FEX RootFS '$FEX_ROOTFS'"
+      return 0
+    fi
+  done
+
+  log "Warning: Unable to detect a usable FEX RootFS inside $FEX_ROOTFS_DIR"
+  return 1
+}
 
 register_supervisor_pid() {
   echo "$$" >"$SUPERVISOR_PID_FILE"
@@ -176,17 +357,45 @@ ensure_steamcmd() {
 update_server_files() {
   log "Updating / validating ASA server files..."
   if [ "$IS_ARM64" = "1" ]; then
-    local attempt exit_code wrapper
+    local attempt exit_code wrapper steamcmd_binary
     wrapper="${FEX_WRAPPER:-FEXInterpreter}"
     if ! command -v "$wrapper" >/dev/null 2>&1; then
       log "Error: $wrapper not found in PATH - FEX runtime missing?"
       return 1
     fi
-    log "Running: $wrapper ./linux64/steamcmd +force_install_dir '$SERVER_FILES_DIR' +login anonymous +app_update 2430930 validate +quit"
+
+    if [ -n "${FEX_ROOTFS:-}" ] && [ ! -e "$FEX_ROOTFS" ]; then
+      log "Error: FEX_ROOTFS '$FEX_ROOTFS' not accessible"
+      return 1
+    fi
+
+    if [ -x "$STEAMCMD_DIR/linux64/steamcmd" ]; then
+      steamcmd_binary="./linux64/steamcmd"
+    elif [ -x "$STEAMCMD_DIR/linux32/steamcmd" ]; then
+      steamcmd_binary="./linux32/steamcmd"
+    else
+      log "Error: Unable to locate steamcmd binary in $STEAMCMD_DIR"
+      return 1
+    fi
+
+    if [ -n "${FEX_ROOTFS:-}" ]; then
+      log "FEX RootFS active for SteamCMD: $FEX_ROOTFS"
+    fi
+
+    log "Running: $wrapper $steamcmd_binary +force_install_dir '$SERVER_FILES_DIR' +login anonymous +app_update 2430930 validate +quit"
     attempt=1
     while true; do
       log "SteamCMD update attempt $attempt (ARM64 via FEX)"
-      if (cd "$STEAMCMD_DIR" && "$wrapper" ./linux64/steamcmd +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit); then
+      if (cd "$STEAMCMD_DIR" && \
+          { if [ -n "${FEX_ROOTFS:-}" ]; then
+              if [ -n "${QEMU_SET_ENV:-}" ]; then
+                env QEMU_LD_PREFIX="$FEX_ROOTFS" QEMU_SET_ENV="$QEMU_SET_ENV" "$wrapper" "$steamcmd_binary" +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit
+              else
+                env QEMU_LD_PREFIX="$FEX_ROOTFS" "$wrapper" "$steamcmd_binary" +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit
+              fi
+            else
+              "$wrapper" "$steamcmd_binary" +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit
+            fi; }); then
         break
       fi
       exit_code=$?
@@ -438,10 +647,32 @@ launch_server() {
       log "Error: $wrapper not found in PATH - cannot launch server"
       return 1
     fi
+    if [ -n "${FEX_ROOTFS:-}" ] && [ ! -e "$FEX_ROOTFS" ]; then
+      log "Error: FEX_ROOTFS '$FEX_ROOTFS' not accessible"
+      return 1
+    fi
+    if [ -n "${FEX_ROOTFS:-}" ]; then
+      log "FEX RootFS active for launch: $FEX_ROOTFS"
+    fi
+    local -a env_prefix=()
+    if [ -n "${FEX_ROOTFS:-}" ]; then
+      env_prefix=(env QEMU_LD_PREFIX="$FEX_ROOTFS")
+      if [ -n "${QEMU_SET_ENV:-}" ]; then
+        env_prefix+=(QEMU_SET_ENV="$QEMU_SET_ENV")
+      fi
+    fi
     if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL "$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      if [ "${#env_prefix[@]}" -gt 0 ]; then
+        runner=("${env_prefix[@]}" stdbuf -oL -eL "$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      else
+        runner=(stdbuf -oL -eL "$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      fi
     else
-      runner=("$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      if [ "${#env_prefix[@]}" -gt 0 ]; then
+        runner=("${env_prefix[@]}" "$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      else
+        runner=("$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      fi
     fi
   else
     # x86_64: Use Proton
@@ -598,6 +829,7 @@ run_server() {
   trap 'handle_restart_signal USR1' USR1
   trap cleanup EXIT
 
+  ensure_fex_rootfs
   update_server_files
   resolve_proton_version
   install_proton_if_needed
@@ -621,6 +853,9 @@ if [ "$(id -u)" = "0" ]; then
   configure_timezone
 fi
 maybe_debug
+if [ "$IS_ARM64" = "1" ]; then
+  ensure_fex_rootfs
+fi
 ensure_permissions
 register_supervisor_pid
 start_restart_scheduler

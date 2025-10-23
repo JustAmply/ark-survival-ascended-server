@@ -1,0 +1,20 @@
+# Reduce Docker build context and avoid unnecessary cache invalidations
+.git
+.gitignore
+.gitattributes
+.vscode
+.pytest_cache
+__pycache__
+*.py[cod]
+
+# CI configuration and documentation not needed in the image
+.github
+docker-compose.yml
+docker-compose.dev.yml
+README.md
+SETUP.md
+FAQ.md
+assets
+
+# Tests and development artefacts
+tests
