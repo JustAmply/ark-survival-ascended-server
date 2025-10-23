@@ -119,10 +119,6 @@ resolve_fex_rootfs_candidate() {
     return 1
   fi
 
-  if [ "${input#\[asa-start]}" != "$input" ]; then
-    input=$(printf '%s' "$input" | tail -n 1 | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
-  fi
-
   if [ -d "$input" ] && [ -n "$(find "$input" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
     printf '%s' "$input"
     return 0
