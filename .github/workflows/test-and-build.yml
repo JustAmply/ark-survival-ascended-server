@@ -117,6 +117,9 @@ jobs:
           ref_name="${ref_name//\//-}"
 
           base_ref="${{ github.base_ref }}"
+          if [ -z "$base_ref" ] && [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_ref="${{ github.event.pull_request.base.ref }}"
+          fi
           if [ -z "$base_ref" ]; then
             base_ref="main"
           fi
