@@ -136,29 +136,29 @@ resolve_fex_rootfs_candidate() {
         return 0
       fi
       if ! command -v unsquashfs >/dev/null 2>&1; then
-        log "Error: unsquashfs not available to extract $(basename "$input")"
+        log "Error: unsquashfs not available to extract $(basename "$input")" >&2
         return 1
       fi
       local tmp_dir="${base}.tmp.$$"
       local log_file="/tmp/fex-unsquash-$$.log"
       rm -rf "$tmp_dir"
-      log "Extracting FEX RootFS archive $(basename "$input")"
+      log "Extracting FEX RootFS archive $(basename "$input")" >&2
       if unsquashfs -f -d "$tmp_dir" "$input" >"$log_file" 2>&1; then
         rm -rf "$base"
         mv "$tmp_dir" "$base"
         rm -f "$log_file"
-        log "Extracted FEX RootFS to $base"
+        log "Extracted FEX RootFS to $base" >&2
         printf '%s' "$base"
         return 0
       else
-        log "Error: Failed to extract $(basename "$input"); see $log_file"
+        log "Error: Failed to extract $(basename "$input"); see $log_file" >&2
         rm -rf "$tmp_dir"
         return 1
       fi
       ;;
   esac
 
-  log "Warning: FEX RootFS candidate '$input' is not a directory or squashfs image"
+  log "Warning: FEX RootFS candidate '$input' is not a directory or squashfs image" >&2
   return 1
 }
 
