@@ -158,6 +158,58 @@ resolve_fex_rootfs_candidate() {
   return 1
 }
 
+apply_fex_rootfs_selection() {
+  FEX_ROOTFS="$1"
+  export FEX_ROOTFS
+  if [ -d "$FEX_ROOTFS" ]; then
+    export QEMU_LD_PREFIX="$FEX_ROOTFS"
+    if [ -z "${QEMU_SET_ENV:-}" ]; then
+      export QEMU_SET_ENV="LD_LIBRARY_PATH=/lib/x86_64-linux-gnu:/lib64:/usr/lib/x86_64-linux-gnu"
+    fi
+    ensure_host_x86_loader
+  fi
+}
+
+ensure_host_x86_loader() {
+  if [ "$IS_ARM64" != "1" ]; then
+    return 0
+  fi
+  if [ -z "${FEX_ROOTFS:-}" ]; then
+    return 0
+  fi
+
+  local loader=""
+  local candidates=(
+    "$FEX_ROOTFS/lib64/ld-linux-x86-64.so.2"
+    "$FEX_ROOTFS/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+    "$FEX_ROOTFS/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+  )
+  for candidate in "${candidates[@]}"; do
+    if [ -e "$candidate" ]; then
+      loader="$candidate"
+      break
+    fi
+  done
+
+  if [ -z "$loader" ]; then
+    log "Warning: ld-linux-x86-64.so.2 not found under $FEX_ROOTFS"
+    return 0
+  fi
+
+  if [ "$(id -u)" != "0" ]; then
+    return 0
+  fi
+
+  mkdir -p /lib64
+  if [ -L /lib64/ld-linux-x86-64.so.2 ] || [ -e /lib64/ld-linux-x86-64.so.2 ]; then
+    return 0
+  fi
+
+  if ln -s "$loader" /lib64/ld-linux-x86-64.so.2 2>/dev/null; then
+    log "Linked /lib64/ld-linux-x86-64.so.2 to $loader for qemu compatibility"
+  fi
+}
+
 select_fex_rootfs() {
   if [ "$IS_ARM64" != "1" ]; then
     return 0
@@ -166,11 +218,7 @@ select_fex_rootfs() {
   local resolved=""
   if [ -n "${FEX_ROOTFS:-}" ]; then
     if resolved=$(resolve_fex_rootfs_candidate "$FEX_ROOTFS"); then
-      FEX_ROOTFS="$resolved"
-      export FEX_ROOTFS
-      if [ -d "$FEX_ROOTFS" ]; then
-        export QEMU_LD_PREFIX="$FEX_ROOTFS"
-      fi
+      apply_fex_rootfs_selection "$resolved"
       log "Using preset FEX_ROOTFS='$FEX_ROOTFS'"
       return 0
     fi
@@ -181,11 +229,7 @@ select_fex_rootfs() {
   if [ -n "${FEX_ROOTFS_NAME:-}" ]; then
     local named_candidate="$FEX_ROOTFS_DIR/${FEX_ROOTFS_NAME}"
     if resolved=$(resolve_fex_rootfs_candidate "$named_candidate"); then
-      FEX_ROOTFS="$resolved"
-      export FEX_ROOTFS
-      if [ -d "$FEX_ROOTFS" ]; then
-        export QEMU_LD_PREFIX="$FEX_ROOTFS"
-      fi
+      apply_fex_rootfs_selection "$resolved"
       log "Using FEX RootFS named '$FEX_ROOTFS_NAME' at '$FEX_ROOTFS'"
       return 0
     fi
@@ -207,11 +251,7 @@ select_fex_rootfs() {
       continue
     fi
     if resolved=$(resolve_fex_rootfs_candidate "$candidate"); then
-      FEX_ROOTFS="$resolved"
-      export FEX_ROOTFS
-      if [ -d "$FEX_ROOTFS" ]; then
-        export QEMU_LD_PREFIX="$FEX_ROOTFS"
-      fi
+      apply_fex_rootfs_selection "$resolved"
       log "Using FEX RootFS '$FEX_ROOTFS'"
       return 0
     fi
@@ -360,7 +400,16 @@ update_server_files() {
     attempt=1
     while true; do
       log "SteamCMD update attempt $attempt (ARM64 via FEX)"
-      if (cd "$STEAMCMD_DIR" && "$wrapper" "$steamcmd_binary" +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit); then
+      if (cd "$STEAMCMD_DIR" && \
+          { if [ -n "${FEX_ROOTFS:-}" ]; then
+              if [ -n "${QEMU_SET_ENV:-}" ]; then
+                env QEMU_LD_PREFIX="$FEX_ROOTFS" QEMU_SET_ENV="$QEMU_SET_ENV" "$wrapper" "$steamcmd_binary" +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit
+              else
+                env QEMU_LD_PREFIX="$FEX_ROOTFS" "$wrapper" "$steamcmd_binary" +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit
+              fi
+            else
+              "$wrapper" "$steamcmd_binary" +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit
+            fi; }); then
         break
       fi
       exit_code=$?
@@ -619,10 +668,25 @@ launch_server() {
     if [ -n "${FEX_ROOTFS:-}" ]; then
       log "FEX RootFS active for launch: $FEX_ROOTFS"
     fi
+    local -a env_prefix=()
+    if [ -n "${FEX_ROOTFS:-}" ]; then
+      env_prefix=(env QEMU_LD_PREFIX="$FEX_ROOTFS")
+      if [ -n "${QEMU_SET_ENV:-}" ]; then
+        env_prefix+=(QEMU_SET_ENV="$QEMU_SET_ENV")
+      fi
+    fi
     if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL "$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      if [ "${#env_prefix[@]}" -gt 0 ]; then
+        runner=("${env_prefix[@]}" stdbuf -oL -eL "$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      else
+        runner=(stdbuf -oL -eL "$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      fi
     else
-      runner=("$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      if [ "${#env_prefix[@]}" -gt 0 ]; then
+        runner=("${env_prefix[@]}" "$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      else
+        runner=("$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      fi
     fi
   else
     # x86_64: Use Proton
@@ -803,6 +867,9 @@ if [ "$(id -u)" = "0" ]; then
   configure_timezone
 fi
 maybe_debug
+if [ "$IS_ARM64" = "1" ]; then
+  ensure_fex_rootfs
+fi
 ensure_permissions
 register_supervisor_pid
 start_restart_scheduler
