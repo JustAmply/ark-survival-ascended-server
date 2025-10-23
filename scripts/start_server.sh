@@ -54,6 +54,14 @@ if [ "$IS_ARM64" = "1" ]; then
       FEX_WRAPPER="FEXInterpreter"
     fi
   fi
+
+  if [ "$(id -u)" = "0" ]; then
+    FEX_DATA_DIR="${FEX_DATA_DIR:-/home/gameserver/.fex-emu}"
+    FEX_ROOTFS_DIR="${FEX_ROOTFS_DIR:-$FEX_DATA_DIR/RootFS}"
+  fi
+
+  export FEX_DATA_DIR
+  export FEX_ROOTFS_DIR
 fi
 
 log() { echo "[asa-start] $*"; }
@@ -81,6 +89,9 @@ ensure_fex_rootfs() {
     log "Detected existing FEX RootFS in $FEX_ROOTFS_DIR"
     if ! select_fex_rootfs; then
       return 1
+    fi
+    if [ "$(id -u)" = "0" ] && [ -d "$FEX_DATA_DIR" ]; then
+      chown -R gameserver:gameserver "$FEX_DATA_DIR" 2>/dev/null || true
     fi
     return 0
   fi
@@ -110,6 +121,10 @@ ensure_fex_rootfs() {
   log "FEX RootFS download completed"
   if ! select_fex_rootfs; then
     return 1
+  fi
+
+  if [ "$(id -u)" = "0" ] && [ -d "$FEX_DATA_DIR" ]; then
+    chown -R gameserver:gameserver "$FEX_DATA_DIR" 2>/dev/null || true
   fi
 }
 
