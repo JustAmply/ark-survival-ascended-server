@@ -56,8 +56,11 @@ if [ "$IS_ARM64" = "1" ]; then
   fi
 
   if [ "$(id -u)" = "0" ]; then
-    FEX_DATA_DIR="${FEX_DATA_DIR:-/home/gameserver/.fex-emu}"
-    FEX_ROOTFS_DIR="${FEX_ROOTFS_DIR:-$FEX_DATA_DIR/RootFS}"
+    FEX_DATA_DIR="/home/gameserver/.fex-emu"
+    FEX_ROOTFS_DIR="/home/gameserver/.fex-emu/RootFS"
+    if [ -n "${FEX_ROOTFS:-}" ] && [ "${FEX_ROOTFS#/root/}" != "$FEX_ROOTFS" ]; then
+      unset FEX_ROOTFS
+    fi
   fi
 
   export FEX_DATA_DIR
@@ -102,7 +105,10 @@ ensure_fex_rootfs() {
   fi
 
   log "FEX RootFS missing - downloading ${distro} ${version}"
-  mkdir -p "$FEX_ROOTFS_DIR"
+  if ! mkdir -p "$FEX_ROOTFS_DIR"; then
+    log "Error: Unable to create FEX rootfs directory $FEX_ROOTFS_DIR"
+    return 1
+  fi
 
   if ! FEXRootFSFetcher \
       --assume-yes \
