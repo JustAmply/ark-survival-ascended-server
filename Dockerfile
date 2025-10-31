@@ -5,7 +5,7 @@ ARG VERSION="unknown"
 ARG GIT_COMMIT="unknown"
 ARG BUILD_DATE="unknown"
 ARG TARGETARCH
-ARG FEX_PACKAGE="fex-emu-armv8.0"
+ARG FEX_PACKAGE="fex-emu-armv8.2"
 
 # Add metadata labels
 LABEL org.opencontainers.image.version="${VERSION}" \
