@@ -178,7 +178,7 @@ ensure_host_x86_loader() {
   done
 
   if [ -z "$loader" ]; then
-    log "Warning: ld-linux-x86-64.so.2 not found under $FEX_ROOTFS"
+    log "Warning: ld-linux-x86-64.so.2 not found under $FEX_ROOTFS. x86_64 binaries may fail to load on ARM64 hosts. Manual intervention may be required to install or link the loader."
     return 0
   fi
 
@@ -382,20 +382,22 @@ update_server_files() {
       log "FEX RootFS active for SteamCMD: $FEX_ROOTFS"
     fi
 
-    log "Running: $wrapper $steamcmd_binary +force_install_dir '$SERVER_FILES_DIR' +login anonymous +app_update 2430930 validate +quit"
+    # Build environment and command arrays
+    local env_args=()
+    local cmd_args=()
+    if [ -n "${FEX_ROOTFS:-}" ]; then
+      env_args+=(QEMU_LD_PREFIX="$FEX_ROOTFS")
+      if [ -n "${QEMU_SET_ENV:-}" ]; then
+        env_args+=(QEMU_SET_ENV="$QEMU_SET_ENV")
+      fi
+    fi
+    cmd_args+=("$wrapper" "$steamcmd_binary" +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+    
+    log "Running: ${env_args[*]} ${cmd_args[*]}"
     attempt=1
     while true; do
       log "SteamCMD update attempt $attempt (ARM64 via FEX)"
-      if (cd "$STEAMCMD_DIR" && \
-          { if [ -n "${FEX_ROOTFS:-}" ]; then
-              if [ -n "${QEMU_SET_ENV:-}" ]; then
-                env QEMU_LD_PREFIX="$FEX_ROOTFS" QEMU_SET_ENV="$QEMU_SET_ENV" "$wrapper" "$steamcmd_binary" +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit
-              else
-                env QEMU_LD_PREFIX="$FEX_ROOTFS" "$wrapper" "$steamcmd_binary" +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit
-              fi
-            else
-              "$wrapper" "$steamcmd_binary" +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit
-            fi; }); then
+      if (cd "$STEAMCMD_DIR" && env "${env_args[@]}" "${cmd_args[@]}"); then
         break
       fi
       exit_code=$?
