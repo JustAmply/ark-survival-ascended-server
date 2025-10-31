@@ -35,8 +35,14 @@ SUPERVISOR_EXIT_REQUESTED=0
 RESTART_REQUESTED=0
 SUPERVISOR_PID_FILE="/home/gameserver/.asa-supervisor.pid"
 RESTART_SCHEDULER_PID=""
+if [ "${FEX_DATA_DIR+set}" = "set" ]; then
+  FEX_DATA_DIR_USER_DEFINED=1
+else
+  FEX_DATA_DIR_USER_DEFINED=0
+fi
 FEX_DATA_DIR="${FEX_DATA_DIR:-$HOME/.fex-emu}"
 FEX_ROOTFS_DIR="${FEX_ROOTFS_DIR:-$FEX_DATA_DIR/RootFS}"
+FEX_OWNERSHIP_TARGET="$FEX_DATA_DIR"
 
 # Detect architecture
 ARCH=$(uname -m)
@@ -58,6 +64,8 @@ if [ "$IS_ARM64" = "1" ]; then
   if [ "$(id -u)" = "0" ]; then
     FEX_DATA_DIR="/home/gameserver/.fex-emu"
     FEX_ROOTFS_DIR="/home/gameserver/.fex-emu/RootFS"
+    FEX_DATA_DIR_USER_DEFINED=0
+    FEX_OWNERSHIP_TARGET="$FEX_DATA_DIR"
     if [ -n "${FEX_ROOTFS:-}" ] && [ "${FEX_ROOTFS#/root/}" != "$FEX_ROOTFS" ]; then
       unset FEX_ROOTFS
     fi
@@ -96,16 +104,13 @@ ensure_fex_rootfs() {
   done < <(fex_rootfs_base_candidates)
 
   if [ -n "$detected_base" ]; then
-    FEX_ROOTFS_DIR="$detected_base"
-    FEX_DATA_DIR="$(dirname "$detected_base")"
-    export FEX_ROOTFS_DIR
-    export FEX_DATA_DIR
+    set_fex_paths_from_base_dir "$detected_base"
     log "Detected existing FEX RootFS in $detected_base"
     if ! select_fex_rootfs; then
       return 1
     fi
-    if [ "$(id -u)" = "0" ] && [ -d "$FEX_DATA_DIR" ]; then
-      chown -R gameserver:gameserver "$FEX_DATA_DIR" 2>/dev/null || true
+    if [ "$(id -u)" = "0" ] && [ -n "$FEX_OWNERSHIP_TARGET" ] && [ -d "$FEX_OWNERSHIP_TARGET" ]; then
+      chown -R gameserver:gameserver "$FEX_OWNERSHIP_TARGET" 2>/dev/null || true
     fi
     return 0
   fi
@@ -141,8 +146,8 @@ ensure_fex_rootfs() {
         log "Error: Failed to select FEX RootFS after download"
         return 1
       fi
-      if [ "$(id -u)" = "0" ] && [ -d "$FEX_DATA_DIR" ]; then
-        chown -R gameserver:gameserver "$FEX_DATA_DIR" 2>/dev/null || true
+      if [ "$(id -u)" = "0" ] && [ -n "$FEX_OWNERSHIP_TARGET" ] && [ -d "$FEX_OWNERSHIP_TARGET" ]; then
+        chown -R gameserver:gameserver "$FEX_OWNERSHIP_TARGET" 2>/dev/null || true
       fi
       return 0
     else
@@ -285,6 +290,41 @@ fex_rootfs_base_candidates() {
   printf '%s\n' "${results[@]}"
 }
 
+set_fex_paths_from_base_dir() {
+  local base_dir="$1"
+  if [ -z "$base_dir" ]; then
+    return 0
+  fi
+
+  if [ "$base_dir" != "/" ]; then
+    base_dir="${base_dir%/}"
+  fi
+
+  local parent trimmed_parent trimmed_current
+  parent="$(dirname "$base_dir")"
+  if [ "$parent" = "/" ]; then
+    trimmed_parent="/"
+  else
+    trimmed_parent="${parent%/}"
+  fi
+  if [ "$FEX_DATA_DIR" = "/" ]; then
+    trimmed_current="/"
+  else
+    trimmed_current="${FEX_DATA_DIR%/}"
+  fi
+
+  FEX_ROOTFS_DIR="$base_dir"
+  export FEX_ROOTFS_DIR
+
+  if [ "$FEX_DATA_DIR_USER_DEFINED" = "0" ] || [ "$trimmed_current" = "$trimmed_parent" ]; then
+    FEX_DATA_DIR="$trimmed_parent"
+    export FEX_DATA_DIR
+    FEX_OWNERSHIP_TARGET="$FEX_DATA_DIR"
+  else
+    FEX_OWNERSHIP_TARGET="$FEX_ROOTFS_DIR"
+  fi
+}
+
 select_fex_rootfs() {
   if [ "$IS_ARM64" != "1" ]; then
     return 0
@@ -309,10 +349,7 @@ select_fex_rootfs() {
     for base_dir in "${base_dirs[@]}"; do
       named_candidate="$base_dir/${FEX_ROOTFS_NAME}"
       if resolved=$(resolve_fex_rootfs_candidate "$named_candidate"); then
-        FEX_ROOTFS_DIR="$base_dir"
-        FEX_DATA_DIR="$(dirname "$base_dir")"
-        export FEX_ROOTFS_DIR
-        export FEX_DATA_DIR
+        set_fex_paths_from_base_dir "$base_dir"
         apply_fex_rootfs_selection "$resolved"
         log "Using FEX RootFS named '$FEX_ROOTFS_NAME' from base '$base_dir'"
         return 0
@@ -336,10 +373,7 @@ select_fex_rootfs() {
         continue
       fi
       if resolved=$(resolve_fex_rootfs_candidate "$candidate"); then
-        FEX_ROOTFS_DIR="$base_dir"
-        FEX_DATA_DIR="$(dirname "$base_dir")"
-        export FEX_ROOTFS_DIR
-        export FEX_DATA_DIR
+        set_fex_paths_from_base_dir "$base_dir"
         apply_fex_rootfs_selection "$resolved"
         log "Using FEX RootFS '$FEX_ROOTFS' from base '$base_dir'"
         return 0
