@@ -174,7 +174,6 @@ jobs:
             VERSION=${{ env.VERSION }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.run_id }}
-            TARGETARCH=${{ matrix.name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
