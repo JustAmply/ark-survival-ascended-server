@@ -84,6 +84,39 @@ ensure_fex_rootfs() {
     return 0
   fi
 
+  local -a fex_rootfs_base_candidates=(
+    "$FEX_ROOTFS_DIR"
+    "$FEX_DATA_DIR/RootFS"
+    "/home/gameserver/.fex-emu/RootFS"
+    "$HOME/.fex-emu/RootFS"
+  )
+  local fex_home
+  fex_home="$(dirname "$FEX_DATA_DIR")"
+  # Include the location used when FEXRootFSFetcher runs under a different HOME.
+  fex_rootfs_base_candidates+=("$fex_home/.local/share/FEX-Emu/RootFS")
+
+  local -a fex_rootfs_candidates=()
+  local seen_candidates=""
+  local candidate
+  for candidate in "${fex_rootfs_base_candidates[@]}"; do
+    if [ -z "$candidate" ]; then
+      continue
+    fi
+    case " $seen_candidates " in
+      *" $candidate "*)
+        continue
+        ;;
+    esac
+    seen_candidates="$seen_candidates $candidate"
+    if [ -d "$candidate" ]; then
+      fex_rootfs_candidates+=("$candidate")
+    fi
+  done
+
+  if [ ! -d "$FEX_ROOTFS_DIR" ] && [ "${#fex_rootfs_candidates[@]}" -gt 0 ]; then
+    FEX_ROOTFS_DIR="${fex_rootfs_candidates[0]}"
+  fi
+
   if [ -d "$FEX_ROOTFS_DIR" ] && [ -n "$(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -printf '1' -quit 2>/dev/null)" ]; then
     log "Detected existing FEX RootFS in $FEX_ROOTFS_DIR"
     if ! select_fex_rootfs; then
