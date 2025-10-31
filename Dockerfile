@@ -34,6 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install architecture-specific dependencies
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        dpkg --add-architecture i386 && \
         apt-get update && apt-get install -y --no-install-recommends \
             lib32stdc++6 \
             lib32z1 \
