@@ -95,8 +95,29 @@ ensure_fex_rootfs() {
     return 0
   fi
 
-  log "Error: FEX RootFS not found in $FEX_ROOTFS_DIR. Please rebuild the container image to include the RootFS."
-  return 1
+  log "FEX RootFS not found in $FEX_ROOTFS_DIR. Provisioning using FEXRootFSFetcher..."
+  
+  # Use FEXRootFSFetcher to download the RootFS
+  if command -v FEXRootFSFetcher >/dev/null 2>&1; then
+    log "Downloading FEX RootFS (this may take a few minutes)..."
+    if FEXRootFSFetcher; then
+      log "FEX RootFS downloaded successfully"
+      if ! select_fex_rootfs; then
+        log "Error: Failed to select FEX RootFS after download"
+        return 1
+      fi
+      if [ "$(id -u)" = "0" ] && [ -d "$FEX_DATA_DIR" ]; then
+        chown -R gameserver:gameserver "$FEX_DATA_DIR" 2>/dev/null || true
+      fi
+      return 0
+    else
+      log "Error: FEXRootFSFetcher failed to download RootFS"
+      return 1
+    fi
+  else
+    log "Error: FEXRootFSFetcher command not found. Please ensure the FEX package is properly installed."
+    return 1
+  fi
 }
 
 resolve_fex_rootfs_candidate() {
