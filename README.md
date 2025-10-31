@@ -200,6 +200,11 @@ docker compose up -d
 docker pull --platform linux/arm64 ghcr.io/justamply/asa-linux-server:latest
 ```
 
+### RootFS provisioning on ARM64
+
+- When the container boots on ARM64, `start_server.sh` will invoke `FEXRootFSFetcher` in a fully non-interactive mode (`--force-ui=tty --assume-yes --distro-list-first --extract`).
+- Existing RootFS directories or archives present under `$FEX_ROOTFS_DIR` continue to be auto-detected before a download is attempted.
+
 ## 📞 Support
 
 - **🐛 Found a bug?** [Open an issue](https://github.com/JustAmply/ark-survival-ascended-server/issues)
