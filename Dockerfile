@@ -70,17 +70,34 @@ RUN mkdir -p \
     /home/gameserver/Steam \
     /home/gameserver/steamcmd \
     /home/gameserver/server-files \
-    /home/gameserver/cluster-shared && \
-    echo "Building for architecture: ${TARGETARCH}" && \
-    if [ "$TARGETARCH" = "arm64" ]; then \
-        mkdir -p /home/gameserver/.fex-emu/RootFS && \
-        wget -q -O /tmp/Ubuntu_22_04.sqsh https://rootfs.fex-emu.gg/RootFS/Ubuntu_22_04.sqsh && \
-        unsquashfs -f -d /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04 /tmp/Ubuntu_22_04.sqsh && \
-        rm /tmp/Ubuntu_22_04.sqsh && \
+    /home/gameserver/cluster-shared
+
+# ARM64-specific: Provision FEX RootFS for x86_64 emulation
+RUN echo "Building for architecture: ${TARGETARCH}"
+
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        mkdir -p /home/gameserver/.fex-emu/RootFS; \
+    fi
+
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        wget -q -O /tmp/Ubuntu_22_04.sqsh https://rootfs.fex-emu.gg/RootFS/Ubuntu_22_04.sqsh; \
+    fi
+
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        unsquashfs -f -d /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04 /tmp/Ubuntu_22_04.sqsh; \
+    fi
+
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        rm /tmp/Ubuntu_22_04.sqsh; \
+    fi
+
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
         mkdir -p /lib64 && \
         ln -sf /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 /lib64/ld-linux-x86-64.so.2; \
-    fi && \
-    chown -R gameserver:gameserver /home/gameserver
+    fi
+
+# Set ownership for gameserver user
+RUN chown -R gameserver:gameserver /home/gameserver
 
 # Copy Python application
 COPY asa_ctrl /usr/share/asa_ctrl
