@@ -84,8 +84,23 @@ ensure_fex_rootfs() {
     return 0
   fi
 
-  if [ -d "$FEX_ROOTFS_DIR" ] && [ -n "$(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -printf '1' -quit 2>/dev/null)" ]; then
-    log "Detected existing FEX RootFS in $FEX_ROOTFS_DIR"
+  # Reuse any existing RootFS from known installation paths before downloading
+  # a fresh image. This mirrors the selection logic so previously provisioned
+  # data is picked up automatically.
+  local detected_base=""
+  while IFS= read -r base_dir; do
+    if [ -d "$base_dir" ] && [ -n "$(find "$base_dir" -mindepth 1 -maxdepth 1 -printf '1' -quit 2>/dev/null)" ]; then
+      detected_base="$base_dir"
+      break
+    fi
+  done < <(fex_rootfs_base_candidates)
+
+  if [ -n "$detected_base" ]; then
+    FEX_ROOTFS_DIR="$detected_base"
+    FEX_DATA_DIR="$(dirname "$detected_base")"
+    export FEX_ROOTFS_DIR
+    export FEX_DATA_DIR
+    log "Detected existing FEX RootFS in $detected_base"
     if ! select_fex_rootfs; then
       return 1
     fi
@@ -237,6 +252,39 @@ ensure_host_x86_loader() {
   fi
 }
 
+# Enumerate expected FEX RootFS base directories. We intentionally search
+# multiple paths to remain compatible with older installs and with users who
+# customise their XDG locations.
+fex_rootfs_base_candidates() {
+  local -a results=()
+  local candidate trimmed duplicate existing
+  local -a raw_candidates=(
+    "$FEX_ROOTFS_DIR"
+    "$FEX_DATA_DIR/RootFS"
+    "${XDG_DATA_HOME:-$HOME/.local/share}/FEX-Emu/RootFS"
+    "$HOME/.local/share/FEX-Emu/RootFS"
+  )
+
+  for candidate in "${raw_candidates[@]}"; do
+    trimmed="${candidate%/}"
+    if [ -z "$trimmed" ] || [ ! -d "$trimmed" ]; then
+      continue
+    fi
+    duplicate=0
+    for existing in "${results[@]}"; do
+      if [ "$existing" = "$trimmed" ]; then
+        duplicate=1
+        break
+      fi
+    done
+    if [ "$duplicate" = "0" ]; then
+      results+=("$trimmed")
+    fi
+  done
+
+  printf '%s\n' "${results[@]}"
+}
+
 select_fex_rootfs() {
   if [ "$IS_ARM64" != "1" ]; then
     return 0
@@ -253,38 +301,53 @@ select_fex_rootfs() {
     return 1
   fi
 
+  local -a base_dirs=()
+  mapfile -t base_dirs < <(fex_rootfs_base_candidates)
+
   if [ -n "${FEX_ROOTFS_NAME:-}" ]; then
-    local named_candidate="$FEX_ROOTFS_DIR/${FEX_ROOTFS_NAME}"
-    if resolved=$(resolve_fex_rootfs_candidate "$named_candidate"); then
-      apply_fex_rootfs_selection "$resolved"
-      log "Using FEX RootFS named '$FEX_ROOTFS_NAME' at '$FEX_ROOTFS'"
-      return 0
-    fi
-    log "Requested FEX_ROOTFS_NAME '$FEX_ROOTFS_NAME' not found or unusable under $FEX_ROOTFS_DIR"
+    local base_dir named_candidate
+    for base_dir in "${base_dirs[@]}"; do
+      named_candidate="$base_dir/${FEX_ROOTFS_NAME}"
+      if resolved=$(resolve_fex_rootfs_candidate "$named_candidate"); then
+        FEX_ROOTFS_DIR="$base_dir"
+        FEX_DATA_DIR="$(dirname "$base_dir")"
+        export FEX_ROOTFS_DIR
+        export FEX_DATA_DIR
+        apply_fex_rootfs_selection "$resolved"
+        log "Using FEX RootFS named '$FEX_ROOTFS_NAME' from base '$base_dir'"
+        return 0
+      fi
+    done
+    log "Requested FEX_ROOTFS_NAME '$FEX_ROOTFS_NAME' not found or unusable under expected directories (checked starting at ${base_dirs[0]:-$FEX_ROOTFS_DIR})"
   fi
 
-  local -a candidates=()
-  if [ -d "$FEX_ROOTFS_DIR" ]; then
+  local base_dir candidate
+  for base_dir in "${base_dirs[@]}"; do
+    local -a candidates=()
     while IFS= read -r entry; do
       candidates+=("${entry#* }")
-    done < <(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -nr)
+    done < <(find "$base_dir" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -nr)
     while IFS= read -r entry; do
       candidates+=("${entry#* }")
-    done < <(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -type f \( -name '*.sqsh' -o -name '*.squashfs' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr)
-  fi
+    done < <(find "$base_dir" -mindepth 1 -maxdepth 1 -type f \( -name '*.sqsh' -o -name '*.squashfs' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr)
 
-  for candidate in "${candidates[@]}"; do
-    if [ -z "$candidate" ]; then
-      continue
-    fi
-    if resolved=$(resolve_fex_rootfs_candidate "$candidate"); then
-      apply_fex_rootfs_selection "$resolved"
-      log "Using FEX RootFS '$FEX_ROOTFS'"
-      return 0
-    fi
+    for candidate in "${candidates[@]}"; do
+      if [ -z "$candidate" ]; then
+        continue
+      fi
+      if resolved=$(resolve_fex_rootfs_candidate "$candidate"); then
+        FEX_ROOTFS_DIR="$base_dir"
+        FEX_DATA_DIR="$(dirname "$base_dir")"
+        export FEX_ROOTFS_DIR
+        export FEX_DATA_DIR
+        apply_fex_rootfs_selection "$resolved"
+        log "Using FEX RootFS '$FEX_ROOTFS' from base '$base_dir'"
+        return 0
+      fi
+    done
   done
 
-  log "Warning: Unable to detect a usable FEX RootFS inside $FEX_ROOTFS_DIR"
+  log "Warning: Unable to detect a usable FEX RootFS in expected directories (checked starting at ${base_dirs[0]:-$FEX_ROOTFS_DIR})"
   return 1
 }
 
