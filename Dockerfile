@@ -72,28 +72,13 @@ RUN mkdir -p \
     /home/gameserver/server-files \
     /home/gameserver/cluster-shared
 
-# ARM64-specific: Provision FEX RootFS for x86_64 emulation
+# Display target architecture for debugging
 RUN echo "Building for architecture: ${TARGETARCH}"
 
+# ARM64-specific: Create FEX data directory structure
+# RootFS will be provisioned at runtime by start_server.sh using FEXRootFSFetcher
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
         mkdir -p /home/gameserver/.fex-emu/RootFS; \
-    fi
-
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-        wget -q -O /tmp/Ubuntu_22_04.sqsh https://rootfs.fex-emu.gg/RootFS/Ubuntu_22_04.sqsh; \
-    fi
-
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-        unsquashfs -f -d /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04 /tmp/Ubuntu_22_04.sqsh; \
-    fi
-
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-        rm /tmp/Ubuntu_22_04.sqsh; \
-    fi
-
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-        mkdir -p /lib64 && \
-        ln -sf /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 /lib64/ld-linux-x86-64.so.2; \
     fi
 
 # Set ownership for gameserver user
