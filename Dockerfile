@@ -4,7 +4,7 @@ FROM python:3.12-slim
 ARG VERSION="unknown"
 ARG GIT_COMMIT="unknown"
 ARG BUILD_DATE="unknown"
-ARG TARGETARCH=amd64
+ARG TARGETARCH
 ARG FEX_PACKAGE="fex-emu-armv8.0"
 
 # Add metadata labels
