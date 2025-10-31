@@ -99,28 +99,28 @@ ensure_fex_rootfs() {
   
   # Use FEXRootFSFetcher to download the RootFS
   if command -v FEXRootFSFetcher >/dev/null 2>&1; then
-    log "Downloading FEX RootFS (this may take a few minutes)..."
+    log "Downloading FEX RootFS in non-interactive mode..."
 
-    local -a fetch_cmd
+    local -a fetch_args
+    fetch_args=("--force-ui=tty" "--assume-yes" "--distro-list-first" "--extract")
+
+    local fetch_status=0
     if [ "$(id -u)" = "0" ]; then
-      local fetch_home
+      local fetch_home fetch_xdg_data fetch_xdg_config fetch_xdg_cache
       fetch_home="$(dirname "$FEX_DATA_DIR")"
-      fetch_cmd=(env "HOME=$fetch_home")
-      if [ -z "${XDG_DATA_HOME:-}" ]; then
-        fetch_cmd+=("XDG_DATA_HOME=$fetch_home/.local/share")
-      fi
-      if [ -z "${XDG_CONFIG_HOME:-}" ]; then
-        fetch_cmd+=("XDG_CONFIG_HOME=$fetch_home/.config")
-      fi
-      if [ -z "${XDG_CACHE_HOME:-}" ]; then
-        fetch_cmd+=("XDG_CACHE_HOME=$fetch_home/.cache")
-      fi
-      fetch_cmd+=(FEXRootFSFetcher)
+      fetch_xdg_data="${XDG_DATA_HOME:-$fetch_home/.local/share}"
+      fetch_xdg_config="${XDG_CONFIG_HOME:-$fetch_home/.config}"
+      fetch_xdg_cache="${XDG_CACHE_HOME:-$fetch_home/.cache}"
+      HOME="$fetch_home" \
+        XDG_DATA_HOME="$fetch_xdg_data" \
+        XDG_CONFIG_HOME="$fetch_xdg_config" \
+        XDG_CACHE_HOME="$fetch_xdg_cache" \
+        FEXRootFSFetcher "${fetch_args[@]}" || fetch_status=$?
     else
-      fetch_cmd=(FEXRootFSFetcher)
+      FEXRootFSFetcher "${fetch_args[@]}" || fetch_status=$?
     fi
 
-    if "${fetch_cmd[@]}"; then
+    if [ "$fetch_status" -eq 0 ]; then
       log "FEX RootFS downloaded successfully"
       if ! select_fex_rootfs; then
         log "Error: Failed to select FEX RootFS after download"
