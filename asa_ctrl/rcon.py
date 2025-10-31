@@ -368,7 +368,7 @@ class RconClient:
                 if packets_received >= 256:
                     raise RconPacketError("Too many response packets without termination")
 
-            body_bytes = bytes(combined_body).replace(b'\x00', b'')
+            body_bytes = bytes(combined_body)
 
             try:
                 body = body_bytes.decode('utf-8', errors='replace')
