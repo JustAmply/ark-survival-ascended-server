@@ -100,7 +100,27 @@ ensure_fex_rootfs() {
   # Use FEXRootFSFetcher to download the RootFS
   if command -v FEXRootFSFetcher >/dev/null 2>&1; then
     log "Downloading FEX RootFS (this may take a few minutes)..."
-    if FEXRootFSFetcher; then
+
+    local -a fetch_cmd
+    if [ "$(id -u)" = "0" ]; then
+      local fetch_home
+      fetch_home="$(dirname "$FEX_DATA_DIR")"
+      fetch_cmd=(env "HOME=$fetch_home")
+      if [ -z "${XDG_DATA_HOME:-}" ]; then
+        fetch_cmd+=("XDG_DATA_HOME=$fetch_home/.local/share")
+      fi
+      if [ -z "${XDG_CONFIG_HOME:-}" ]; then
+        fetch_cmd+=("XDG_CONFIG_HOME=$fetch_home/.config")
+      fi
+      if [ -z "${XDG_CACHE_HOME:-}" ]; then
+        fetch_cmd+=("XDG_CACHE_HOME=$fetch_home/.cache")
+      fi
+      fetch_cmd+=(FEXRootFSFetcher)
+    else
+      fetch_cmd=(FEXRootFSFetcher)
+    fi
+
+    if "${fetch_cmd[@]}"; then
       log "FEX RootFS downloaded successfully"
       if ! select_fex_rootfs; then
         log "Error: Failed to select FEX RootFS after download"
