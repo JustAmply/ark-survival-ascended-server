@@ -72,7 +72,6 @@ RUN mkdir -p \
     /home/gameserver/cluster-shared && \
     echo "Building for architecture: ${TARGETARCH}" && \
     if [ "$TARGETARCH" = "arm64" ]; then \
-        set -e && \
         mkdir -p /home/gameserver/.fex-emu/RootFS && \
         wget -q -O /tmp/Ubuntu_22_04.sqsh https://rootfs.fex-emu.gg/RootFS/Ubuntu_22_04.sqsh && \
         unsquashfs -f -d /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04 /tmp/Ubuntu_22_04.sqsh && \
