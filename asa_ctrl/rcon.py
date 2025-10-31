@@ -362,7 +362,7 @@ class RconClient:
                     break
 
                 # Some servers send follow-up packets with a distinct terminator ID.
-                if response_id not in {packet_id, first_response_id}:
+                if response_id != first_response_id:
                     break
 
                 if packets_received >= 256:
