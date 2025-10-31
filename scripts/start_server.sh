@@ -829,7 +829,6 @@ run_server() {
   trap 'handle_restart_signal USR1' USR1
   trap cleanup EXIT
 
-  ensure_fex_rootfs
   update_server_files
   resolve_proton_version
   install_proton_if_needed
