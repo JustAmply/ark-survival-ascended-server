@@ -69,12 +69,6 @@ fi
 
 log() { echo "[asa-start] $*"; }
 
-debug_log() {
-  if [ "${ASA_START_DEBUG:-0}" != "0" ]; then
-    log "[debug] $*"
-  fi
-}
-
 on_error() {
   local exit_code=$?
   local cmd=${BASH_COMMAND:-unknown}
@@ -131,14 +125,6 @@ ensure_fex_rootfs() {
     fi
   done
 
-  debug_log "Scanning for existing FEX RootFS directories"
-  if [ "${#fex_rootfs_candidates[@]}" -gt 0 ]; then
-    local candidate
-    for candidate in "${fex_rootfs_candidates[@]}"; do
-      debug_log "Candidate rootfs base: $candidate"
-    done
-  fi
-
   if [ ! -d "$FEX_ROOTFS_DIR" ] && [ "${#fex_rootfs_candidates[@]}" -gt 0 ]; then
     FEX_ROOTFS_DIR="${fex_rootfs_candidates[0]}"
   fi
@@ -194,7 +180,6 @@ ensure_fex_rootfs() {
       if [ "${#post_download_candidates[@]}" -gt 0 ]; then
         FEX_ROOTFS_DIR="${post_download_candidates[0]}"
         log "Updated FEX_ROOTFS_DIR to $FEX_ROOTFS_DIR"
-        debug_log "Post-download rootfs bases: ${post_download_candidates[*]}"
       fi
 
       if ! select_fex_rootfs; then
@@ -339,7 +324,6 @@ select_fex_rootfs() {
   fi
 
   local -a candidates=()
-  debug_log "Selecting FEX RootFS from directory: $FEX_ROOTFS_DIR"
   if [ -d "$FEX_ROOTFS_DIR" ]; then
     while IFS= read -r entry; do
       candidates+=("${entry#* }")
@@ -347,15 +331,6 @@ select_fex_rootfs() {
     while IFS= read -r entry; do
       candidates+=("${entry#* }")
     done < <(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -type f \( -name '*.sqsh' -o -name '*.squashfs' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr)
-  fi
-
-  if [ "${#candidates[@]}" -gt 0 ]; then
-    local candidate
-    for candidate in "${candidates[@]}"; do
-      debug_log "Considering rootfs candidate: $candidate"
-    done
-  else
-    debug_log "No rootfs candidates discovered under $FEX_ROOTFS_DIR"
   fi
 
   for candidate in "${candidates[@]}"; do
@@ -789,26 +764,14 @@ launch_server() {
         env_prefix+=(QEMU_SET_ENV="$QEMU_SET_ENV")
       fi
     fi
-    if command -v stdbuf >/dev/null 2>&1; then
-      if [ "${#env_prefix[@]}" -gt 0 ]; then
-        runner=("${env_prefix[@]}" stdbuf -oL -eL "$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-      else
-        runner=(stdbuf -oL -eL "$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-      fi
+    if [ "${#env_prefix[@]}" -gt 0 ]; then
+      runner=("${env_prefix[@]}" "$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
     else
-      if [ "${#env_prefix[@]}" -gt 0 ]; then
-        runner=("${env_prefix[@]}" "$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-      else
-        runner=("$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-      fi
+      runner=("$wrapper" "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
     fi
   else
     # x86_64: Use Proton
-    if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-    else
-      runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-    fi
+    runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
   fi
 
   "${runner[@]}" $ASA_START_PARAMS &
