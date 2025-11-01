@@ -170,9 +170,9 @@ This project now supports **ARM64 (aarch64) architecture**, making it perfect fo
 
 ### How It Works
 
-The ARM64 version uses [Box64](https://github.com/ptitSeb/box64) to transparently translate x86_64 instructions to ARM64 at runtime. This allows:
-- SteamCMD (x86_64) to download and manage game files
-- Proton (x86_64 compatibility layer) to run the Windows game server
+The ARM64 version pairs [Box64](https://github.com/ptitSeb/box64) for 64-bit binaries with [Box86](https://github.com/ptitSeb/box86) for 32-bit programs, providing transparent translation to ARM64 at runtime. This allows:
+- SteamCMD (32-bit x86) to download and manage game files through Box86
+- Proton (x86_64 compatibility layer) to run the Windows game server through Box64
 - Full feature parity with the AMD64 version
 
 ### Performance Notes
@@ -213,4 +213,4 @@ This registers the `asa-ctrl` command on your PATH while allowing you to modify 
 - **mschnitzer** - [Original Ruby implementation of ARK Linux server image](https://github.com/mschnitzer/ark-survival-ascended-linux-container-image)
 - **GloriousEggroll** - [GE-Proton for running Windows ARK binaries on Linux](https://github.com/GloriousEggroll/proton-ge-custom)
 - **cdp1337** - [Linux ARK installation guidance](https://github.com/cdp1337/ARKSurvivalAscended-Linux)
-- **ptitSeb** - [Box64 for ARM64 x86_64 emulation](https://github.com/ptitSeb/box64)
+- **ptitSeb** - [Box64 for ARM64 x86_64 emulation](https://github.com/ptitSeb/box64) and [Box86 for 32-bit x86 emulation](https://github.com/ptitSeb/box86)

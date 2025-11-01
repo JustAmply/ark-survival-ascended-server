@@ -3,6 +3,7 @@ ARG PYTHON_IMAGE=python:3.12-slim
 ARG BOX64_VERSION="v0.2.4"
 ARG BOX64_PACKAGE="box64-GENERIC_ARM-RelWithDebInfo.zip"
 ARG BOX64_SHA256="0ba1e169a0bc846875366162cda126341cb959b24bc3907171de7c961a6c35af"
+ARG BOX86_VERSION="v0.3.8"
 
 FROM ${PYTHON_IMAGE} AS base
 
@@ -101,10 +102,20 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
     ldconfig
 
-FROM base AS arm64
+FROM base AS arm64-build
 ARG BOX64_VERSION
 ARG BOX64_PACKAGE
 ARG BOX64_SHA256
+ARG BOX86_VERSION
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        git \
+        python3; \
+    rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
     echo "Preparing to download Box64 (inputs: version=${BOX64_VERSION}, package=${BOX64_PACKAGE}, sha256=${BOX64_SHA256:-unset})"; \
@@ -115,8 +126,24 @@ RUN set -eux; \
     fi; \
     unzip /tmp/box64.zip -d /tmp/box64; \
     install -m 0755 /tmp/box64/box64 /usr/local/bin/box64; \
-    rm -rf /tmp/box64 /tmp/box64.zip; \
+    rm -rf /tmp/box64 /tmp/box64.zip
+
+RUN set -eux; \
+    echo "Cloning Box86 source (version=${BOX86_VERSION})"; \
+    git clone --depth 1 --branch "${BOX86_VERSION}" https://github.com/ptitSeb/box86.git /tmp/box86; \
+    cmake -S /tmp/box86 -B /tmp/box86/build -DCMAKE_BUILD_TYPE=RelWithDebInfo; \
+    cmake --build /tmp/box86/build --target box86 -- -j"$(nproc)"; \
+    install -m 0755 /tmp/box86/build/box86 /usr/local/bin/box86; \
+    install -Dm 0644 /tmp/box86/system/box86.box86rc /etc/box86/box86rc; \
+    strip --strip-unneeded /usr/local/bin/box86 || true; \
+    rm -rf /tmp/box86; \
     ldconfig
+
+FROM base AS arm64
+COPY --from=arm64-build /usr/local/bin/box64 /usr/local/bin/box64
+COPY --from=arm64-build /usr/local/bin/box86 /usr/local/bin/box86
+COPY --from=arm64-build /etc/box86 /etc/box86
+RUN ldconfig
 
 ARG TARGETARCH
 FROM ${TARGETARCH}

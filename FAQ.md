@@ -72,16 +72,16 @@ netstat -tlnp | grep :7777
 
 ### **Q: Does this work on ARM64 / Oracle Cloud / Raspberry Pi?**
 
-**A:** Yes! ARM64 is fully supported via Box64 emulation:
+**A:** Yes! ARM64 is fully supported via Box64/Box86 emulation:
 
 - **Oracle Cloud Free Tier**: Works great on Ampere A1 instances (4 OCPU, 24GB RAM)
 - **Raspberry Pi**: Requires Pi 4/5 with at least 16GB RAM (performance may vary)
 - **ARM Cloud Servers**: Any ARM64 Linux server with sufficient resources
 
 **Important notes:**
-- First startup takes ~15-20 minutes (Box64 setup + compilation)
+- First startup takes ~15-20 minutes (Box64/Box86 setup + compilation)
 - Performance is ~80-90% of equivalent x86_64 hardware
-- The image automatically detects ARM64 and configures Box64
+- The image automatically detects ARM64 and configures Box64 for 64-bit binaries and Box86 for 32-bit utilities like SteamCMD
 
 ### **Q: How do I completely reset my server?**
 

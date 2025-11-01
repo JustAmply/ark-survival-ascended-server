@@ -13,7 +13,7 @@ Your complete guide to getting an amazing ARK server up and running! This covers
 
 **⚠️ Avoid Ubuntu 22.04** - Known issues cause high CPU usage and server startup failures.
 
-**💡 ARM64 Note**: First startup on ARM64 takes longer (~15-20 minutes) due to Box64 compilation and initial optimization. Subsequent starts are faster.
+**💡 ARM64 Note**: First startup on ARM64 takes longer (~15-20 minutes) due to Box64/Box86 compilation and initial optimization. Subsequent starts are faster.
 
 ### 🐳 Prerequisites
 - Docker and Docker Compose installed on your system
@@ -114,7 +114,7 @@ Oracle Cloud offers generous free tier ARM instances that work great for ARK ser
 5. Follow the quick setup steps above
 
 **First Launch:**
-- Initial startup takes ~15-20 minutes on ARM64 (Box64 setup + game download)
+- Initial startup takes ~15-20 minutes on ARM64 (Box64/Box86 setup + game download)
 - Monitor progress: `docker logs -f asa-server-1`
 - Subsequent restarts are much faster (~5 minutes)
 

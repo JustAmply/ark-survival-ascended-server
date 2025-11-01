@@ -43,8 +43,24 @@ else
 fi
 echo
 
-# Test 3: Required directories exist
-echo "Test 3: Directory Structure"
+# Test 3: Box86 availability on ARM64
+echo "Test 3: Box86 Availability"
+if [ "$EXPECTED_BOX64" = true ]; then
+    if command -v box86 >/dev/null 2>&1; then
+        echo "  ✓ Box86 is installed"
+        BOX86_VERSION=$(box86 --version 2>&1 | head -n1 || echo "version unknown")
+        echo "  Box86 version: $BOX86_VERSION"
+    else
+        echo "  ✗ Box86 is NOT installed (required for ARM64 SteamCMD)"
+        exit 1
+    fi
+else
+    echo "  ⊘ Box86 not required on AMD64"
+fi
+echo
+
+# Test 4: Required directories exist
+echo "Test 4: Directory Structure"
 REQUIRED_DIRS=(
     "/home/gameserver/Steam"
     "/home/gameserver/steamcmd"
@@ -61,8 +77,8 @@ for dir in "${REQUIRED_DIRS[@]}"; do
 done
 echo
 
-# Test 4: Python asa_ctrl is available
-echo "Test 4: asa_ctrl CLI"
+# Test 5: Python asa_ctrl is available
+echo "Test 5: asa_ctrl CLI"
 if command -v asa-ctrl >/dev/null 2>&1; then
     echo "  ✓ asa-ctrl command is available"
     # Try to run a simple command
@@ -78,8 +94,8 @@ else
 fi
 echo
 
-# Test 5: Start script is executable
-echo "Test 5: Start Script"
+# Test 6: Start script is executable
+echo "Test 6: Start Script"
 if [ -x "/usr/bin/start_server.sh" ]; then
     echo "  ✓ start_server.sh is executable"
 else
@@ -88,8 +104,8 @@ else
 fi
 echo
 
-# Test 6: Test architecture detection via script execution
-echo "Test 6: Start Script Architecture Functions"
+# Test 7: Test architecture detection via script execution
+echo "Test 7: Start Script Architecture Functions"
 # Extract and test the detect_architecture function
 extract_error=$(sed -n '/^detect_architecture()/,/^}/p' /usr/bin/start_server.sh 2>&1)
 if [ $? -ne 0 ]; then

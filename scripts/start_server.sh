@@ -189,11 +189,28 @@ ensure_steamcmd() {
 
 update_server_files() {
   log "Updating / validating ASA server files..."
+  local -a steamcmd_cmd=("./steamcmd.sh")
   if [ "$USE_BOX64" = "1" ]; then
-    (cd "$STEAMCMD_DIR" && box64 ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
-  else
-    (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+    # steamcmd provides a 32-bit ELF which needs box86 rather than box64.
+    # Using box64 here results in "Error: reading elf header" messages and a
+    # fallback to qemu-i386 that then fails due to missing glibc loaders on
+    # ARM64 hosts. Prefer the lightweight box86 shim when available.
+    if command -v box86 >/dev/null 2>&1; then
+      steamcmd_cmd=("box86" "./steamcmd.sh")
+    else
+      log "Warning: box86 not found; attempting to use qemu-i386 for steamcmd."
+      steamcmd_cmd=("qemu-i386" "./steamcmd.sh")
+    fi
   fi
+
+  (
+    cd "$STEAMCMD_DIR"
+    "${steamcmd_cmd[@]}" \
+      +force_install_dir "$SERVER_FILES_DIR" \
+      +login anonymous \
+      +app_update 2430930 validate \
+      +quit
+  )
 }
 
 #############################

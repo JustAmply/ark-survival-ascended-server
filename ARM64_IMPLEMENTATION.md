@@ -4,7 +4,7 @@ This document summarizes the ARM64 compatibility implementation for running ARK:
 
 ## Overview
 
-ARK: Survival Ascended is a Windows x86_64 game. To run it on ARM64 (aarch64) architecture, we use **Box64**, an x86_64 emulator for ARM64 Linux, similar to Apple's Rosetta 2.
+ARK: Survival Ascended is a Windows x86_64 game. To run it on ARM64 (aarch64) architecture, we combine **Box64** for 64-bit binaries and **Box86** for 32-bit utilities, providing Rosetta 2–style emulation on Linux.
 
 ## Changes Made
 
@@ -14,10 +14,11 @@ ARK: Survival Ascended is a Windows x86_64 game. To run it on ARM64 (aarch64) ar
 - Multi-stage architecture streams (`amd64`, `arm64`) so BuildKit can execute per-arch tasks in parallel before merging into the final image
 - `BOX64_VERSION`, `BOX64_PACKAGE`, and `BOX64_SHA256` build arguments for selecting and verifying the pre-built Box64 archive
 - Automated download of the official Box64 release archive with checksum verification after logging the requested inputs
+- Dedicated build stage that compiles Box86 from source (tag-selectable via `BOX86_VERSION`) to support 32-bit SteamCMD on ARM64
 - ARM64 test script included in image for validation
 
 **Removed:**
-- Box64 source compilation and associated build-time dependencies (`git`, `cmake`, `build-essential`, `libc6-dev`) thanks to using the upstream binary release
+- Box64 source compilation and associated build-time dependencies (`git`, `cmake`, `build-essential`, `libc6-dev`) thanks to using the upstream binary release for 64-bit support while isolating the Box86 build to a dedicated stage
 
 ### 2. start_server.sh (Runtime Architecture Detection)
 
@@ -32,7 +33,7 @@ ARK: Survival Ascended is a Windows x86_64 game. To run it on ARM64 (aarch64) ar
   - `BOX64_DYNAREC_X87DOUBLE=1`: x87 FPU compatibility
 
 **Modified Functions:**
-- `update_server_files()`: Wraps `steamcmd.sh` with `box64` on ARM64
+- `update_server_files()`: Prefers `box86` for the 32-bit SteamCMD helper on ARM64 (with `box64` fallback for Proton-only hosts)
 - `launch_server()`: Wraps Proton execution with `box64` on ARM64
 
 **Execution Flow:**
@@ -43,7 +44,7 @@ ARK: Survival Ascended is a Windows x86_64 game. To run it on ARM64 (aarch64) ar
 4. maybe_debug()              # Existing functionality
 5. ensure_permissions()       # Existing functionality
 6. ...
-7. update_server_files()      # Uses box64 wrapper if ARM64
+7. update_server_files()      # Uses box86 wrapper if ARM64
 8. launch_server()            # Uses box64 wrapper if ARM64
 ```
 
@@ -78,7 +79,7 @@ ARK: Survival Ascended is a Windows x86_64 game. To run it on ARM64 (aarch64) ar
 
 **test_arm64_compat.sh:**
 - Validates architecture detection
-- Verifies Box64 installation (on ARM64)
+- Verifies Box64/Box86 installation (on ARM64)
 - Checks directory structure
 - Tests asa_ctrl CLI availability
 - Validates start script
@@ -184,7 +185,7 @@ box64 /path/to/proton run ArkAscendedServer.exe <params>
 
 | Component | AMD64 | ARM64 | Notes |
 |-----------|-------|-------|-------|
-| SteamCMD | Native | Box64 | Downloads game files |
+| SteamCMD | Native | Box86 | Downloads game files |
 | Proton/Wine | Native | Box64 | Runs Windows .exe |
 | Game Server | Native | Box64 | Main server process |
 | Python (asa_ctrl) | Native | Native | Management CLI |
@@ -195,27 +196,27 @@ box64 /path/to/proton run ArkAscendedServer.exe <params>
 1. **First startup time**: 15-20 minutes on ARM64 (vs 5-10 on AMD64)
 2. **Performance overhead**: ~10-20% slower than native x86_64
 3. **Memory overhead**: +1-2GB for Box64 JIT cache
-4. **Build time**: ARM64 images take longer (Box64 compilation ~5-10 min)
+4. **Build time**: ARM64 images take longer (Box86 compilation stage ~5-10 min)
 5. **Player capacity**: Recommended 20-30 players on Oracle free tier
 6. **Mod compatibility**: Most mods work, but complex plugins may have issues
 
 ## Zero Dependency Maintained
 
 ✅ No Python dependencies added
-✅ Box64 built from source (no external packages)
+✅ Box86 built from source (no external packages)
 ✅ All features work identically on both architectures
 ✅ Backward compatible with existing deployments
 
 ## Build Sizes
 
-| Architecture | Uncompressed | Compressed | Box64 Overhead |
+| Architecture | Uncompressed | Compressed | Emulation Overhead |
 |--------------|--------------|------------|----------------|
 | AMD64 | ~200 MB | ~75 MB | N/A |
-| ARM64 | ~215 MB | ~80 MB | ~15 MB |
+| ARM64 | ~215 MB | ~80 MB | ~15 MB (Box64/Box86) |
 
 ## Future Improvements
 
-- [ ] Pre-built Box64 binaries for faster builds
+- [ ] Pre-built Box64/Box86 binaries for faster builds
 - [ ] ARM64-specific performance tuning
 - [ ] Raspberry Pi 5 specific optimizations
 - [ ] Additional cloud provider testing (AWS Graviton, Azure ARM)
@@ -224,6 +225,7 @@ box64 /path/to/proton run ArkAscendedServer.exe <params>
 ## References
 
 - **Box64**: https://github.com/ptitSeb/box64
+- **Box86**: https://github.com/ptitSeb/box86
 - **Oracle Cloud**: https://www.oracle.com/cloud/free/
 - **Proton GE**: https://github.com/GloriousEggroll/proton-ge-custom
 - **ARK Server**: https://ark.wiki.gg/wiki/Dedicated_server_setup
