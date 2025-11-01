@@ -105,7 +105,34 @@ FROM base AS arm64
 ARG BOX64_VERSION
 ARG BOX64_PACKAGE
 ARG BOX64_SHA256
+ARG BOX86_VERSION="v0.3.8"
+ARG DEBIAN_FRONTEND=noninteractive
 
+# Install build dependencies for Box86
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        git \
+        cmake \
+        build-essential \
+        gcc-arm-linux-gnueabihf \
+        libc6-dev-armhf-cross; \
+    rm -rf /var/lib/apt/lists/*
+
+# Build and install Box86 from source (for 32-bit x86 emulation - needed for SteamCMD)
+RUN set -eux; \
+    git clone --depth 1 --branch ${BOX86_VERSION} https://github.com/ptitSeb/box86.git /tmp/box86-src; \
+    cd /tmp/box86-src; \
+    mkdir build; \
+    cd build; \
+    cmake .. -DRPI4ARM64=1 -DCMAKE_BUILD_TYPE=RelWithDebInfo; \
+    make -j$(nproc); \
+    make install; \
+    cd /; \
+    rm -rf /tmp/box86-src; \
+    ldconfig
+
+# Download and install Box64 (for 64-bit x86_64 emulation - needed for Proton/Game Server)
 RUN set -eux; \
     echo "Preparing to download Box64 (inputs: version=${BOX64_VERSION}, package=${BOX64_PACKAGE}, sha256=${BOX64_SHA256:-unset})"; \
     BOX64_URL="https://github.com/ptitSeb/box64/releases/download/${BOX64_VERSION}/${BOX64_PACKAGE}"; \
@@ -117,6 +144,18 @@ RUN set -eux; \
     install -m 0755 /tmp/box64/box64 /usr/local/bin/box64; \
     rm -rf /tmp/box64 /tmp/box64.zip; \
     ldconfig
+
+# Clean up build dependencies to keep image size down
+RUN set -eux; \
+    apt-get remove -y \
+        git \
+        cmake \
+        build-essential \
+        gcc-arm-linux-gnueabihf \
+        libc6-dev-armhf-cross; \
+    apt-get autoremove -y; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
 
 ARG TARGETARCH
 FROM ${TARGETARCH}

@@ -189,11 +189,9 @@ ensure_steamcmd() {
 
 update_server_files() {
   log "Updating / validating ASA server files..."
-  if [ "$USE_BOX64" = "1" ]; then
-    (cd "$STEAMCMD_DIR" && box64 ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
-  else
-    (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
-  fi
+  # SteamCMD runs directly on both architectures
+  # On ARM64, Box86 (via binfmt_misc) handles 32-bit x86 binaries automatically
+  (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
 }
 
 #############################
