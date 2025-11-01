@@ -33,7 +33,7 @@ CONTAINER_ID=$(docker ps -q -n 1)
 sleep 5
 
 # Run compatibility tests
-docker exec $CONTAINER_ID /bin/bash /usr/share/asa_ctrl/../tests/test_arm64_compat.sh
+docker exec $CONTAINER_ID /bin/bash /usr/share/tests/test_arm64_compat.sh
 
 # Stop debug container
 docker stop $CONTAINER_ID

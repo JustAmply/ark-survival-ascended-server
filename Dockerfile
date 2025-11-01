@@ -75,8 +75,8 @@ RUN mkdir -p \
 COPY asa_ctrl /usr/share/asa_ctrl
 
 # Copy ARM64 compatibility test script
-COPY tests/test_arm64_compat.sh /usr/share/asa_ctrl/../tests/test_arm64_compat.sh
-RUN chmod +x /usr/share/asa_ctrl/../tests/test_arm64_compat.sh
+COPY tests/test_arm64_compat.sh /usr/share/tests/test_arm64_compat.sh
+RUN chmod +x /usr/share/tests/test_arm64_compat.sh
 
 # Create launcher script for Python application (avoid pip install to prevent PEP 668 issues)
 WORKDIR /usr/share

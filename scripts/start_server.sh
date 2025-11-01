@@ -55,7 +55,7 @@ detect_architecture() {
       log "ARM64 architecture detected - using Box64 for x86_64 emulation"
       ;;
     *)
-      log "Warning: Unsupported architecture: $arch (attempting to proceed as amd64)"
+      log "Warning: Unsupported architecture: $arch. Falling back to amd64 mode which may not work correctly on this platform."
       ARCH="amd64"
       USE_BOX64=0
       ;;
