@@ -179,6 +179,7 @@ ensure_fex_rootfs() {
       # Update FEX_ROOTFS_DIR to the first non-empty candidate
       if [ "${#post_download_candidates[@]}" -gt 0 ]; then
         FEX_ROOTFS_DIR="${post_download_candidates[0]}"
+        export FEX_ROOTFS_DIR
         log "Updated FEX_ROOTFS_DIR to $FEX_ROOTFS_DIR"
       fi
 
@@ -309,8 +310,7 @@ select_fex_rootfs() {
       log "Using preset FEX_ROOTFS='$FEX_ROOTFS'"
       return 0
     fi
-    log "Error: Provided FEX_ROOTFS '$FEX_ROOTFS' is not usable"
-    return 1
+    log "Warning: Provided FEX_ROOTFS '$FEX_ROOTFS' is not usable; falling back to auto-detection"
   fi
 
   if [ -n "${FEX_ROOTFS_NAME:-}" ]; then
@@ -320,18 +320,86 @@ select_fex_rootfs() {
       log "Using FEX RootFS named '$FEX_ROOTFS_NAME' at '$FEX_ROOTFS'"
       return 0
     fi
-    log "Requested FEX_ROOTFS_NAME '$FEX_ROOTFS_NAME' not found or unusable under $FEX_ROOTFS_DIR"
+    log "Warning: Requested FEX_ROOTFS_NAME '$FEX_ROOTFS_NAME' not found or unusable under $FEX_ROOTFS_DIR"
   fi
 
-  local -a candidates=()
-  if [ -d "$FEX_ROOTFS_DIR" ]; then
-    while IFS= read -r entry; do
-      candidates+=("${entry#* }")
-    done < <(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -nr)
-    while IFS= read -r entry; do
-      candidates+=("${entry#* }")
-    done < <(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -type f \( -name '*.sqsh' -o -name '*.squashfs' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr)
+  local -a search_roots=()
+  local seen_roots=""
+  local root_candidate
+  for root_candidate in \
+    "$FEX_ROOTFS_DIR" \
+    "$FEX_DATA_DIR/RootFS" \
+    "/home/gameserver/.fex-emu/RootFS" \
+    "$HOME/.fex-emu/RootFS"; do
+    if [ -z "$root_candidate" ] || [ ! -d "$root_candidate" ]; then
+      continue
+    fi
+    case " $seen_roots " in
+      *" $root_candidate "*)
+        continue
+        ;;
+    esac
+    search_roots+=("$root_candidate")
+    seen_roots="$seen_roots $root_candidate"
+  done
+
+  if [ -n "${FEX_APP_DATA_LOCATION:-}" ]; then
+    root_candidate="${FEX_APP_DATA_LOCATION%/}/RootFS"
+    if [ -d "$root_candidate" ]; then
+      case " $seen_roots " in
+        *" $root_candidate "*) ;;
+        *) search_roots+=("$root_candidate"); seen_roots="$seen_roots $root_candidate" ;;
+      esac
+    fi
   fi
+
+  if [ -n "${XDG_DATA_HOME:-}" ]; then
+    for root_candidate in "${XDG_DATA_HOME%/}/.fex-emu/RootFS" "${XDG_DATA_HOME%/}/FEX-Emu/RootFS"; do
+      if [ -d "$root_candidate" ]; then
+        case " $seen_roots " in
+          *" $root_candidate "*) ;;
+          *) search_roots+=("$root_candidate"); seen_roots="$seen_roots $root_candidate" ;;
+        esac
+      fi
+    done
+  fi
+
+  local fex_home
+  fex_home="$(dirname "$FEX_DATA_DIR")"
+  for root_candidate in "$fex_home/.local/share/.fex-emu/RootFS" "$fex_home/.local/share/FEX-Emu/RootFS"; do
+    if [ -d "$root_candidate" ]; then
+      case " $seen_roots " in
+        *" $root_candidate "*) ;;
+        *) search_roots+=("$root_candidate"); seen_roots="$seen_roots $root_candidate" ;;
+      esac
+    fi
+  done
+
+  local -a candidates=()
+  local seen_candidates=""
+  for root_candidate in "${search_roots[@]}"; do
+    while IFS= read -r entry; do
+      local candidate_path="${entry#* }"
+      case " $seen_candidates " in
+        *" $candidate_path "*)
+          continue
+          ;;
+      esac
+      candidates+=("$candidate_path")
+      seen_candidates="$seen_candidates $candidate_path"
+    done < <(find "$root_candidate" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -nr)
+
+    while IFS= read -r entry; do
+      local candidate_path="${entry#* }"
+      case " $seen_candidates " in
+        *" $candidate_path "*)
+          continue
+          ;;
+      esac
+      candidates+=("$candidate_path")
+      seen_candidates="$seen_candidates $candidate_path"
+    done < <(find "$root_candidate" -mindepth 1 -maxdepth 1 -type f \( -name '*.sqsh' -o -name '*.squashfs' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr)
+  done
 
   for candidate in "${candidates[@]}"; do
     if [ -z "$candidate" ]; then
@@ -344,7 +412,13 @@ select_fex_rootfs() {
     fi
   done
 
-  log "Warning: Unable to detect a usable FEX RootFS inside $FEX_ROOTFS_DIR"
+  if [ "${#search_roots[@]}" -gt 0 ]; then
+    local formatted="$(printf '%s, ' "${search_roots[@]}")"
+    formatted="${formatted%, }"
+    log "Warning: Unable to detect a usable FEX RootFS in expected directories (checked: $formatted)"
+  else
+    log "Warning: Unable to detect a usable FEX RootFS; no candidate directories found"
+  fi
   return 1
 }
 
