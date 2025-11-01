@@ -79,9 +79,10 @@ netstat -tlnp | grep :7777
 - **ARM Cloud Servers**: Any ARM64 Linux server with sufficient resources
 
 **Important notes:**
-- First startup takes ~15-20 minutes (Box64/Box86 setup + compilation)
+- First startup takes ~15-20 minutes (Box64/Box86 setup and shader caching)
 - Performance is ~80-90% of equivalent x86_64 hardware
 - The image automatically detects ARM64 and configures Box64 for 64-bit binaries and Box86 for 32-bit utilities like SteamCMD
+- Box86 is shipped via the Pi-Apps-Coders generic ARM prebuilt package—no compilation required in your environment
 
 ### **Q: How do I completely reset my server?**
 

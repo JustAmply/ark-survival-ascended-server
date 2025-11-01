@@ -14,7 +14,7 @@ ARK: Survival Ascended is a Windows x86_64 game. To run it on ARM64 (aarch64) ar
 - Multi-stage architecture streams (`amd64`, `arm64`) so BuildKit can execute per-arch tasks in parallel before merging into the final image
 - `BOX64_VERSION`, `BOX64_PACKAGE`, and `BOX64_SHA256` build arguments for selecting and verifying the pre-built Box64 archive
 - Automated download of the official Box64 release archive with checksum verification after logging the requested inputs
-- Dedicated build stage that compiles Box86 from source (tag-selectable via `BOX86_VERSION`) to support 32-bit SteamCMD on ARM64
+- Dedicated build stage that downloads the Pi-Apps-Coders generic ARM Box86 `.deb` package (pinned by SHA256) so SteamCMD can run without compiling from source
 - ARM64 test script included in image for validation
 
 **Removed:**
@@ -196,14 +196,14 @@ box64 /path/to/proton run ArkAscendedServer.exe <params>
 1. **First startup time**: 15-20 minutes on ARM64 (vs 5-10 on AMD64)
 2. **Performance overhead**: ~10-20% slower than native x86_64
 3. **Memory overhead**: +1-2GB for Box64 JIT cache
-4. **Build time**: ARM64 images take longer (Box86 compilation stage ~5-10 min)
+4. **Build time**: Box64 download/unpack adds roughly a minute; Box86 now uses a prebuilt package
 5. **Player capacity**: Recommended 20-30 players on Oracle free tier
 6. **Mod compatibility**: Most mods work, but complex plugins may have issues
 
 ## Zero Dependency Maintained
 
 ✅ No Python dependencies added
-✅ Box86 built from source (no external packages)
+✅ Box86 pulled from Pi-Apps-Coders prebuilt generic ARM package (checksum-verified)
 ✅ All features work identically on both architectures
 ✅ Backward compatible with existing deployments
 

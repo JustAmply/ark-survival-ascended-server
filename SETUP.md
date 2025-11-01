@@ -13,7 +13,7 @@ Your complete guide to getting an amazing ARK server up and running! This covers
 
 **⚠️ Avoid Ubuntu 22.04** - Known issues cause high CPU usage and server startup failures.
 
-**💡 ARM64 Note**: First startup on ARM64 takes longer (~15-20 minutes) due to Box64/Box86 compilation and initial optimization. Subsequent starts are faster.
+**💡 ARM64 Note**: First startup on ARM64 takes longer (~15-20 minutes) due to Box64/Box86 initialization and shader caching. Subsequent starts are faster.
 
 ### 🐳 Prerequisites
 - Docker and Docker Compose installed on your system

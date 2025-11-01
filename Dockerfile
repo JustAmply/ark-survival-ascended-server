@@ -3,7 +3,8 @@ ARG PYTHON_IMAGE=python:3.12-slim
 ARG BOX64_VERSION="v0.2.4"
 ARG BOX64_PACKAGE="box64-GENERIC_ARM-RelWithDebInfo.zip"
 ARG BOX64_SHA256="0ba1e169a0bc846875366162cda126341cb959b24bc3907171de7c961a6c35af"
-ARG BOX86_VERSION="v0.3.8"
+ARG BOX86_DEB_URL="https://raw.githubusercontent.com/Pi-Apps-Coders/box86-debs/15c9a44765003761d316db33054acff6788644cc/debian/box86-generic-arm_0.3.9+20250213T063429.fa59e74-1_armhf.deb"
+ARG BOX86_DEB_SHA256="a811475076792a1fb834afe4b137fbc3ccd5c766a8ca16d42762013c627a4d70"
 
 FROM ${PYTHON_IMAGE} AS base
 
@@ -106,16 +107,8 @@ FROM base AS arm64-build
 ARG BOX64_VERSION
 ARG BOX64_PACKAGE
 ARG BOX64_SHA256
-ARG BOX86_VERSION
-
-RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-        build-essential \
-        cmake \
-        git \
-        python3; \
-    rm -rf /var/lib/apt/lists/*
+ARG BOX86_DEB_URL
+ARG BOX86_DEB_SHA256
 
 RUN set -eux; \
     echo "Preparing to download Box64 (inputs: version=${BOX64_VERSION}, package=${BOX64_PACKAGE}, sha256=${BOX64_SHA256:-unset})"; \
@@ -129,20 +122,26 @@ RUN set -eux; \
     rm -rf /tmp/box64 /tmp/box64.zip
 
 RUN set -eux; \
-    echo "Cloning Box86 source (version=${BOX86_VERSION})"; \
-    git clone --depth 1 --branch "${BOX86_VERSION}" https://github.com/ptitSeb/box86.git /tmp/box86; \
-    cmake -S /tmp/box86 -B /tmp/box86/build -DCMAKE_BUILD_TYPE=RelWithDebInfo; \
-    cmake --build /tmp/box86/build --target box86 -- -j"$(nproc)"; \
-    install -m 0755 /tmp/box86/build/box86 /usr/local/bin/box86; \
-    install -Dm 0644 /tmp/box86/system/box86.box86rc /etc/box86/box86rc; \
-    strip --strip-unneeded /usr/local/bin/box86 || true; \
-    rm -rf /tmp/box86; \
+    echo "Downloading Box86 from ${BOX86_DEB_URL}"; \
+    curl -fsSL "${BOX86_DEB_URL}" -o /tmp/box86.deb; \
+    if [ -n "${BOX86_DEB_SHA256}" ]; then \
+        echo "${BOX86_DEB_SHA256}  /tmp/box86.deb" | sha256sum -c -; \
+    fi; \
+    mkdir -p /tmp/box86; \
+    dpkg-deb -x /tmp/box86.deb /tmp/box86/extracted; \
+    install -m 0755 /tmp/box86/extracted/usr/local/bin/box86 /usr/local/bin/box86; \
+    install -Dm 0644 /tmp/box86/extracted/etc/box86.box86rc /etc/box86/box86rc; \
+    if [ -f /tmp/box86/extracted/etc/binfmt.d/box86.conf ]; then \
+        install -Dm 0644 /tmp/box86/extracted/etc/binfmt.d/box86.conf /etc/binfmt.d/box86.conf; \
+    fi; \
+    rm -rf /tmp/box86 /tmp/box86.deb; \
     ldconfig
 
 FROM base AS arm64
 COPY --from=arm64-build /usr/local/bin/box64 /usr/local/bin/box64
 COPY --from=arm64-build /usr/local/bin/box86 /usr/local/bin/box86
 COPY --from=arm64-build /etc/box86 /etc/box86
+COPY --from=arm64-build /etc/binfmt.d/box86.conf /etc/binfmt.d/box86.conf
 RUN ldconfig
 
 ARG TARGETARCH
