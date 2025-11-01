@@ -138,6 +138,16 @@ RUN set -eux; \
     ldconfig
 
 FROM base AS arm64
+RUN set -eux; \
+    dpkg --add-architecture armhf; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        libc6:armhf \
+        libstdc++6:armhf \
+        libgcc-s1:armhf \
+        libtinfo6:armhf \
+        zlib1g:armhf; \
+    rm -rf /var/lib/apt/lists/*
 COPY --from=arm64-build /usr/local/bin/box64 /usr/local/bin/box64
 COPY --from=arm64-build /usr/local/bin/box86 /usr/local/bin/box86
 COPY --from=arm64-build /etc/box86 /etc/box86
