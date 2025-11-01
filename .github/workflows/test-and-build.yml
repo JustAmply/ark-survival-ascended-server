@@ -111,6 +111,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
           tags: ${{ steps.metadata.outputs.tags }}
           build-args: |

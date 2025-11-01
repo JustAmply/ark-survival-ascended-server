@@ -4,6 +4,7 @@ FROM python:3.12-slim
 ARG VERSION="unknown"
 ARG GIT_COMMIT="unknown"
 ARG BUILD_DATE="unknown"
+ARG TARGETARCH
 
 # Add metadata labels
 LABEL org.opencontainers.image.version="${VERSION}" \
@@ -17,19 +18,41 @@ LABEL org.opencontainers.image.version="${VERSION}" \
 ENV TZ=UTC
 ARG DEBIAN_FRONTEND=noninteractive
 
+# Install base packages (common to all architectures)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     locales \
     tzdata \
     wget \
+    curl \
     unzip \
+    git \
+    cmake \
+    build-essential \
     libc6-dev \
-    lib32stdc++6 \
-    lib32z1 \
-    lib32gcc-s1 \
     libfreetype6 \
     && rm -rf /var/lib/apt/lists/* && \
     echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen && \
     locale-gen
+
+# Install architecture-specific packages and Box64 for ARM64
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+            lib32stdc++6 \
+            lib32z1 \
+            lib32gcc-s1 \
+            && rm -rf /var/lib/apt/lists/*; \
+    elif [ "$TARGETARCH" = "arm64" ]; then \
+        echo "Installing Box64 for ARM64 x86_64 emulation..." && \
+        cd /tmp && \
+        git clone --depth 1 https://github.com/ptitSeb/box64 && \
+        cd box64 && \
+        mkdir build && cd build && \
+        cmake .. -DRPI4ARM64=1 -DCMAKE_BUILD_TYPE=RelWithDebInfo && \
+        make -j$(nproc) && \
+        make install && \
+        cd / && rm -rf /tmp/box64 && \
+        ldconfig; \
+    fi
 
 # Set locale-related environment variables early (inherit to runtime)
 ENV LANG=en_US.UTF-8 \

@@ -38,7 +38,8 @@ Your server will be discoverable in the "Unofficial" server browser once setup i
 - **RAM**: ~13 GB per server instance
 - **Storage**: ~31 GB (server files only)
 - **OS**: Linux with Docker support
-- **Tested on**: Ubuntu 24.04, Debian 12, Docker Desktop on Windows
+- **Architecture**: AMD64 (x86_64) or ARM64 (aarch64)
+- **Tested on**: Ubuntu 24.04, Debian 12, Docker Desktop on Windows, Oracle Cloud ARM instances
 
 ## 🎯 Main Use Cases
 
@@ -159,6 +160,36 @@ I decided to completely rewrite everything from scratch in **Python** to create 
 - **[📋 Setup Guide](SETUP.md)** - Detailed installation, configuration, and administration instructions
 - **[❓ FAQ & Troubleshooting](FAQ.md)** - Common issues, solutions, and troubleshooting steps
 
+## 💪 ARM64 Support
+
+This project now supports **ARM64 (aarch64) architecture**, making it perfect for:
+
+- **☁️ Oracle Cloud Free Tier**: Run on up to 4 OCPUs of Ampere A1 with 24GB RAM for free
+- **🍓 Raspberry Pi**: High-performance ARM-based single-board computers (Pi 4/5 with sufficient RAM)
+- **🖥️ ARM Servers**: Modern ARM-based cloud instances and dedicated servers
+
+### How It Works
+
+The ARM64 version uses [Box64](https://github.com/ptitSeb/box64) to transparently translate x86_64 instructions to ARM64 at runtime. This allows:
+- SteamCMD (x86_64) to download and manage game files
+- Proton (x86_64 compatibility layer) to run the Windows game server
+- Full feature parity with the AMD64 version
+
+### Performance Notes
+
+- **First startup**: Longer initial setup time due to Box64 compilation and optimization
+- **Runtime**: Expect ~80-90% of native x86_64 performance on equivalent hardware
+- **Oracle Cloud Ampere A1**: Performs well with 4 OCPUs and 24GB RAM (free tier maximum)
+- The image automatically detects your architecture and configures accordingly
+
+### Oracle Cloud Setup Tips
+
+When using Oracle Cloud free tier ARM instances:
+1. Use the maximum allocation: 4 OCPUs, 24GB RAM
+2. Ensure sufficient boot volume size (at least 100GB recommended)
+3. Configure security lists to allow game ports (7777/UDP)
+4. Consider using object storage for backups
+
 ## 🛠️ Development
 
 Set up a local development environment with an editable installation so that CLI changes are reflected immediately:
@@ -182,3 +213,4 @@ This registers the `asa-ctrl` command on your PATH while allowing you to modify 
 - **mschnitzer** - [Original Ruby implementation of ARK Linux server image](https://github.com/mschnitzer/ark-survival-ascended-linux-container-image)
 - **GloriousEggroll** - [GE-Proton for running Windows ARK binaries on Linux](https://github.com/GloriousEggroll/proton-ge-custom)
 - **cdp1337** - [Linux ARK installation guidance](https://github.com/cdp1337/ARKSurvivalAscended-Linux)
+- **ptitSeb** - [Box64 for ARM64 x86_64 emulation](https://github.com/ptitSeb/box64)

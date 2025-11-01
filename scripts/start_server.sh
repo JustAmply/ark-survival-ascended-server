@@ -38,6 +38,51 @@ RESTART_SCHEDULER_PID=""
 
 log() { echo "[asa-start] $*"; }
 
+#############################
+# Architecture Detection
+#############################
+detect_architecture() {
+  local arch
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64)
+      ARCH="amd64"
+      USE_BOX64=0
+      ;;
+    aarch64|arm64)
+      ARCH="arm64"
+      USE_BOX64=1
+      log "ARM64 architecture detected - using Box64 for x86_64 emulation"
+      ;;
+    *)
+      log "Warning: Unsupported architecture: $arch (attempting to proceed as amd64)"
+      ARCH="amd64"
+      USE_BOX64=0
+      ;;
+  esac
+  export ARCH USE_BOX64
+}
+
+configure_box64() {
+  if [ "$USE_BOX64" != "1" ]; then
+    return 0
+  fi
+  
+  # Box64 environment configuration for optimal performance
+  export BOX64_NOBANNER=1
+  export BOX64_LOG=0
+  export BOX64_SHOWSEGV=0
+  export BOX64_DYNAREC_BIGBLOCK=3
+  export BOX64_DYNAREC_STRONGMEM=1
+  export BOX64_DYNAREC_FASTNAN=1
+  export BOX64_DYNAREC_FASTROUND=1
+  export BOX64_DYNAREC_SAFEFLAGS=0
+  export BOX64_DYNAREC_CALLRET=1
+  export BOX64_DYNAREC_X87DOUBLE=1
+  
+  log "Box64 environment configured for performance"
+}
+
 register_supervisor_pid() {
   echo "$$" >"$SUPERVISOR_PID_FILE"
 }
@@ -144,7 +189,11 @@ ensure_steamcmd() {
 
 update_server_files() {
   log "Updating / validating ASA server files..."
-  (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+  if [ "$USE_BOX64" = "1" ]; then
+    (cd "$STEAMCMD_DIR" && box64 ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+  else
+    (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+  fi
 }
 
 #############################
@@ -369,11 +418,23 @@ launch_server() {
   log "Start parameters: $ASA_START_PARAMS"
   cd "$ASA_BINARY_DIR"
   local runner
-  if command -v stdbuf >/dev/null 2>&1; then
-    runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+  
+  if [ "$USE_BOX64" = "1" ]; then
+    # ARM64: Use Box64 to run Proton
+    if command -v stdbuf >/dev/null 2>&1; then
+      runner=(stdbuf -oL -eL box64 "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    else
+      runner=(box64 "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    fi
   else
-    runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    # AMD64: Direct execution
+    if command -v stdbuf >/dev/null 2>&1; then
+      runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    else
+      runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    fi
   fi
+  
   "${runner[@]}" $ASA_START_PARAMS &
   SERVER_PID=$!
   echo "$SERVER_PID" > "$PID_FILE"
@@ -539,6 +600,8 @@ run_server() {
 #############################
 # Main Flow
 #############################
+detect_architecture
+configure_box64
 if [ "$(id -u)" = "0" ]; then
   configure_timezone
 fi
