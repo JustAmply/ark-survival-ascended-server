@@ -143,6 +143,7 @@ FROM base AS arm64
 RUN set -eux; \
     dpkg --add-architecture armhf; \
     dpkg --add-architecture i386; \
+    dpkg --add-architecture amd64; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         libc6:armhf \
@@ -157,7 +158,12 @@ RUN set -eux; \
         libcurl4:i386 \
         libbz2-1.0:i386 \
         libx11-6:i386 \
-        libxext6:i386; \
+        libxext6:i386 \
+        libc6:amd64 \
+        libstdc++6:amd64 \
+        libgcc-s1:amd64 \
+        zlib1g:amd64 \
+        libcurl4:amd64; \
     rm -rf /var/lib/apt/lists/*
 COPY --from=arm64-build /usr/local/bin/box64 /usr/local/bin/box64
 COPY --from=arm64-build /usr/local/bin/box86 /usr/local/bin/box86
