@@ -8,8 +8,6 @@ on:
       - 'v*'
       - '[0-9]+.*'
   pull_request:
-    branches:
-      - main
 
 permissions:
   contents: read
