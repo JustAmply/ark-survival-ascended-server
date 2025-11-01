@@ -155,6 +155,21 @@ ensure_fex_rootfs() {
 
     if [ "$fetch_status" -eq 0 ]; then
       log "FEX RootFS downloaded successfully"
+      
+      # Re-scan for RootFS directories after download, FEXRootFSFetcher may have placed it elsewhere
+      local -a post_download_candidates=()
+      for candidate in "${fex_rootfs_base_candidates[@]}"; do
+        if [ -d "$candidate" ] && [ -n "$(find "$candidate" -mindepth 1 -maxdepth 1 -printf '1' -quit 2>/dev/null)" ]; then
+          post_download_candidates+=("$candidate")
+        fi
+      done
+      
+      # Update FEX_ROOTFS_DIR to the first non-empty candidate
+      if [ "${#post_download_candidates[@]}" -gt 0 ]; then
+        FEX_ROOTFS_DIR="${post_download_candidates[0]}"
+        log "Updated FEX_ROOTFS_DIR to $FEX_ROOTFS_DIR"
+      fi
+      
       if ! select_fex_rootfs; then
         log "Error: Failed to select FEX RootFS after download"
         return 1
