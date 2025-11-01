@@ -652,10 +652,39 @@ install_proton_if_needed() {
 }
 
 ensure_proton_compat_data() {
+  mkdir -p "$STEAM_COMPAT_DATA"
+
+  local version_file="$ASA_COMPAT_DATA/version"
+  local recorded_version=""
+
+  local expected_ntdll="$ASA_COMPAT_DATA/pfx/drive_c/windows/system32/ntdll.dll"
+
+  if [ -d "$ASA_COMPAT_DATA" ]; then
+    if [ -f "$version_file" ]; then
+      recorded_version=$(cat "$version_file" 2>/dev/null || true)
+    fi
+
+    local reset_reason=""
+    if [ "${recorded_version:-}" != "$PROTON_DIR_NAME" ]; then
+      reset_reason="version mismatch (${recorded_version:-missing} != $PROTON_DIR_NAME)"
+    elif [ ! -e "$expected_ntdll" ]; then
+      reset_reason="missing ntdll.dll"
+    fi
+
+    if [ -n "$reset_reason" ]; then
+      log "Resetting Proton compat data ($reset_reason)"
+      rm -rf "$ASA_COMPAT_DATA"
+    fi
+  fi
+
   if [ ! -d "$ASA_COMPAT_DATA" ]; then
     log "Setting up Proton compat data..."
-    mkdir -p "$STEAM_COMPAT_DATA"
-    cp -r "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx" "$ASA_COMPAT_DATA"
+    mkdir -p "$ASA_COMPAT_DATA"
+    if ! cp -a "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx/." "$ASA_COMPAT_DATA/pfx"; then
+      log "Error: Failed to seed Proton prefix from $STEAM_COMPAT_DIR/$PROTON_DIR_NAME"
+      return 1
+    fi
+    printf '%s' "$PROTON_DIR_NAME" >"$version_file"
   fi
 }
 
