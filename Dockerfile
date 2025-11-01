@@ -102,6 +102,9 @@ RUN set -eux; \
     ldconfig
 
 FROM base AS arm64
+ARG BOX64_VERSION
+ARG BOX64_PACKAGE
+ARG BOX64_SHA256
 
 RUN set -eux; \
     echo "Preparing to download Box64 (inputs: version=${BOX64_VERSION}, package=${BOX64_PACKAGE}, sha256=${BOX64_SHA256:-unset})"; \
