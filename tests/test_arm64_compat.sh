@@ -68,6 +68,12 @@ if [ "$EXPECTED_BOX64" = true ]; then
             echo "  ✗ start_server.sh missing Box86 runtime path configuration"
             exit 1
         fi
+        if grep -q "DEBUGGER=box86" /usr/bin/start_server.sh; then
+            echo "  ✓ start_server.sh routes steamcmd through box86"
+        else
+            echo "  ✗ start_server.sh missing box86 steamcmd routing"
+            exit 1
+        fi
     else
         echo "  ✗ Box86 is NOT installed (required for ARM64 SteamCMD)"
         exit 1
