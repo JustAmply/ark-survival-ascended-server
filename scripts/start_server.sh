@@ -145,7 +145,10 @@ detect_stdbuf_helper() {
   fi
 
   local preload_line helper
-  preload_line="$(stdbuf -oL env 2>/dev/null | awk -F= '/^LD_PRELOAD=/{print $2; exit}')"
+  if ! preload_line="$(stdbuf -oL env 2>/dev/null | awk -F= '/^LD_PRELOAD=/{print $2; exit}')"; then
+    return 1
+  fi
+
   if [ -z "$preload_line" ]; then
     return 1
   fi
