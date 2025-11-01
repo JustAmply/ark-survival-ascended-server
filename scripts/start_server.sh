@@ -69,6 +69,12 @@ fi
 
 log() { echo "[asa-start] $*"; }
 
+debug_log() {
+  if [ "${ASA_START_DEBUG:-0}" != "0" ]; then
+    log "[debug] $*"
+  fi
+}
+
 on_error() {
   local exit_code=$?
   local cmd=${BASH_COMMAND:-unknown}
@@ -92,7 +98,19 @@ ensure_fex_rootfs() {
   )
   local fex_home
   fex_home="$(dirname "$FEX_DATA_DIR")"
-  # Include the location used when FEXRootFSFetcher runs under a different HOME.
+
+  # Honour explicit overrides and alternate data directories used by FEX.
+  if [ -n "${FEX_APP_DATA_LOCATION:-}" ]; then
+    fex_rootfs_base_candidates+=("${FEX_APP_DATA_LOCATION%/}/RootFS")
+  fi
+
+  if [ -n "${XDG_DATA_HOME:-}" ]; then
+    fex_rootfs_base_candidates+=("${XDG_DATA_HOME%/}/.fex-emu/RootFS")
+    fex_rootfs_base_candidates+=("${XDG_DATA_HOME%/}/FEX-Emu/RootFS")
+  fi
+
+  # Include the locations commonly used when FEXRootFSFetcher runs under a different HOME.
+  fex_rootfs_base_candidates+=("$fex_home/.local/share/.fex-emu/RootFS")
   fex_rootfs_base_candidates+=("$fex_home/.local/share/FEX-Emu/RootFS")
 
   local -a fex_rootfs_candidates=()
@@ -112,6 +130,14 @@ ensure_fex_rootfs() {
       fex_rootfs_candidates+=("$candidate")
     fi
   done
+
+  debug_log "Scanning for existing FEX RootFS directories"
+  if [ "${#fex_rootfs_candidates[@]}" -gt 0 ]; then
+    local candidate
+    for candidate in "${fex_rootfs_candidates[@]}"; do
+      debug_log "Candidate rootfs base: $candidate"
+    done
+  fi
 
   if [ ! -d "$FEX_ROOTFS_DIR" ] && [ "${#fex_rootfs_candidates[@]}" -gt 0 ]; then
     FEX_ROOTFS_DIR="${fex_rootfs_candidates[0]}"
@@ -163,13 +189,14 @@ ensure_fex_rootfs() {
           post_download_candidates+=("$candidate")
         fi
       done
-      
+
       # Update FEX_ROOTFS_DIR to the first non-empty candidate
       if [ "${#post_download_candidates[@]}" -gt 0 ]; then
         FEX_ROOTFS_DIR="${post_download_candidates[0]}"
         log "Updated FEX_ROOTFS_DIR to $FEX_ROOTFS_DIR"
+        debug_log "Post-download rootfs bases: ${post_download_candidates[*]}"
       fi
-      
+
       if ! select_fex_rootfs; then
         log "Error: Failed to select FEX RootFS after download"
         return 1
@@ -312,6 +339,7 @@ select_fex_rootfs() {
   fi
 
   local -a candidates=()
+  debug_log "Selecting FEX RootFS from directory: $FEX_ROOTFS_DIR"
   if [ -d "$FEX_ROOTFS_DIR" ]; then
     while IFS= read -r entry; do
       candidates+=("${entry#* }")
@@ -319,6 +347,15 @@ select_fex_rootfs() {
     while IFS= read -r entry; do
       candidates+=("${entry#* }")
     done < <(find "$FEX_ROOTFS_DIR" -mindepth 1 -maxdepth 1 -type f \( -name '*.sqsh' -o -name '*.squashfs' \) -printf '%T@ %p\n' 2>/dev/null | sort -nr)
+  fi
+
+  if [ "${#candidates[@]}" -gt 0 ]; then
+    local candidate
+    for candidate in "${candidates[@]}"; do
+      debug_log "Considering rootfs candidate: $candidate"
+    done
+  else
+    debug_log "No rootfs candidates discovered under $FEX_ROOTFS_DIR"
   fi
 
   for candidate in "${candidates[@]}"; do
