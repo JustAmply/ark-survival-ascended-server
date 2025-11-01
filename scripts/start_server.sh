@@ -725,6 +725,27 @@ install_proton_if_needed() {
   tar -xf "$archive" -C "$STEAM_COMPAT_DIR" && rm -f "$archive"
 }
 
+seed_tracked_files() {
+  local dest="$ASA_COMPAT_DATA/tracked_files"
+  mkdir -p "$(dirname "$dest")"
+
+  local -a tracked_sources=(
+    "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/tracked_files"
+    "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx/tracked_files"
+    "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx/files/tracked_files"
+  )
+
+  local src
+  for src in "${tracked_sources[@]}"; do
+    if [ -f "$src" ]; then
+      cp -f "$src" "$dest"
+      return 0
+    fi
+  done
+
+  : >"$dest"
+}
+
 ensure_proton_compat_data() {
   mkdir -p "$STEAM_COMPAT_DATA"
 
@@ -732,6 +753,7 @@ ensure_proton_compat_data() {
   local recorded_version=""
 
   local expected_ntdll="$ASA_COMPAT_DATA/pfx/drive_c/windows/system32/ntdll.dll"
+  local tracked_file="$ASA_COMPAT_DATA/tracked_files"
 
   if [ -d "$ASA_COMPAT_DATA" ]; then
     if [ -f "$version_file" ]; then
@@ -743,6 +765,8 @@ ensure_proton_compat_data() {
       reset_reason="version mismatch (${recorded_version:-missing} != $PROTON_DIR_NAME)"
     elif [ ! -e "$expected_ntdll" ]; then
       reset_reason="missing ntdll.dll"
+    elif [ ! -e "$tracked_file" ]; then
+      reset_reason="missing tracked_files"
     fi
 
     if [ -n "$reset_reason" ]; then
@@ -759,6 +783,9 @@ ensure_proton_compat_data() {
       return 1
     fi
     printf '%s' "$PROTON_DIR_NAME" >"$version_file"
+    seed_tracked_files || log "Warning: Unable to seed tracked_files; created empty placeholder"
+  elif [ ! -e "$tracked_file" ]; then
+    seed_tracked_files || log "Warning: Unable to seed tracked_files; created empty placeholder"
   fi
 }
 
