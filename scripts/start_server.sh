@@ -38,6 +38,43 @@ RESTART_SCHEDULER_PID=""
 
 log() { echo "[asa-start] $*"; }
 
+ensure_machine_id() {
+  local machine_id_file="/etc/machine-id"
+
+  if [ -s "$machine_id_file" ]; then
+    return 0
+  fi
+
+  if [ "$(id -u)" != "0" ]; then
+    log "Warning: /etc/machine-id missing or empty but insufficient privileges to create it"
+    return 0
+  fi
+
+  if command -v dbus-uuidgen >/dev/null 2>&1; then
+    if dbus-uuidgen --ensure="$machine_id_file" >/dev/null 2>&1 && [ -s "$machine_id_file" ]; then
+      log "Generated /etc/machine-id via dbus-uuidgen"
+      return 0
+    fi
+    log "dbus-uuidgen failed to ensure /etc/machine-id; attempting fallback"
+  else
+    log "dbus-uuidgen not available; attempting systemd-machine-id-setup"
+  fi
+
+  if command -v systemd-machine-id-setup >/dev/null 2>&1; then
+    if systemd-machine-id-setup >/dev/null 2>&1 && [ -s "$machine_id_file" ]; then
+      log "Generated /etc/machine-id via systemd-machine-id-setup"
+      return 0
+    fi
+    log "systemd-machine-id-setup failed to populate /etc/machine-id"
+  else
+    log "systemd-machine-id-setup not available"
+  fi
+
+  if [ ! -s "$machine_id_file" ]; then
+    log "Warning: Unable to populate /etc/machine-id; Proton may fail to initialise"
+  fi
+}
+
 #############################
 # Architecture Detection
 #############################
@@ -686,6 +723,7 @@ configure_box64
 if [ "$(id -u)" = "0" ]; then
   configure_timezone
 fi
+ensure_machine_id
 maybe_debug
 ensure_permissions
 register_supervisor_pid
