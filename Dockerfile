@@ -74,6 +74,10 @@ RUN mkdir -p \
 # Copy Python application
 COPY asa_ctrl /usr/share/asa_ctrl
 
+# Copy ARM64 compatibility test script
+COPY tests/test_arm64_compat.sh /usr/share/asa_ctrl/../tests/test_arm64_compat.sh
+RUN chmod +x /usr/share/asa_ctrl/../tests/test_arm64_compat.sh
+
 # Create launcher script for Python application (avoid pip install to prevent PEP 668 issues)
 WORKDIR /usr/share
 RUN echo '#!/bin/bash' > /usr/local/bin/asa-ctrl && \

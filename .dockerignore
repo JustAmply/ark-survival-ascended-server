@@ -1,0 +1,49 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# GitHub files
+.github
+
+# Documentation
+README.md
+SETUP.md
+FAQ.md
+tests/ARM64_TESTING.md
+
+# Assets (images, screenshots)
+assets
+
+# Test files (keep test_arm64_compat.sh for runtime validation)
+tests/*.py
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.pytest_cache
+
+# Python build artifacts
+*.egg-info
+dist
+build
+.eggs
+
+# Development files
+.editorconfig
+pyproject.toml
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
