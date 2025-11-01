@@ -50,6 +50,18 @@ if [ "$EXPECTED_BOX64" = true ]; then
         echo "  ✓ Box86 is installed"
         BOX86_VERSION=$(box86 --version 2>&1 | head -n1 || echo "version unknown")
         echo "  Box86 version: $BOX86_VERSION"
+        if [ -e "/lib/ld-linux.so.2" ]; then
+            echo "  ✓ 32-bit x86 loader (/lib/ld-linux.so.2) is present"
+        else
+            echo "  ✗ 32-bit x86 loader (/lib/ld-linux.so.2) is missing"
+            exit 1
+        fi
+        if [ -d "/usr/lib/box86-i386-linux-gnu" ]; then
+            echo "  ✓ Box86 compatibility libraries are installed"
+        else
+            echo "  ✗ Box86 compatibility libraries directory is missing"
+            exit 1
+        fi
     else
         echo "  ✗ Box86 is NOT installed (required for ARM64 SteamCMD)"
         exit 1

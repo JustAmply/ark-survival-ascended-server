@@ -130,6 +130,8 @@ RUN set -eux; \
     mkdir -p /tmp/box86; \
     dpkg-deb -x /tmp/box86.deb /tmp/box86/extracted; \
     install -m 0755 /tmp/box86/extracted/usr/local/bin/box86 /usr/local/bin/box86; \
+    mkdir -p /usr/lib/box86-i386-linux-gnu; \
+    cp -a /tmp/box86/extracted/usr/lib/box86-i386-linux-gnu/. /usr/lib/box86-i386-linux-gnu/; \
     install -Dm 0644 /tmp/box86/extracted/etc/box86.box86rc /etc/box86/box86rc; \
     if [ -f /tmp/box86/extracted/etc/binfmt.d/box86.conf ]; then \
         install -Dm 0644 /tmp/box86/extracted/etc/binfmt.d/box86.conf /etc/binfmt.d/box86.conf; \
@@ -140,16 +142,26 @@ RUN set -eux; \
 FROM base AS arm64
 RUN set -eux; \
     dpkg --add-architecture armhf; \
+    dpkg --add-architecture i386; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         libc6:armhf \
         libstdc++6:armhf \
         libgcc-s1:armhf \
         libtinfo6:armhf \
-        zlib1g:armhf; \
+        zlib1g:armhf \
+        libc6:i386 \
+        libstdc++6:i386 \
+        libgcc-s1:i386 \
+        zlib1g:i386 \
+        libcurl4:i386 \
+        libbz2-1.0:i386 \
+        libx11-6:i386 \
+        libxext6:i386; \
     rm -rf /var/lib/apt/lists/*
 COPY --from=arm64-build /usr/local/bin/box64 /usr/local/bin/box64
 COPY --from=arm64-build /usr/local/bin/box86 /usr/local/bin/box86
+COPY --from=arm64-build /usr/lib/box86-i386-linux-gnu /usr/lib/box86-i386-linux-gnu
 COPY --from=arm64-build /etc/box86 /etc/box86
 COPY --from=arm64-build /etc/binfmt.d/box86.conf /etc/binfmt.d/box86.conf
 RUN ldconfig
