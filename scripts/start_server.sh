@@ -67,7 +67,7 @@ configure_box64() {
   if [ "$USE_BOX64" != "1" ]; then
     return 0
   fi
-  
+
   # Box64 environment configuration for optimal performance
   export BOX64_NOBANNER=1
   export BOX64_LOG=0
@@ -79,8 +79,61 @@ configure_box64() {
   export BOX64_DYNAREC_SAFEFLAGS=0
   export BOX64_DYNAREC_CALLRET=1
   export BOX64_DYNAREC_X87DOUBLE=1
-  
+
   log "Box64 environment configured for performance"
+}
+
+configure_box86_runtime() {
+  if [ "$USE_BOX64" != "1" ]; then
+    return 0
+  fi
+
+  # Build the Box86 search paths dynamically so we only include
+  # directories that actually exist in the current container.
+  local -a ld_paths=(
+    "$STEAMCMD_DIR/linux32"
+    "/usr/lib/box86-i386-linux-gnu"
+    "/usr/lib/i386-linux-gnu"
+    "/lib/i386-linux-gnu"
+  )
+  local -a exec_paths=(
+    "$STEAMCMD_DIR"
+    "$STEAMCMD_DIR/linux32"
+    "/usr/lib/box86-i386-linux-gnu"
+  )
+
+  local -a filtered_ld_paths=()
+  local path
+  for path in "${ld_paths[@]}"; do
+    if [ -d "$path" ]; then
+      filtered_ld_paths+=("$path")
+    fi
+  done
+
+  if [ ${#filtered_ld_paths[@]} -gt 0 ]; then
+    local joined_ld_path
+    joined_ld_path=$(IFS=:; echo "${filtered_ld_paths[*]}")
+    export BOX86_LD_LIBRARY_PATH="$joined_ld_path"
+  fi
+
+  local -a filtered_exec_paths=()
+  for path in "${exec_paths[@]}"; do
+    if [ -d "$path" ]; then
+      filtered_exec_paths+=("$path")
+    fi
+  done
+
+  if [ ${#filtered_exec_paths[@]} -gt 0 ]; then
+    local joined_exec_path
+    joined_exec_path=$(IFS=:; echo "${filtered_exec_paths[*]}")
+    export BOX86_PATH="$joined_exec_path"
+  fi
+
+  if [ -n "${BOX86_LD_LIBRARY_PATH:-}" ]; then
+    log "Configured Box86 LD_LIBRARY_PATH=$BOX86_LD_LIBRARY_PATH"
+  else
+    log "Warning: No Box86 library paths detected; steamcmd may fail"
+  fi
 }
 
 register_supervisor_pid() {
@@ -185,6 +238,8 @@ ensure_steamcmd() {
     mkdir -p "$STEAMCMD_DIR"
     (cd "$STEAMCMD_DIR" && wget -q https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz && tar xf steamcmd_linux.tar.gz)
   fi
+
+  configure_box86_runtime
 }
 
 update_server_files() {

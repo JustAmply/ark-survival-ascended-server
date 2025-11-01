@@ -62,6 +62,12 @@ if [ "$EXPECTED_BOX64" = true ]; then
             echo "  ✗ Box86 compatibility libraries directory is missing"
             exit 1
         fi
+        if grep -q "BOX86_LD_LIBRARY_PATH" /usr/bin/start_server.sh; then
+            echo "  ✓ start_server.sh configures Box86 runtime paths"
+        else
+            echo "  ✗ start_server.sh missing Box86 runtime path configuration"
+            exit 1
+        fi
     else
         echo "  ✗ Box86 is NOT installed (required for ARM64 SteamCMD)"
         exit 1
