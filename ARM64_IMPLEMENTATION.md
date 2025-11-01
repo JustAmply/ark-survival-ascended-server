@@ -11,16 +11,13 @@ ARK: Survival Ascended is a Windows x86_64 game. To run it on ARM64 (aarch64) ar
 ### 1. Dockerfile (Multi-Architecture Support)
 
 **Added:**
-- `TARGETARCH` build argument for detecting build platform
-- Conditional package installation:
-  - **AMD64**: `lib32stdc++6`, `lib32z1`, `lib32gcc-s1` (32-bit x86 libraries)
-  - **ARM64**: Box64 compiled from source with optimizations
-- Box64 build flags:
-  - `ARM_DYNAREC=ON`: Enable dynamic recompilation
-  - `CMAKE_BUILD_TYPE=RelWithDebInfo`: Optimized with debug symbols
-  - `PAGE16K=1`: Support for Oracle Cloud Ampere processors (16KB pages)
-- Build tools: `git`, `cmake`, `build-essential` (needed for Box64 compilation)
+- Multi-stage architecture streams (`amd64`, `arm64`) so BuildKit can execute per-arch tasks in parallel before merging into the final image
+- `BOX64_VERSION`, `BOX64_PACKAGE`, and `BOX64_SHA256` build arguments for selecting and verifying the pre-built Box64 archive
+- Automated download of the official Box64 release archive with checksum verification after logging the requested inputs
 - ARM64 test script included in image for validation
+
+**Removed:**
+- Box64 source compilation and associated build-time dependencies (`git`, `cmake`, `build-essential`, `libc6-dev`) thanks to using the upstream binary release
 
 ### 2. start_server.sh (Runtime Architecture Detection)
 

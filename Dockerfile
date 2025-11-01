@@ -1,10 +1,15 @@
-FROM python:3.12-slim
+# syntax=docker/dockerfile:1.4
+ARG PYTHON_IMAGE=python:3.12-slim
+ARG BOX64_VERSION="v0.2.4"
+ARG BOX64_PACKAGE="box64-GENERIC_ARM-RelWithDebInfo.zip"
+ARG BOX64_SHA256="0ba1e169a0bc846875366162cda126341cb959b24bc3907171de7c961a6c35af"
+
+FROM ${PYTHON_IMAGE} AS base
 
 # Build arguments for metadata
 ARG VERSION="unknown"
 ARG GIT_COMMIT="unknown"
 ARG BUILD_DATE="unknown"
-ARG TARGETARCH
 
 # Add metadata labels
 LABEL org.opencontainers.image.version="${VERSION}" \
@@ -24,35 +29,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
     wget \
     curl \
+    ca-certificates \
     unzip \
-    git \
-    cmake \
-    build-essential \
-    libc6-dev \
     libfreetype6 \
     && rm -rf /var/lib/apt/lists/* && \
     echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen && \
     locale-gen
-
-# Install architecture-specific packages and Box64 for ARM64
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
-        apt-get update && apt-get install -y --no-install-recommends \
-            lib32stdc++6 \
-            lib32z1 \
-            lib32gcc-s1 \
-            && rm -rf /var/lib/apt/lists/*; \
-    elif [ "$TARGETARCH" = "arm64" ]; then \
-        echo "Installing Box64 for ARM64 x86_64 emulation..." && \
-        cd /tmp && \
-        git clone --depth 1 https://github.com/ptitSeb/box64 && \
-        cd box64 && \
-        mkdir build && cd build && \
-        cmake .. -DARM_DYNAREC=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPAGE16K=1 && \
-        make -j$(nproc) && \
-        make install && \
-        cd / && rm -rf /tmp/box64 && \
-        ldconfig; \
-    fi
 
 # Set locale-related environment variables early (inherit to runtime)
 ENV LANG=en_US.UTF-8 \
@@ -106,3 +88,32 @@ WORKDIR /home/gameserver
 
 # Entry point
 ENTRYPOINT ["/usr/bin/start_server.sh"]
+
+FROM base AS amd64
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        lib32stdc++6 \
+        lib32z1 \
+        lib32gcc-s1; \
+    rm -rf /var/lib/apt/lists/*; \
+    ldconfig
+
+FROM base AS arm64
+
+RUN set -eux; \
+    echo "Preparing to download Box64 (inputs: version=${BOX64_VERSION}, package=${BOX64_PACKAGE}, sha256=${BOX64_SHA256:-unset})"; \
+    BOX64_URL="https://github.com/ptitSeb/box64/releases/download/${BOX64_VERSION}/${BOX64_PACKAGE}"; \
+    curl -fsSL "$BOX64_URL" -o /tmp/box64.zip; \
+    if [ -n "${BOX64_SHA256}" ]; then \
+        echo "${BOX64_SHA256}  /tmp/box64.zip" | sha256sum -c -; \
+    fi; \
+    unzip /tmp/box64.zip -d /tmp/box64; \
+    install -m 0755 /tmp/box64/box64 /usr/local/bin/box64; \
+    rm -rf /tmp/box64 /tmp/box64.zip; \
+    ldconfig
+
+ARG TARGETARCH
+FROM ${TARGETARCH}
