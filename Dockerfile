@@ -123,7 +123,7 @@ RUN set -eux; \
     install -Dm 0644 /tmp/box86/extracted/etc/box86.box86rc /etc/box86/box86rc; \
     if [ -f /tmp/box86/extracted/etc/binfmt.d/box86.conf ]; then \
         install -Dm 0644 /tmp/box86/extracted/etc/binfmt.d/box86.conf /etc/binfmt.d/box86.conf; \
-    fi; \
+    fi;
 RUN set -eux; \
     rm -rf /tmp/box86 /tmp/box86.deb; \
     ldconfig
