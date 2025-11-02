@@ -91,18 +91,6 @@ WORKDIR /home/gameserver
 # Entry point
 ENTRYPOINT ["/usr/bin/start_server.sh"]
 
-FROM base AS amd64
-ARG DEBIAN_FRONTEND=noninteractive
-
-RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-        lib32stdc++6 \
-        lib32z1 \
-        lib32gcc-s1; \
-    rm -rf /var/lib/apt/lists/*; \
-    ldconfig
-
 FROM base AS arm64-build
 ARG BOX64_VERSION
 ARG BOX64_PACKAGE
@@ -136,41 +124,70 @@ RUN set -eux; \
     if [ -f /tmp/box86/extracted/etc/binfmt.d/box86.conf ]; then \
         install -Dm 0644 /tmp/box86/extracted/etc/binfmt.d/box86.conf /etc/binfmt.d/box86.conf; \
     fi; \
+RUN set -eux; \
     rm -rf /tmp/box86 /tmp/box86.deb; \
     ldconfig
 
-FROM base AS arm64
-RUN set -eux; \
-    dpkg --add-architecture armhf; \
-    dpkg --add-architecture i386; \
-    dpkg --add-architecture amd64; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-        libc6:armhf \
-        libstdc++6:armhf \
-        libgcc-s1:armhf \
-        libtinfo6:armhf \
-        zlib1g:armhf \
-        libc6:i386 \
-        libstdc++6:i386 \
-        libgcc-s1:i386 \
-        zlib1g:i386 \
-        libcurl4:i386 \
-        libbz2-1.0:i386 \
-        libx11-6:i386 \
-        libxext6:i386 \
-        libc6:amd64 \
-        libstdc++6:amd64 \
-        libgcc-s1:amd64 \
-        zlib1g:amd64 \
-        libcurl4:amd64; \
-    rm -rf /var/lib/apt/lists/*
-COPY --from=arm64-build /usr/local/bin/box64 /usr/local/bin/box64
-COPY --from=arm64-build /usr/local/bin/box86 /usr/local/bin/box86
-COPY --from=arm64-build /usr/lib/box86-i386-linux-gnu /usr/lib/box86-i386-linux-gnu
-COPY --from=arm64-build /etc/box86 /etc/box86
-COPY --from=arm64-build /etc/binfmt.d/box86.conf /etc/binfmt.d/box86.conf
-RUN ldconfig
-
+FROM base AS final
 ARG TARGETARCH
-FROM ${TARGETARCH}
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) \
+            apt-get update; \
+            apt-get install -y --no-install-recommends \
+                lib32stdc++6 \
+                lib32z1 \
+                lib32gcc-s1; \
+            ;; \
+        arm64) \
+            dpkg --add-architecture armhf; \
+            dpkg --add-architecture i386; \
+            dpkg --add-architecture amd64; \
+            apt-get update; \
+            apt-get install -y --no-install-recommends \
+                libc6:armhf \
+                libstdc++6:armhf \
+                libgcc-s1:armhf \
+                libtinfo6:armhf \
+                zlib1g:armhf \
+                libc6:i386 \
+                libstdc++6:i386 \
+                libgcc-s1:i386 \
+                zlib1g:i386 \
+                libcurl4:i386 \
+                libbz2-1.0:i386 \
+                libx11-6:i386 \
+                libxext6:i386 \
+                libc6:amd64 \
+                libstdc++6:amd64 \
+                libgcc-s1:amd64 \
+                zlib1g:amd64 \
+                libcurl4:amd64; \
+            ;; \
+        *) \
+            echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; \
+            exit 1; \
+            ;; \
+    esac; \
+    rm -rf /var/lib/apt/lists/*; \
+    ldconfig
+
+RUN --mount=type=bind,from=arm64-build,source=/,target=/arm64-root \
+    set -eux; \
+    if [ "${TARGETARCH}" = "arm64" ]; then \
+        install -m 0755 /arm64-root/usr/local/bin/box64 /usr/local/bin/box64; \
+        install -m 0755 /arm64-root/usr/local/bin/box86 /usr/local/bin/box86; \
+        mkdir -p /usr/lib/box86-i386-linux-gnu; \
+        cp -a /arm64-root/usr/lib/box86-i386-linux-gnu/. /usr/lib/box86-i386-linux-gnu/; \
+        if [ -d /arm64-root/etc/box86 ]; then \
+            mkdir -p /etc/box86; \
+            cp -a /arm64-root/etc/box86/. /etc/box86/; \
+        fi; \
+        if [ -f /arm64-root/etc/binfmt.d/box86.conf ]; then \
+            mkdir -p /etc/binfmt.d; \
+            install -m 0644 /arm64-root/etc/binfmt.d/box86.conf /etc/binfmt.d/box86.conf; \
+        fi; \
+        ldconfig; \
+    fi
