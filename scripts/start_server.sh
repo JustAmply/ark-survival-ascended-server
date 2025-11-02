@@ -132,7 +132,7 @@ configure_box86_runtime() {
   if [ -n "${BOX86_LD_LIBRARY_PATH:-}" ]; then
     log "Configured Box86 LD_LIBRARY_PATH=$BOX86_LD_LIBRARY_PATH"
   else
-    log "Warning: No Box86 library paths detected; steamcmd may fail"
+    log "Warning: No Box86 library paths detected; steamcmd may fail. Ensure Box86 is installed and library directories exist."
   fi
 }
 
