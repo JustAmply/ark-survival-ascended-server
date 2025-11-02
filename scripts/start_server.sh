@@ -578,6 +578,7 @@ ensure_machine_id() {
   fi
 
   if [ -n "$new_id" ]; then
+    # machine-id format requires 32 hex digits without hyphens
     new_id=${new_id//-/}
     if printf '%s\n' "$new_id" >"$target" 2>/dev/null; then
       log "Generated machine-id from random UUID fallback"
