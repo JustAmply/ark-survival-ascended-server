@@ -455,6 +455,8 @@ ensure_proton_compat_data() {
       log "Error: Default Proton prefix not found at $default_prefix"
       return 1
     fi
+    # Use 'cp -a' to preserve symlinks, permissions, and timestamps when copying the Proton prefix.
+    # This is important for correct operation; Ubuntu 24.04 base image guarantees support for '-a'.
     if ! cp -a "$default_prefix" "$prefix_dir"; then
       log "Error: Failed to copy default Proton prefix to $prefix_dir"
       rm -rf "$prefix_dir"
