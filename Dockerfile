@@ -96,6 +96,7 @@ FROM base AS amd64
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN set -eux; \
+    dpkg --add-architecture i386; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         lib32stdc++6 \
