@@ -607,6 +607,7 @@ launch_server() {
   local proton_is_text_script=1
   if [ -f "$proton_path" ]; then
     # Read first 4 bytes and compare to ELF magic 0x7F 45 4C 46
+    # Assumes 'od' is present (provided by coreutils in Ubuntu 24.04 base image).
     local magic
     magic=$(od -An -tx1 -N4 "$proton_path" 2>/dev/null | tr -d ' \n' || true)
     # ELF magic: 0x7F 'E' 'L' 'F'
