@@ -146,7 +146,7 @@ docker exec asa-server-1 cat /proc/$(docker exec asa-server-1 cat /home/gameserv
 ### Box64 Not Found
 ```bash
 docker exec asa-server-1 which box64
-# Should output: /usr/local/bin/box64
+# Should output: /usr/bin/box64
 ```
 
 If missing, rebuild the image.

@@ -12,13 +12,11 @@ ARK: Survival Ascended is a Windows x86_64 game. To run it on ARM64 (aarch64) ar
 
 **Added:**
 - Multi-stage architecture streams (`amd64`, `arm64`) so BuildKit can execute per-arch tasks in parallel before merging into the final image
-- `BOX64_VERSION`, `BOX64_PACKAGE`, and `BOX64_SHA256` build arguments for selecting and verifying the pre-built Box64 archive
-- Automated download of the official Box64 release archive with checksum verification after logging the requested inputs
-- Dedicated build stage that downloads the Pi-Apps-Coders generic ARM Box86 `.deb` package (pinned by SHA256) so SteamCMD can run without compiling from source
+- Pi-Apps-Coders apt repositories for Box64 and Box86, installing `box64-generic-arm` and `box86-generic-arm:armhf` directly via `apt`
 - ARM64 test script included in image for validation
 
 **Removed:**
-- Box64 source compilation and associated build-time dependencies (`git`, `cmake`, `build-essential`, `libc6-dev`) thanks to using the upstream binary release for 64-bit support while isolating the Box86 build to a dedicated stage
+- Manual downloader stages for Box64/Box86 binaries (replaced with package-managed installation)
 
 ### 2. start_server.sh (Runtime Architecture Detection)
 
@@ -58,11 +56,10 @@ ARK: Survival Ascended is a Windows x86_64 game. To run it on ARM64 (aarch64) ar
 
 ### 4. Documentation
 
-**README.md:**
 - Updated system requirements to include ARM64
 - Added "ARM64 Support" section with Oracle Cloud information
 - Performance notes and setup tips
-- Added Box64 to credits
+- Added Box64 to credits (now highlighting Pi-Apps-Coders apt packages)
 
 **SETUP.md:**
 - Updated system requirements
@@ -141,8 +138,12 @@ box64 ./steamcmd.sh +login anonymous +app_update 2430930 validate +quit
 /path/to/proton run ArkAscendedServer.exe <params>
 ```
 
-**ARM64:** Box64 wrapper
+**ARM64:** Run Proton launcher script via python3 (or use box64 if the launcher is an ELF)
 ```bash
+# When Proton's launcher is a Python script (most GE-Proton builds):
+python3 /path/to/proton run ArkAscendedServer.exe <params>
+
+# If Proton's launcher is an ELF binary:
 box64 /path/to/proton run ArkAscendedServer.exe <params>
 ```
 
@@ -196,14 +197,14 @@ box64 /path/to/proton run ArkAscendedServer.exe <params>
 1. **First startup time**: 15-20 minutes on ARM64 (vs 5-10 on AMD64)
 2. **Performance overhead**: ~10-20% slower than native x86_64
 3. **Memory overhead**: +1-2GB for Box64 JIT cache
-4. **Build time**: Box64 download/unpack adds roughly a minute; Box86 now uses a prebuilt package
+4. **Build time**: Extra `apt` repositories slightly increase metadata downloads compared to amd64 builds
 5. **Player capacity**: Recommended 20-30 players on Oracle free tier
 6. **Mod compatibility**: Most mods work, but complex plugins may have issues
 
 ## Zero Dependency Maintained
 
 ✅ No Python dependencies added
-✅ Box86 pulled from Pi-Apps-Coders prebuilt generic ARM package (checksum-verified)
+✅ Box64/Box86 installed via Pi-Apps-Coders apt repositories (no manual artifact management)
 ✅ All features work identically on both architectures
 ✅ Backward compatible with existing deployments
 
@@ -216,7 +217,7 @@ box64 /path/to/proton run ArkAscendedServer.exe <params>
 
 ## Future Improvements
 
-- [ ] Pre-built Box64/Box86 binaries for faster builds
+- [ ] Evaluate mirroring Box64/Box86 packages for even faster arm64 builds
 - [ ] ARM64-specific performance tuning
 - [ ] Raspberry Pi 5 specific optimizations
 - [ ] Additional cloud provider testing (AWS Graviton, Azure ARM)
