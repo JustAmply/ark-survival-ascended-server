@@ -550,6 +550,11 @@ ensure_machine_id() {
 
   log "machine-id missing - attempting to create $target"
 
+  if [ "$(id -u)" != "0" ]; then
+    log "Warning: Unable to create $target without root privileges"
+    return 1
+  fi
+
   local source="/var/lib/dbus/machine-id"
   if [ -r "$source" ] && [ -s "$source" ]; then
     if cp "$source" "$target" 2>/dev/null; then
@@ -770,7 +775,6 @@ run_server() {
   trap 'handle_restart_signal USR1' USR1
   trap cleanup EXIT
 
-  ensure_machine_id || true
   update_server_files
   resolve_proton_version
   install_proton_if_needed
@@ -799,6 +803,7 @@ configure_box64
 if [ "$(id -u)" = "0" ]; then
   configure_timezone
 fi
+ensure_machine_id || true
 maybe_debug
 ensure_permissions
 register_supervisor_pid
