@@ -560,20 +560,14 @@ launch_server() {
 
   if [ "$USE_BOX64" = "1" ]; then
     export PROTON_USE_WINED3D=0
+    # Box64 already normalizes stdout/stderr buffering; piping through stdbuf can
+    # introduce hangs or dropped output, so never prepend it for emulated runs.
     if [ "$proton_is_text_script" = "1" ]; then
       log "Detected Proton launcher script - executing via python3 for Box64 compatibility"
-      if command -v stdbuf >/dev/null 2>&1; then
-        runner=(stdbuf -oL -eL python3 "$proton_path" run "$LAUNCH_BINARY_NAME")
-      else
-        runner=(python3 "$proton_path" run "$LAUNCH_BINARY_NAME")
-      fi
+      runner=(python3 "$proton_path" run "$LAUNCH_BINARY_NAME")
     else
       # ARM64 fallback: Use Box64 to run Proton binary directly
-      if command -v stdbuf >/dev/null 2>&1; then
-        runner=(stdbuf -oL -eL box64 "$proton_path" run "$LAUNCH_BINARY_NAME")
-      else
-        runner=(box64 "$proton_path" run "$LAUNCH_BINARY_NAME")
-      fi
+      runner=(box64 "$proton_path" run "$LAUNCH_BINARY_NAME")
     fi
   else
     # AMD64: Direct execution
