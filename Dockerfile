@@ -86,7 +86,7 @@ WORKDIR /home/gameserver
 # Entry point
 ENTRYPOINT ["/usr/bin/start_server.sh"]
 
-FROM base AS final
+FROM base
 ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
 
