@@ -535,8 +535,14 @@ launch_server() {
   log "Starting ASA dedicated server..."
   log "Start parameters: $ASA_START_PARAMS"
   cd "$ASA_BINARY_DIR"
+
+  # Ensure Steam is pointed at ASA's app ID for both environment and file-based checks
+  export SteamAppId=2430930
+  export SteamGameId=2430930
+  printf '2430930\n' >"$ASA_BINARY_DIR/steam_appid.txt"
+
   local runner
-  
+
   if [ "$USE_BOX64" = "1" ]; then
     # ARM64: Use Box64 to run Proton
     if command -v stdbuf >/dev/null 2>&1; then
