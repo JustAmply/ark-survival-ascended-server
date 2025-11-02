@@ -539,6 +539,52 @@ start_log_streamer() {
 }
 
 #############################
+# 8b. Machine ID Preparation
+#############################
+ensure_machine_id() {
+  local target="/etc/machine-id"
+
+  if [ -s "$target" ]; then
+    return 0
+  fi
+
+  log "machine-id missing - attempting to create $target"
+
+  local source="/var/lib/dbus/machine-id"
+  if [ -r "$source" ] && [ -s "$source" ]; then
+    if cp "$source" "$target" 2>/dev/null; then
+      log "Copied machine-id from $source"
+      return 0
+    fi
+  fi
+
+  if command -v dbus-uuidgen >/dev/null 2>&1; then
+    if dbus-uuidgen --ensure="$target" >/dev/null 2>&1; then
+      log "Generated machine-id via dbus-uuidgen"
+      return 0
+    fi
+  fi
+
+  local new_id=""
+  if command -v uuidgen >/dev/null 2>&1; then
+    new_id=$(uuidgen 2>/dev/null || true)
+  elif [ -r /proc/sys/kernel/random/uuid ]; then
+    new_id=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || true)
+  fi
+
+  if [ -n "$new_id" ]; then
+    new_id=${new_id//-/}
+    if printf '%s\n' "$new_id" >"$target" 2>/dev/null; then
+      log "Generated machine-id from random UUID fallback"
+      return 0
+    fi
+  fi
+
+  log "Warning: Unable to create $target - Proton may fail to start"
+  return 1
+}
+
+#############################
 # 9. Launch Server
 #############################
 launch_server() {
@@ -730,6 +776,7 @@ run_server() {
   trap 'handle_restart_signal USR1' USR1
   trap cleanup EXIT
 
+  ensure_machine_id || true
   update_server_files
   resolve_proton_version
   install_proton_if_needed
