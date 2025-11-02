@@ -411,11 +411,58 @@ install_proton_if_needed() {
 }
 
 ensure_proton_compat_data() {
-  if [ ! -d "$ASA_COMPAT_DATA" ]; then
-    log "Setting up Proton compat data..."
-    mkdir -p "$STEAM_COMPAT_DATA"
-    cp -r "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx" "$ASA_COMPAT_DATA"
+  local prefix_dir="$ASA_COMPAT_DATA"
+  local default_prefix="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx"
+  local prefix_version_file="$prefix_dir/version"
+  local default_version_file="$default_prefix/version"
+  local expected_version=""
+  local current_version=""
+  local preserve_prefix="${ASA_PRESERVE_PREFIX:-0}"
+
+  if [ -f "$default_version_file" ]; then
+    expected_version="$(head -n1 "$default_version_file" 2>/dev/null | tr -d '\r')"
   fi
+  if [ -z "$expected_version" ]; then
+    expected_version="$PROTON_DIR_NAME"
+  fi
+
+  if [ -f "$prefix_version_file" ]; then
+    current_version="$(head -n1 "$prefix_version_file" 2>/dev/null | tr -d '\r')"
+  fi
+
+  if [ -d "$prefix_dir" ]; then
+    if [ -z "$current_version" ] || [ "$current_version" != "$expected_version" ]; then
+      log "Detected Proton prefix version mismatch (have: '${current_version:-unknown}', expected: '$expected_version')."
+      if [ "$preserve_prefix" = "1" ]; then
+        log "ASA_PRESERVE_PREFIX=1 set; preserving existing prefix despite mismatch."
+        return 0
+      fi
+
+      local backup_dir="${prefix_dir}.bak.$(date +%Y%m%d%H%M%S)"
+      if mv "$prefix_dir" "$backup_dir" 2>/dev/null; then
+        log "Backed up mismatched prefix to $backup_dir"
+      else
+        log "Failed to back up mismatched prefix; purging $prefix_dir"
+        rm -rf "$prefix_dir"
+      fi
+    fi
+  fi
+
+  if [ ! -d "$prefix_dir" ]; then
+    log "Setting up Proton compat data from $default_prefix"
+    mkdir -p "$STEAM_COMPAT_DATA"
+    if [ ! -d "$default_prefix" ]; then
+      log "Error: Default Proton prefix not found at $default_prefix"
+      return 1
+    fi
+    if ! cp -a "$default_prefix" "$prefix_dir"; then
+      log "Error: Failed to copy default Proton prefix to $prefix_dir"
+      rm -rf "$prefix_dir"
+      return 1
+    fi
+  fi
+
+  return 0
 }
 
 #############################
@@ -492,30 +539,98 @@ start_log_streamer() {
 }
 
 #############################
+# 8b. Machine ID Preparation
+#############################
+ensure_machine_id() {
+  local target="/etc/machine-id"
+
+  if [ -s "$target" ]; then
+    return 0
+  fi
+
+  log "machine-id missing - attempting to create $target"
+
+  if [ "$(id -u)" != "0" ]; then
+    log "Warning: Unable to create $target without root privileges"
+    return 1
+  fi
+
+  local source="/var/lib/dbus/machine-id"
+  if [ -r "$source" ] && [ -s "$source" ]; then
+    if cp "$source" "$target" 2>/dev/null; then
+      log "Copied machine-id from $source"
+      return 0
+    fi
+  fi
+
+  if command -v dbus-uuidgen >/dev/null 2>&1; then
+    if dbus-uuidgen --ensure="$target" >/dev/null 2>&1; then
+      log "Generated machine-id via dbus-uuidgen"
+      return 0
+    fi
+  fi
+
+  local new_id=""
+  if command -v uuidgen >/dev/null 2>&1; then
+    new_id=$(uuidgen 2>/dev/null || true)
+  elif [ -r /proc/sys/kernel/random/uuid ]; then
+    new_id=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || true)
+  fi
+
+  if [ -n "$new_id" ]; then
+    new_id=${new_id//-/}
+    if printf '%s\n' "$new_id" >"$target" 2>/dev/null; then
+      log "Generated machine-id from random UUID fallback"
+      return 0
+    fi
+  fi
+
+  log "Warning: Unable to create $target - Proton may fail to start"
+  return 1
+}
+
+#############################
 # 9. Launch Server
 #############################
 launch_server() {
   log "Starting ASA dedicated server..."
   log "Start parameters: $ASA_START_PARAMS"
   cd "$ASA_BINARY_DIR"
-  local runner
-  
+  local -a runner
+  local proton_path="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton"
+
+  # Detect whether the Proton launcher is an ELF binary or a text script
+  # without relying on external tools like 'file' (not installed in image).
+  local proton_is_text_script=1
+  if [ -f "$proton_path" ]; then
+    # Read first 4 bytes and compare to ELF magic 0x7F 45 4C 46
+    local magic
+    magic=$(od -An -tx1 -N4 "$proton_path" 2>/dev/null | tr -d ' \n' || true)
+    if [ "$magic" = "7f454c46" ]; then
+      proton_is_text_script=0
+    fi
+  fi
+
   if [ "$USE_BOX64" = "1" ]; then
-    # ARM64: Use Box64 to run Proton
-    if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL box64 "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    export PROTON_USE_WINED3D=0
+    # Box64 already normalizes stdout/stderr buffering; piping through stdbuf can
+    # introduce hangs or dropped output, so never prepend it for emulated runs.
+    if [ "$proton_is_text_script" = "1" ]; then
+      log "Detected Proton launcher script - executing via python3 for Box64 compatibility"
+      runner=(python3 "$proton_path" run "$LAUNCH_BINARY_NAME")
     else
-      runner=(box64 "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      # ARM64 fallback: Use Box64 to run Proton binary directly
+      runner=(box64 "$proton_path" run "$LAUNCH_BINARY_NAME")
     fi
   else
     # AMD64: Direct execution
     if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      runner=(stdbuf -oL -eL "$proton_path" run "$LAUNCH_BINARY_NAME")
     else
-      runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      runner=("$proton_path" run "$LAUNCH_BINARY_NAME")
     fi
   fi
-  
+
   "${runner[@]}" $ASA_START_PARAMS &
   SERVER_PID=$!
   echo "$SERVER_PID" > "$PID_FILE"
@@ -665,7 +780,11 @@ run_server() {
   update_server_files
   resolve_proton_version
   install_proton_if_needed
-  ensure_proton_compat_data
+  ensure_proton_compat_data || return 1
+  if [ ! -d "$ASA_COMPAT_DATA" ]; then
+    log "Error: Proton compat data missing at $ASA_COMPAT_DATA"
+    return 1
+  fi
   inject_mods_param
   prepare_runtime_env
   handle_plugin_loader
@@ -686,6 +805,7 @@ configure_box64
 if [ "$(id -u)" = "0" ]; then
   configure_timezone
 fi
+ensure_machine_id || true
 maybe_debug
 ensure_permissions
 register_supervisor_pid
