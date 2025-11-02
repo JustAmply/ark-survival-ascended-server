@@ -545,6 +545,9 @@ prepare_runtime_env() {
   export XDG_RUNTIME_DIR
   export STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/gameserver/Steam"
   export STEAM_COMPAT_DATA_PATH="$ASA_COMPAT_DATA"
+  export SteamAppId=2430930
+  export SteamGameId=2430930
+  export SteamGameServer=1
   mkdir -p "$XDG_RUNTIME_DIR" || true
   chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
 }
@@ -566,6 +569,17 @@ handle_plugin_loader() {
     LAUNCH_BINARY_NAME="$ASA_BINARY_NAME"
   fi
   export LAUNCH_BINARY_NAME
+}
+
+ensure_steam_appid_file() {
+  local appid_file="$ASA_BINARY_DIR/steam_appid.txt"
+  if [ -s "$appid_file" ]; then
+    return 0
+  fi
+
+  log "Writing steam_appid.txt with app id 2430930"
+  printf '%s\n' "2430930" >"$appid_file"
+  chmod 0644 "$appid_file" 2>/dev/null || true
 }
 
 #############################
@@ -595,11 +609,11 @@ launch_server() {
   local runner
 
   if [ "${USE_BOX64:-0}" = "1" ]; then
-    runner=("$proton_launcher" run "$LAUNCH_BINARY_NAME")
+    runner=("$proton_launcher" waitforexitandrun "$LAUNCH_BINARY_NAME")
   elif command -v stdbuf >/dev/null 2>&1; then
-    runner=(stdbuf -oL -eL "$proton_launcher" run "$LAUNCH_BINARY_NAME")
+    runner=(stdbuf -oL -eL "$proton_launcher" waitforexitandrun "$LAUNCH_BINARY_NAME")
   else
-    runner=("$proton_launcher" run "$LAUNCH_BINARY_NAME")
+    runner=("$proton_launcher" waitforexitandrun "$LAUNCH_BINARY_NAME")
   fi
 
   "${runner[@]}" $ASA_START_PARAMS &
@@ -756,6 +770,7 @@ run_server() {
   inject_mods_param
   prepare_runtime_env
   handle_plugin_loader
+  ensure_steam_appid_file
   start_log_streamer
 
   launch_server
