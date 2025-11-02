@@ -237,24 +237,28 @@ class RconClient:
         if password:
             return password
 
-        allow_passwordless_env = os.environ.get('ASA_ALLOW_PASSWORDLESS_RCON', '')
-        allow_passwordless = allow_passwordless_env.strip().lower() in ('1', 'true', 'yes', 'on')
+        allow_passwordless_env = os.environ.get('ASA_ALLOW_PASSWORDLESS_RCON')
+        if allow_passwordless_env is None:
+            allow_passwordless = True
+        else:
+            allow_passwordless = allow_passwordless_env.strip().lower() not in ('0', 'false', 'no', 'off')
 
         if allow_passwordless:
             if self._is_loopback_host(self.server_ip):
                 if self._logger.isEnabledFor(10):  # DEBUG
                     self._logger.debug(
-                        "ASA_ALLOW_PASSWORDLESS_RCON enabled; using empty password for local host %s",
+                        "Passwordless RCON enabled; using empty password for local host %s",
                         self.server_ip,
                     )
                 return ""
             raise RconPasswordNotFoundError(
-                f"Passwordless RCON is only permitted for loopback addresses; server_ip '{self.server_ip}' is not local."
+                f"Passwordless RCON is only permitted for loopback addresses; server_ip '{self.server_ip}' is not local. "
+                "Set ASA_ALLOW_PASSWORDLESS_RCON=0 to disable passwordless mode."
             )
 
         raise RconPasswordNotFoundError(
             "Could not find RCON password in start parameters or configuration. "
-            "Set ServerAdminPassword or enable ASA_ALLOW_PASSWORDLESS_RCON=1 for local access."
+            "Set ServerAdminPassword or leave ASA_ALLOW_PASSWORDLESS_RCON enabled for local access."
         )
     
     def _identify_port(self) -> int:
