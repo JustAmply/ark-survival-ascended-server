@@ -253,7 +253,7 @@ update_server_files() {
     # header error) we instruct the bootstrap script to launch the 32-bit
     # binary through box86 by setting the DEBUGGER variable it honours.
     if command -v box86 >/dev/null 2>&1; then
-      log "Routing steamcmd through box86 debugger wrapper"
+      log "Routing steamcmd through box86 via DEBUGGER variable"
       steamcmd_env+=("DEBUGGER=box86")
     else
       log "Warning: Box86 not found; attempting to use qemu-i386 for steamcmd."
