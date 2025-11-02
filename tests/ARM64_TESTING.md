@@ -130,7 +130,7 @@ docker compose up -d
 watch -n 1 'free -h && echo && docker stats --no-stream'
 
 # Check Box64 performance
-docker exec asa-server-1 cat /proc/$(docker exec asa-server-1 cat /home/gameserver/.asa-server.pid 2>/dev/null || echo 1)/status 2>/dev/null | grep VmRSS
+docker exec asa-server-1 sh -c 'cat /proc/$(cat /home/gameserver/.asa-server.pid 2>/dev/null || echo 1)/status 2>/dev/null | grep VmRSS'
 ```
 
 ## Expected Performance on Oracle Cloud Free Tier

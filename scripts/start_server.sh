@@ -253,7 +253,7 @@ update_server_files() {
     # header error) we instruct the bootstrap script to launch the 32-bit
     # binary through box86 by setting the DEBUGGER variable it honours.
     if command -v box86 >/dev/null 2>&1; then
-      log "Routing steamcmd through box86 debugger wrapper"
+      log "Routing steamcmd through box86 via DEBUGGER variable"
       steamcmd_env+=("DEBUGGER=box86")
     else
       log "Warning: Box86 not found; attempting to use qemu-i386 for steamcmd."
@@ -456,7 +456,7 @@ ensure_proton_compat_data() {
       return 1
     fi
     # Use 'cp -a' to preserve symlinks, permissions, and timestamps when copying the Proton prefix.
-    # This is important for correct operation; Ubuntu 24.04 base image guarantees support for '-a'.
+    # This is important for correct operation; Ubuntu 24.04 base image (both amd64 and arm64) guarantees support for '-a'.
     if ! cp -a "$default_prefix" "$prefix_dir"; then
       log "Error: Failed to copy default Proton prefix to $prefix_dir"
       rm -rf "$prefix_dir"
@@ -607,6 +607,7 @@ launch_server() {
   local proton_is_text_script=1
   if [ -f "$proton_path" ]; then
     # Read first 4 bytes and compare to ELF magic 0x7F 45 4C 46
+    # Assumes 'od' is present (provided by coreutils in Ubuntu 24.04 base image).
     local magic
     magic=$(od -An -tx1 -N4 "$proton_path" 2>/dev/null | tr -d ' \n' || true)
     # ELF magic: 0x7F 'E' 'L' 'F'
@@ -620,7 +621,7 @@ launch_server() {
     # Box64 already normalizes stdout/stderr buffering; piping through stdbuf can
     # introduce hangs or dropped output, so we skip stdbuf for emulated runs.
     if [ "$proton_is_text_script" = "1" ]; then
-      log "Detected Proton launcher script - executing via python3 for Box64 compatibility"
+      log "Detected Proton launcher script - executing via python3 to avoid Box64 ELF header conflicts."
       runner=(python3 "$proton_path" run "$LAUNCH_BINARY_NAME")
     else
       # ARM64 fallback: Use Box64 to run Proton binary directly
