@@ -4,6 +4,7 @@ RCON (Remote Console) communication module for ASA Control.
 Handles communication with the ARK server via RCON protocol.
 """
 
+import ipaddress
 import os
 import socket
 import struct
@@ -21,6 +22,7 @@ from .errors import (
     RconPacketError,
     RconTimeoutError,
 )
+from .logging_config import get_logger
 
 
 class RconPacket(NamedTuple):
@@ -57,6 +59,7 @@ class RconClient:
             retry_delay: Base delay between retry attempts (exponential backoff)
         """
         self.server_ip = self._validate_ip(server_ip)
+        self._logger = get_logger(__name__)
         self.port = self._validate_port(port) if port is not None else self._identify_port()
         self.password = password or self._identify_password()
         self.connect_timeout = max(1.0, connect_timeout)
@@ -106,6 +109,21 @@ class RconClient:
         if not isinstance(port, int) or not (1 <= port <= 65535):
             raise ValueError(f"Port must be an integer between 1 and 65535, got: {port}")
         return port
+
+    @staticmethod
+    def _is_loopback_host(host: str) -> bool:
+        """
+        Determine whether the supplied host string refers to a loopback address.
+        """
+        if not host:
+            return False
+        if host.lower() in ('localhost',):
+            return True
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            return host in ('127.0.0.1', '::1')
+        return address.is_loopback
     
     def _validate_command(self, command: str) -> str:
         """
@@ -218,8 +236,26 @@ class RconClient:
         
         if password:
             return password
-            
-        raise RconPasswordNotFoundError("Could not find RCON password in start parameters or configuration")
+
+        allow_passwordless_env = os.environ.get('ASA_ALLOW_PASSWORDLESS_RCON', '')
+        allow_passwordless = allow_passwordless_env.strip().lower() in ('1', 'true', 'yes', 'on')
+
+        if allow_passwordless:
+            if self._is_loopback_host(self.server_ip):
+                if self._logger.isEnabledFor(10):  # DEBUG
+                    self._logger.debug(
+                        "ASA_ALLOW_PASSWORDLESS_RCON enabled; using empty password for local host %s",
+                        self.server_ip,
+                    )
+                return ""
+            raise RconPasswordNotFoundError(
+                f"Passwordless RCON is only permitted for loopback addresses; server_ip '{self.server_ip}' is not local."
+            )
+
+        raise RconPasswordNotFoundError(
+            "Could not find RCON password in start parameters or configuration. "
+            "Set ServerAdminPassword or enable ASA_ALLOW_PASSWORDLESS_RCON=1 for local access."
+        )
     
     def _identify_port(self) -> int:
         """

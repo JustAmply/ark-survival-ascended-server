@@ -331,6 +331,23 @@ def test_rcon_connect_propagates_auth_failure():
             assert client._authenticated is False
 
 
+def test_rcon_passwordless_local_env_allows_empty_password():
+    """Passwordless RCON can be enabled for local connections via environment flag."""
+    with patch.dict(os.environ, {'ASA_ALLOW_PASSWORDLESS_RCON': '1', 'ASA_START_PARAMS': ''}, clear=False):
+        client = RconClient(server_ip='127.0.0.1', port=27020, retry_count=0)
+        assert client.password == ""
+
+
+def test_rcon_passwordless_rejected_for_remote_hosts():
+    """Passwordless RCON must not apply to non-loopback hosts."""
+    with patch.dict(os.environ, {'ASA_ALLOW_PASSWORDLESS_RCON': '1', 'ASA_START_PARAMS': ''}, clear=False):
+        try:
+            RconClient(server_ip='192.168.1.50', port=27020, retry_count=0)
+            assert False, "Should reject passwordless RCON for remote host"
+        except RconPasswordNotFoundError as exc:
+            assert "loopback" in str(exc)
+
+
 def main():  # pragma: no cover - simple runner
     print("Running asa_ctrl tests...\n")
     try:

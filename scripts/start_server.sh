@@ -665,12 +665,45 @@ perform_shutdown_sequence() {
   saveworld_delay="${ASA_SHUTDOWN_SAVEWORLD_DELAY:-15}"
   shutdown_timeout="${ASA_SHUTDOWN_TIMEOUT:-180}"
 
-  log "Issuing saveworld via RCON before shutdown"
-  if "$ASA_CTRL_BIN" rcon --exec 'saveworld' >/dev/null 2>&1; then
-    log "Saveworld command sent successfully, waiting ${saveworld_delay}s for save completion"
-    sleep "$saveworld_delay" || true
+  if [ ! -x "$ASA_CTRL_BIN" ]; then
+    log "asa-ctrl CLI missing at $ASA_CTRL_BIN; skipping pre-shutdown saveworld"
   else
-    log "Warning: failed to execute saveworld command via RCON"
+    log "Issuing saveworld via RCON before shutdown"
+    local rcon_output="" rcon_status=0 reason=""
+    if rcon_output="$("$ASA_CTRL_BIN" rcon --exec 'saveworld' 2>&1)"; then
+      log "Saveworld command sent successfully, waiting ${saveworld_delay}s for save completion"
+      if [ -n "$rcon_output" ]; then
+        while IFS= read -r line; do
+          [ -n "$line" ] && log "RCON response: $line"
+        done <<<"$rcon_output"
+      fi
+      sleep "$saveworld_delay" || true
+    else
+      rcon_status=$?
+      case "$rcon_status" in
+        3)
+          reason="RCON password not found; configure ServerAdminPassword in start params or GameUserSettings.ini."
+          ;;
+        4)
+          reason="RCON authentication failed; verify ServerAdminPassword matches the server configuration."
+          ;;
+        6)
+          reason="RCON connection failed; ensure RCONPort is reachable and RCONEnabled=True."
+          ;;
+        8)
+          reason="RCON request timed out; the server may be busy or shutting down."
+          ;;
+        *)
+          reason="exit code $rcon_status"
+          ;;
+      esac
+      log "Warning: failed to execute saveworld command via RCON (${reason})"
+      if [ -n "$rcon_output" ]; then
+        while IFS= read -r line; do
+          [ -n "$line" ] && log "RCON output: $line"
+        done <<<"$rcon_output"
+      fi
+    fi
   fi
 
   log "Sending SIGTERM to server process $SERVER_PID"

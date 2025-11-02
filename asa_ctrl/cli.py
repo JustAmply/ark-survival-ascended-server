@@ -59,9 +59,9 @@ class RconCommand:
             
         except RconPasswordNotFoundError:
             exit_with_error(
-                "Could not read RCON password. Make sure it is properly configured, either as "
-                "start parameter ?ServerAdminPassword=mypass or in GameUserSettings.ini in the "
-                "[ServerSettings] section as ServerAdminPassword=mypass",
+                "Could not read RCON password. Configure ServerAdminPassword via start parameters or "
+                "GameUserSettings.ini. For trusted local-only use, set ASA_ALLOW_PASSWORDLESS_RCON=1 "
+                "to permit empty passwords against 127.0.0.1.",
                 ExitCodes.RCON_PASSWORD_NOT_FOUND
             )
         except RconAuthenticationError:
