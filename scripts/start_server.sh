@@ -35,6 +35,7 @@ SUPERVISOR_EXIT_REQUESTED=0
 RESTART_REQUESTED=0
 SUPERVISOR_PID_FILE="/home/gameserver/.asa-supervisor.pid"
 RESTART_SCHEDULER_PID=""
+STDBUF_HELPER_PATH=""
 
 log() { echo "[asa-start] $*"; }
 
@@ -171,6 +172,31 @@ configure_box86_runtime() {
   else
     log "Warning: No Box86 library paths detected; steamcmd may fail"
   fi
+}
+
+detect_stdbuf_helper() {
+  STDBUF_HELPER_PATH=""
+
+  if ! command -v stdbuf >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local preload_line helper
+  if ! preload_line="$(stdbuf -oL env 2>/dev/null | awk -F= '/^LD_PRELOAD=/{print $2; exit}')"; then
+    return 1
+  fi
+
+  if [ -z "$preload_line" ]; then
+    return 1
+  fi
+
+  helper="$(realpath "$preload_line" 2>/dev/null || echo "$preload_line")"
+  if [ ! -f "$helper" ]; then
+    return 1
+  fi
+
+  STDBUF_HELPER_PATH="$helper"
+  return 0
 }
 
 register_supervisor_pid() {
@@ -541,24 +567,29 @@ launch_server() {
   export SteamGameId=2430930
   printf '2430930\n' >"$ASA_BINARY_DIR/steam_appid.txt"
 
-  local runner
+  local -a runner
 
   if [ "$USE_BOX64" = "1" ]; then
     # ARM64: Use Box64 to run Proton
-    if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL box64 "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-    else
-      runner=(box64 "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-    fi
+    runner=(box64 "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
   else
     # AMD64: Direct execution
+    runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+  fi
+
+  if [ "$USE_BOX64" = "1" ]; then
+    log "Box64 in use - skipping stdbuf to avoid invalid LD_PRELOAD on ARM."
+  elif detect_stdbuf_helper; then
+    log "Using stdbuf with helper library at $STDBUF_HELPER_PATH for line-buffered output."
+    runner=(stdbuf -oL -eL "${runner[@]}")
+  else
     if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      log "libstdbuf.so not available; running without stdbuf to avoid LD_PRELOAD warnings."
     else
-      runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      log "stdbuf command not available; running without stdbuf."
     fi
   fi
-  
+
   "${runner[@]}" $ASA_START_PARAMS &
   SERVER_PID=$!
   echo "$SERVER_PID" > "$PID_FILE"
