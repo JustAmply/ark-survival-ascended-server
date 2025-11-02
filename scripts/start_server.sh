@@ -411,11 +411,58 @@ install_proton_if_needed() {
 }
 
 ensure_proton_compat_data() {
-  if [ ! -d "$ASA_COMPAT_DATA" ]; then
-    log "Setting up Proton compat data..."
-    mkdir -p "$STEAM_COMPAT_DATA"
-    cp -r "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx" "$ASA_COMPAT_DATA"
+  local prefix_dir="$ASA_COMPAT_DATA"
+  local default_prefix="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx"
+  local prefix_version_file="$prefix_dir/version"
+  local default_version_file="$default_prefix/version"
+  local expected_version=""
+  local current_version=""
+  local preserve_prefix="${ASA_PRESERVE_PREFIX:-0}"
+
+  if [ -f "$default_version_file" ]; then
+    expected_version="$(head -n1 "$default_version_file" 2>/dev/null | tr -d '\r')"
   fi
+  if [ -z "$expected_version" ]; then
+    expected_version="$PROTON_DIR_NAME"
+  fi
+
+  if [ -f "$prefix_version_file" ]; then
+    current_version="$(head -n1 "$prefix_version_file" 2>/dev/null | tr -d '\r')"
+  fi
+
+  if [ -d "$prefix_dir" ]; then
+    if [ -z "$current_version" ] || [ "$current_version" != "$expected_version" ]; then
+      log "Detected Proton prefix version mismatch (have: '${current_version:-unknown}', expected: '$expected_version')."
+      if [ "$preserve_prefix" = "1" ]; then
+        log "ASA_PRESERVE_PREFIX=1 set; preserving existing prefix despite mismatch."
+        return 0
+      fi
+
+      local backup_dir="${prefix_dir}.bak.$(date +%Y%m%d%H%M%S)"
+      if mv "$prefix_dir" "$backup_dir" 2>/dev/null; then
+        log "Backed up mismatched prefix to $backup_dir"
+      else
+        log "Failed to back up mismatched prefix; purging $prefix_dir"
+        rm -rf "$prefix_dir"
+      fi
+    fi
+  fi
+
+  if [ ! -d "$prefix_dir" ]; then
+    log "Setting up Proton compat data from $default_prefix"
+    mkdir -p "$STEAM_COMPAT_DATA"
+    if [ ! -d "$default_prefix" ]; then
+      log "Error: Default Proton prefix not found at $default_prefix"
+      return 1
+    fi
+    if ! cp -a "$default_prefix" "$prefix_dir"; then
+      log "Error: Failed to copy default Proton prefix to $prefix_dir"
+      rm -rf "$prefix_dir"
+      return 1
+    fi
+  fi
+
+  return 0
 }
 
 #############################
@@ -686,7 +733,11 @@ run_server() {
   update_server_files
   resolve_proton_version
   install_proton_if_needed
-  ensure_proton_compat_data
+  ensure_proton_compat_data || return 1
+  if [ ! -d "$ASA_COMPAT_DATA" ]; then
+    log "Error: Proton compat data missing at $ASA_COMPAT_DATA"
+    return 1
+  fi
   inject_mods_param
   prepare_runtime_env
   handle_plugin_loader
