@@ -607,6 +607,7 @@ launch_server() {
     # Read first 4 bytes and compare to ELF magic 0x7F 45 4C 46
     local magic
     magic=$(od -An -tx1 -N4 "$proton_path" 2>/dev/null | tr -d ' \n' || true)
+    # ELF magic: 0x7F 'E' 'L' 'F'
     if [ "$magic" = "7f454c46" ]; then
       proton_is_text_script=0
     fi
