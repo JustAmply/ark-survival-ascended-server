@@ -256,7 +256,7 @@ update_server_files() {
       log "Routing steamcmd through box86 debugger wrapper"
       steamcmd_env+=("DEBUGGER=box86")
     else
-      log "Warning: box86 not found; attempting to use qemu-i386 for steamcmd."
+      log "Warning: Box86 not found; attempting to use qemu-i386 for steamcmd."
       if command -v qemu-i386 >/dev/null 2>&1; then
         steamcmd_env+=("DEBUGGER=qemu-i386")
       else
