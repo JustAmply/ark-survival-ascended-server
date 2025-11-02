@@ -595,12 +595,7 @@ launch_server() {
   local runner
 
   if [ "${USE_BOX64:-0}" = "1" ]; then
-    if command -v box64 >/dev/null 2>&1; then
-      runner=(box64 "$proton_launcher" run "$LAUNCH_BINARY_NAME")
-    else
-      log "Warning: box64 binary not found; attempting native Proton execution"
-      runner=("$proton_launcher" run "$LAUNCH_BINARY_NAME")
-    fi
+    runner=("$proton_launcher" run "$LAUNCH_BINARY_NAME")
   elif command -v stdbuf >/dev/null 2>&1; then
     runner=(stdbuf -oL -eL "$proton_launcher" run "$LAUNCH_BINARY_NAME")
   else
