@@ -498,24 +498,45 @@ launch_server() {
   log "Starting ASA dedicated server..."
   log "Start parameters: $ASA_START_PARAMS"
   cd "$ASA_BINARY_DIR"
-  local runner
-  
+  local -a runner
+  local proton_path="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton"
+
+  local proton_is_text_script=0
+  if [ -f "$proton_path" ] && command -v file >/dev/null 2>&1; then
+    local proton_file_type
+    proton_file_type=$(file -b "$proton_path" 2>/dev/null || true)
+    local proton_file_type_lower=${proton_file_type,,}
+    if [[ "$proton_file_type_lower" == *text* || "$proton_file_type_lower" == *script* ]]; then
+      proton_is_text_script=1
+    fi
+  fi
+
   if [ "$USE_BOX64" = "1" ]; then
-    # ARM64: Use Box64 to run Proton
-    if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL box64 "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    export PROTON_USE_WINED3D=0
+    if [ "$proton_is_text_script" = "1" ]; then
+      log "Detected Proton launcher script - executing via python3 for Box64 compatibility"
+      if command -v stdbuf >/dev/null 2>&1; then
+        runner=(stdbuf -oL -eL python3 "$proton_path" run "$LAUNCH_BINARY_NAME")
+      else
+        runner=(python3 "$proton_path" run "$LAUNCH_BINARY_NAME")
+      fi
     else
-      runner=(box64 "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      # ARM64 fallback: Use Box64 to run Proton binary directly
+      if command -v stdbuf >/dev/null 2>&1; then
+        runner=(stdbuf -oL -eL box64 "$proton_path" run "$LAUNCH_BINARY_NAME")
+      else
+        runner=(box64 "$proton_path" run "$LAUNCH_BINARY_NAME")
+      fi
     fi
   else
     # AMD64: Direct execution
     if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      runner=(stdbuf -oL -eL "$proton_path" run "$LAUNCH_BINARY_NAME")
     else
-      runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      runner=("$proton_path" run "$LAUNCH_BINARY_NAME")
     fi
   fi
-  
+
   "${runner[@]}" $ASA_START_PARAMS &
   SERVER_PID=$!
   echo "$SERVER_PID" > "$PID_FILE"
