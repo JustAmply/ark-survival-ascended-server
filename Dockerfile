@@ -133,13 +133,16 @@ ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN set -eux; \
+    # Ensure libfontconfig1 is present for all supported architectures to satisfy
+    # font and rendering dependencies required by Steam/CEF binaries.
     case "${TARGETARCH}" in \
         amd64) \
             apt-get update; \
             apt-get install -y --no-install-recommends \
                 lib32stdc++6 \
                 lib32z1 \
-                lib32gcc-s1; \
+                lib32gcc-s1 \
+                libfontconfig1; \
             ;; \
         arm64) \
             dpkg --add-architecture armhf; \
@@ -152,6 +155,7 @@ RUN set -eux; \
                 libgcc-s1:armhf \
                 libtinfo6:armhf \
                 zlib1g:armhf \
+                libfontconfig1:armhf \
                 libc6:i386 \
                 libstdc++6:i386 \
                 libgcc-s1:i386 \
@@ -160,11 +164,14 @@ RUN set -eux; \
                 libbz2-1.0:i386 \
                 libx11-6:i386 \
                 libxext6:i386 \
+                libfontconfig1:i386 \
                 libc6:amd64 \
                 libstdc++6:amd64 \
                 libgcc-s1:amd64 \
                 zlib1g:amd64 \
-                libcurl4:amd64; \
+                libcurl4:amd64 \
+                libfontconfig1:amd64 \
+                libfontconfig1:arm64; \
             ;; \
         *) \
             echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; \
