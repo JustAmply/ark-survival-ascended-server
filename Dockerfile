@@ -108,19 +108,19 @@ RUN set -eux; \
             dpkg --add-architecture amd64; \
             mkdir -p /usr/share/keyrings /etc/apt/sources.list.d; \
             curl -fsSL https://pi-apps-coders.github.io/box64-debs/KEY.gpg -o /usr/share/keyrings/box64-archive-keyring.gpg; \
-            cat <<'EOF' >/etc/apt/sources.list.d/box64.sources
-Types: deb
-URIs: https://Pi-Apps-Coders.github.io/box64-debs/debian
-Suites: ./
-Signed-By: /usr/share/keyrings/box64-archive-keyring.gpg
-EOF
             curl -fsSL https://pi-apps-coders.github.io/box86-debs/KEY.gpg -o /usr/share/keyrings/box86-archive-keyring.gpg; \
-            cat <<'EOF' >/etc/apt/sources.list.d/box86.sources
-Types: deb
-URIs: https://Pi-Apps-Coders.github.io/box86-debs/debian
-Suites: ./
-Signed-By: /usr/share/keyrings/box86-archive-keyring.gpg
-EOF
+            printf '%s\n' \
+                'Types: deb' \
+                'URIs: https://Pi-Apps-Coders.github.io/box64-debs/debian' \
+                'Suites: ./' \
+                'Signed-By: /usr/share/keyrings/box64-archive-keyring.gpg' \
+                > /etc/apt/sources.list.d/box64.sources; \
+            printf '%s\n' \
+                'Types: deb' \
+                'URIs: https://Pi-Apps-Coders.github.io/box86-debs/debian' \
+                'Suites: ./' \
+                'Signed-By: /usr/share/keyrings/box86-archive-keyring.gpg' \
+                > /etc/apt/sources.list.d/box86.sources; \
             apt-get update; \
             apt-get install -y --no-install-recommends \
                 libc6:armhf \
