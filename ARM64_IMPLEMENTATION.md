@@ -34,7 +34,7 @@ ARK: Survival Ascended is a Windows x86_64 game. To run it on ARM64 (aarch64) ar
 
 **Modified Functions:**
 - `update_server_files()`: Prefers `box86` for the 32-bit SteamCMD helper on ARM64 (with `box64` fallback for Proton-only hosts)
-- `launch_server()`: Wraps Proton execution with `box64` on ARM64
+- `launch_server()`: Lets Proton launch natively while it delegates x86_64 binaries to `box64`
 
 **Execution Flow:**
 ```
@@ -45,7 +45,7 @@ ARK: Survival Ascended is a Windows x86_64 game. To run it on ARM64 (aarch64) ar
 5. ensure_permissions()       # Existing functionality
 6. ...
 7. update_server_files()      # Uses box86 wrapper if ARM64
-8. launch_server()            # Uses box64 wrapper if ARM64
+8. launch_server()            # Proton runs natively; it reroutes x86_64 payloads through box64
 ```
 
 ### 3. GitHub Actions Workflow
@@ -143,7 +143,7 @@ box64 ./steamcmd.sh +login anonymous +app_update 2430930 validate +quit
 
 **ARM64:** Box64 wrapper
 ```bash
-box64 /path/to/proton run ArkAscendedServer.exe <params>
+/path/to/proton run ArkAscendedServer.exe <params>
 ```
 
 ## Performance Characteristics

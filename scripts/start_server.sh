@@ -541,21 +541,22 @@ launch_server() {
   export SteamGameId=2430930
   printf '2430930\n' >"$ASA_BINARY_DIR/steam_appid.txt"
 
-  local runner
+  local -a runner
 
   if [ "$USE_BOX64" = "1" ]; then
-    # ARM64: Use Box64 to run Proton
+    # ARM64: Run the Proton launcher script natively so it can manage its own
+    # emulation strategy. Proton already detects Exec format errors from its
+    # bundled x86_64 binaries and re-invokes them through box64 when needed.
+    # Keeping stdbuf disabled avoids propagating ARM-only preload libraries.
+    runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
     if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL box64 "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-    else
-      runner=(box64 "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      log "Box64 in use - skipping stdbuf to avoid invalid LD_PRELOAD on ARM."
     fi
   else
     # AMD64: Direct execution
+    runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
     if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-    else
-      runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+      runner=(stdbuf -oL -eL "${runner[@]}")
     fi
   fi
   
