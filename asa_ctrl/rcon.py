@@ -11,7 +11,7 @@ import struct
 import time
 from typing import NamedTuple, Optional
 
-from .constants import RconPacketTypes
+from .constants import RconPacketTypes, DEFAULT_SERVER_ADMIN_PASSWORD
 from .config import StartParamsHelper, IniConfigHelper
 from .errors import (
     AsaCtrlError,
@@ -237,28 +237,28 @@ class RconClient:
         if password:
             return password
 
-        allow_passwordless_env = os.environ.get('ASA_ALLOW_PASSWORDLESS_RCON')
-        if allow_passwordless_env is None:
-            allow_passwordless = True
-        else:
-            allow_passwordless = allow_passwordless_env.strip().lower() not in ('0', 'false', 'no', 'off')
+        env_password = (os.environ.get('ASA_ADMIN_PASSWORD') or '').strip()
+        if env_password:
+            return env_password
 
-        if allow_passwordless:
-            if self._is_loopback_host(self.server_ip):
-                if self._logger.isEnabledFor(10):  # DEBUG
-                    self._logger.debug(
-                        "Passwordless RCON enabled; using empty password for local host %s",
-                        self.server_ip,
-                    )
-                return ""
-            raise RconPasswordNotFoundError(
-                f"Passwordless RCON is only permitted for loopback addresses; server_ip '{self.server_ip}' is not local. "
-                "Set ASA_ALLOW_PASSWORDLESS_RCON=0 to disable passwordless mode."
-            )
+        default_password_env = (os.environ.get('ASA_DEFAULT_ADMIN_PASSWORD') or '').strip()
+        if default_password_env:
+            if self._logger.isEnabledFor(10):
+                self._logger.debug(
+                    "ServerAdminPassword not found in params/ini; using ASA_DEFAULT_ADMIN_PASSWORD fallback."
+                )
+            return default_password_env
+
+        if DEFAULT_SERVER_ADMIN_PASSWORD:
+            if self._logger.isEnabledFor(10):
+                self._logger.debug(
+                    "ServerAdminPassword not found in params/ini; using bundled default password."
+                )
+            return DEFAULT_SERVER_ADMIN_PASSWORD
 
         raise RconPasswordNotFoundError(
             "Could not find RCON password in start parameters or configuration. "
-            "Set ServerAdminPassword or leave ASA_ALLOW_PASSWORDLESS_RCON enabled for local access."
+            "Set ServerAdminPassword, provide ASA_ADMIN_PASSWORD, or define ASA_DEFAULT_ADMIN_PASSWORD."
         )
     
     def _identify_port(self) -> int:

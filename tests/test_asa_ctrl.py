@@ -21,18 +21,16 @@ if PROJECT_ROOT not in sys.path:
 
 from asa_ctrl.mods import ModDatabase, ModRecord  # noqa: E402
 from asa_ctrl.config import StartParamsHelper, parse_start_params  # noqa: E402
-from asa_ctrl.constants import ExitCodes  # noqa: E402
+from asa_ctrl.constants import ExitCodes, RconPacketTypes, DEFAULT_SERVER_ADMIN_PASSWORD  # noqa: E402
 from asa_ctrl.cli import main as cli_main  # noqa: E402
 from asa_ctrl.rcon import RconClient, RconPacket  # noqa: E402
 from asa_ctrl.errors import (  # noqa: E402
     RconPortNotFoundError,
-    RconPasswordNotFoundError,
     RconConnectionError,
     RconPacketError,
     RconTimeoutError,
     RconAuthenticationError,
 )
-from asa_ctrl.constants import RconPacketTypes  # noqa: E402
 
 
 def test_start_params_helper():
@@ -331,41 +329,54 @@ def test_rcon_connect_propagates_auth_failure():
             assert client._authenticated is False
 
 
-def test_rcon_passwordless_local_default_allows_empty_password():
-    """Passwordless RCON defaults to enabled for loopback connections."""
-    original = os.environ.pop('ASA_ALLOW_PASSWORDLESS_RCON', None)
-    try:
-        with patch.dict(os.environ, {'ASA_START_PARAMS': ''}, clear=False):
-            client = RconClient(server_ip='127.0.0.1', port=27020, retry_count=0)
-            assert client.password == ""
-    finally:
-        if original is not None:
-            os.environ['ASA_ALLOW_PASSWORDLESS_RCON'] = original
+def test_rcon_defaults_to_bundled_admin_password():
+    """Ensure a bundled default admin password is applied when none is configured."""
+    with patch.dict(
+        os.environ,
+        {'ASA_START_PARAMS': '', 'ASA_ADMIN_PASSWORD': '', 'ASA_DEFAULT_ADMIN_PASSWORD': ''},
+        clear=False,
+    ):
+        client = RconClient(server_ip='127.0.0.1', port=27020, retry_count=0)
+        assert client.password == DEFAULT_SERVER_ADMIN_PASSWORD
 
 
-def test_rcon_passwordless_rejected_for_remote_hosts():
-    """Passwordless RCON must not apply to non-loopback hosts."""
-    original = os.environ.pop('ASA_ALLOW_PASSWORDLESS_RCON', None)
-    try:
-        with patch.dict(os.environ, {'ASA_START_PARAMS': ''}, clear=False):
-            try:
-                RconClient(server_ip='192.168.1.50', port=27020, retry_count=0)
-                assert False, "Should reject passwordless RCON for remote host"
-            except RconPasswordNotFoundError as exc:
-                assert "loopback" in str(exc)
-    finally:
-        if original is not None:
-            os.environ['ASA_ALLOW_PASSWORDLESS_RCON'] = original
+def test_rcon_default_password_applies_to_remote_hosts():
+    """Default admin password should be used regardless of server host."""
+    with patch.dict(
+        os.environ,
+        {'ASA_START_PARAMS': '', 'ASA_ADMIN_PASSWORD': '', 'ASA_DEFAULT_ADMIN_PASSWORD': ''},
+        clear=False,
+    ):
+        client = RconClient(server_ip='192.168.1.50', port=27020, retry_count=0)
+        assert client.password == DEFAULT_SERVER_ADMIN_PASSWORD
 
 
-def test_rcon_passwordless_can_be_disabled_via_env():
-    """Explicitly disabling passwordless mode should require a password."""
-    with patch.dict(os.environ, {'ASA_ALLOW_PASSWORDLESS_RCON': '0', 'ASA_START_PARAMS': ''}, clear=False):
-        try:
-            RconClient(server_ip='127.0.0.1', port=27020, retry_count=0)
-            assert False, "Passwordless mode disabled should require password"
-        except RconPasswordNotFoundError:
-            pass
+def test_rcon_admin_password_env_override_wins():
+    """ASA_ADMIN_PASSWORD should take precedence over defaults."""
+    custom_password = 'MyCustomPass123!'
+    with patch.dict(
+        os.environ,
+        {'ASA_START_PARAMS': '', 'ASA_ADMIN_PASSWORD': custom_password},
+        clear=False,
+    ):
+        client = RconClient(server_ip='127.0.0.1', port=27020, retry_count=0)
+        assert client.password == custom_password
+
+
+def test_rcon_prefers_start_params_over_env():
+    """ServerAdminPassword embedded in start params should be authoritative."""
+    start_params = 'TheIsland_WP?listen?ServerAdminPassword=FromParams -WinLiveMaxPlayers=50'
+    with patch.dict(
+        os.environ,
+        {
+            'ASA_START_PARAMS': start_params,
+            'ASA_ADMIN_PASSWORD': 'EnvPassword',
+            'ASA_DEFAULT_ADMIN_PASSWORD': 'AnotherDefault',
+        },
+        clear=False,
+    ):
+        client = RconClient(server_ip='127.0.0.1', port=27020, retry_count=0)
+        assert client.password == 'FromParams'
 
 
 def main():  # pragma: no cover - simple runner

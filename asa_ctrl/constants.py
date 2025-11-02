@@ -4,6 +4,8 @@ Constants and exit codes for ASA Control.
 
 import os
 
+DEFAULT_SERVER_ADMIN_PASSWORD = os.environ.get('ASA_DEFAULT_ADMIN_PASSWORD', 'ChangeMeASA!123')
+
 
 class ExitCodes:
     """Exit codes for different error conditions."""

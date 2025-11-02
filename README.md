@@ -76,6 +76,7 @@ environment:
 - **Change map**: Replace `TheIsland_WP` with `ScorchedEarth_WP`, `TheCenter_WP`, etc.
 - **Change ports**: Modify `Port=7777` and `RCONPort=27020`
 - **Player limit**: Adjust `-WinLiveMaxPlayers=50`
+- **Admin password**: A default admin/RCON password `ChangeMeASA!123` is injected automatically; override it by adding `ASA_ADMIN_PASSWORD=YourSecret` (recommended).
 - **Timezone**: Add `TZ=Europe/Berlin` (or your region) to keep server logs and saves in local time (default: `UTC`)
 
 ## 🎮 Server Management

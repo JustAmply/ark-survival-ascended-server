@@ -36,6 +36,16 @@ RESTART_REQUESTED=0
 SUPERVISOR_PID_FILE="/home/gameserver/.asa-supervisor.pid"
 RESTART_SCHEDULER_PID=""
 
+# Default RCON/admin password handling (overridable via environment)
+DEFAULT_SERVER_ADMIN_PASSWORD="${ASA_DEFAULT_ADMIN_PASSWORD:-ChangeMeASA!123}"
+ASA_ADMIN_PASSWORD_SOURCE="default"
+if [ -n "${ASA_ADMIN_PASSWORD:-}" ]; then
+  ASA_ADMIN_PASSWORD_SOURCE="env"
+else
+  ASA_ADMIN_PASSWORD="$DEFAULT_SERVER_ADMIN_PASSWORD"
+fi
+export ASA_ADMIN_PASSWORD
+
 log() { echo "[asa-start] $*"; }
 
 #############################
@@ -470,6 +480,40 @@ ensure_proton_compat_data() {
 #############################
 # 5. Mods parameter
 #############################
+ensure_admin_password_param() {
+  if [[ "${ASA_START_PARAMS:-}" == *"ServerAdminPassword="* ]]; then
+    return 0
+  fi
+
+  if [ -z "${ASA_START_PARAMS:-}" ]; then
+    log "Warning: ASA_START_PARAMS is empty; cannot inject default ServerAdminPassword."
+    return 0
+  fi
+
+  local password="$ASA_ADMIN_PASSWORD"
+  if [ -z "$password" ]; then
+    log "Warning: ASA_ADMIN_PASSWORD resolved empty; skipping ServerAdminPassword injection."
+    return 0
+  fi
+
+  local first_token rest
+  first_token="${ASA_START_PARAMS%% *}"
+  rest="${ASA_START_PARAMS#"$first_token"}"
+  if [ "$rest" = "$ASA_START_PARAMS" ]; then
+    rest=""
+  fi
+
+  first_token="${first_token}?ServerAdminPassword=$password"
+  ASA_START_PARAMS="${first_token}${rest}"
+  export ASA_START_PARAMS
+
+  if [ "${ASA_ADMIN_PASSWORD_SOURCE:-default}" = "default" ]; then
+    log "ServerAdminPassword missing; injected default password. Override via ASA_ADMIN_PASSWORD."
+  else
+    log "ServerAdminPassword injected from ASA_ADMIN_PASSWORD environment variable."
+  fi
+}
+
 inject_mods_param() {
   local mods
   mods="$("$ASA_CTRL_BIN" mods-string 2>/dev/null || true)"
@@ -597,7 +641,9 @@ ensure_machine_id() {
 #############################
 launch_server() {
   log "Starting ASA dedicated server..."
-  log "Start parameters: $ASA_START_PARAMS"
+  local redacted_params
+  redacted_params="$(printf '%s' "$ASA_START_PARAMS" | sed -E 's/(ServerAdminPassword=)[^?[:space:]]+/\1****/g')"
+  log "Start parameters: $redacted_params"
   cd "$ASA_BINARY_DIR"
   local -a runner
   local proton_path="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton"
@@ -823,6 +869,7 @@ run_server() {
     log "Error: Proton compat data missing at $ASA_COMPAT_DATA"
     return 1
   fi
+  ensure_admin_password_param
   inject_mods_param
   prepare_runtime_env
   handle_plugin_loader
