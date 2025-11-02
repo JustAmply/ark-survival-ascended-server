@@ -599,13 +599,15 @@ launch_server() {
   local -a runner
   local proton_path="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton"
 
-  local proton_is_text_script=0
-  if [ -f "$proton_path" ] && command -v file >/dev/null 2>&1; then
-    local proton_file_type
-    proton_file_type=$(file -b "$proton_path" 2>/dev/null || true)
-    local proton_file_type_lower=${proton_file_type,,}
-    if [[ "$proton_file_type_lower" == *text* || "$proton_file_type_lower" == *script* ]]; then
-      proton_is_text_script=1
+  # Detect whether the Proton launcher is an ELF binary or a text script
+  # without relying on external tools like 'file' (not installed in image).
+  local proton_is_text_script=1
+  if [ -f "$proton_path" ]; then
+    # Read first 4 bytes and compare to ELF magic 0x7F 45 4C 46
+    local magic
+    magic=$(od -An -tx1 -N4 "$proton_path" 2>/dev/null | tr -d ' \n' || true)
+    if [ "$magic" = "7f454c46" ]; then
+      proton_is_text_script=0
     fi
   fi
 
