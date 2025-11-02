@@ -135,13 +135,14 @@ extract_error=$(sed -n '/^detect_architecture()/,/^}/p' /usr/bin/start_server.sh
 if [ $? -ne 0 ]; then
     echo "  ⊘ Could not extract architecture detection function: $extract_error"
 else
-    # Try to source and execute the function
-    source_result=$(source <(echo "$extract_error") 2>&1 && detect_architecture 2>&1 && echo "ARCH=$ARCH USE_BOX64=$USE_BOX64")
-    if [ $? -eq 0 ] && echo "$source_result" | grep -q "ARCH="; then
+    # Source the function and call it in the current shell so that ARCH and USE_BOX64 are set here
+    eval "$extract_error"
+    detect_architecture
+    if [ -n "$ARCH" ] && [ -n "$USE_BOX64" ]; then
         echo "  ✓ Architecture detection function works"
-        echo "  $source_result"
+        echo "  ARCH=$ARCH USE_BOX64=$USE_BOX64"
     else
-        echo "  ⊘ Could not test architecture detection (function may have dependencies)"
+        echo "  ⊘ Could not test architecture detection (ARCH/USE_BOX64 not set; function may have dependencies)"
     fi
 fi
 echo
