@@ -86,13 +86,13 @@ WORKDIR /home/gameserver
 # Entry point
 ENTRYPOINT ["/usr/bin/start_server.sh"]
 
-FROM base AS final
+FROM base
 ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN set -eux; \
     # Ensure libfontconfig1 is present for all supported architectures to satisfy
-    # font and rendering dependencies required by Steam/CEF binaries.
+    # font and rendering dependencies required by the Steam client embedded browser.
     case "${TARGETARCH}" in \
         amd64) \
             apt-get update; \

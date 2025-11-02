@@ -132,7 +132,7 @@ configure_box86_runtime() {
   if [ -n "${BOX86_LD_LIBRARY_PATH:-}" ]; then
     log "Configured Box86 LD_LIBRARY_PATH=$BOX86_LD_LIBRARY_PATH"
   else
-    log "Warning: No Box86 library paths detected; steamcmd may fail"
+    log "Warning: No Box86 library paths detected; steamcmd may fail. Ensure Box86 is installed and library directories exist."
   fi
 }
 
@@ -256,7 +256,7 @@ update_server_files() {
       log "Routing steamcmd through box86 debugger wrapper"
       steamcmd_env+=("DEBUGGER=box86")
     else
-      log "Warning: box86 not found; attempting to use qemu-i386 for steamcmd."
+      log "Warning: Box86 not found; attempting to use qemu-i386 for steamcmd."
       if command -v qemu-i386 >/dev/null 2>&1; then
         steamcmd_env+=("DEBUGGER=qemu-i386")
       else
@@ -455,6 +455,8 @@ ensure_proton_compat_data() {
       log "Error: Default Proton prefix not found at $default_prefix"
       return 1
     fi
+    # Use 'cp -a' to preserve symlinks, permissions, and timestamps when copying the Proton prefix.
+    # This is important for correct operation; Ubuntu 24.04 base image guarantees support for '-a'.
     if ! cp -a "$default_prefix" "$prefix_dir"; then
       log "Error: Failed to copy default Proton prefix to $prefix_dir"
       rm -rf "$prefix_dir"
@@ -578,6 +580,7 @@ ensure_machine_id() {
   fi
 
   if [ -n "$new_id" ]; then
+    # machine-id format requires 32 hex digits without hyphens
     new_id=${new_id//-/}
     if printf '%s\n' "$new_id" >"$target" 2>/dev/null; then
       log "Generated machine-id from random UUID fallback"
@@ -606,6 +609,7 @@ launch_server() {
     # Read first 4 bytes and compare to ELF magic 0x7F 45 4C 46
     local magic
     magic=$(od -An -tx1 -N4 "$proton_path" 2>/dev/null | tr -d ' \n' || true)
+    # ELF magic: 0x7F 'E' 'L' 'F'
     if [ "$magic" = "7f454c46" ]; then
       proton_is_text_script=0
     fi
@@ -614,7 +618,7 @@ launch_server() {
   if [ "$USE_BOX64" = "1" ]; then
     export PROTON_USE_WINED3D=0
     # Box64 already normalizes stdout/stderr buffering; piping through stdbuf can
-    # introduce hangs or dropped output, so never prepend it for emulated runs.
+    # introduce hangs or dropped output, so we skip stdbuf for emulated runs.
     if [ "$proton_is_text_script" = "1" ]; then
       log "Detected Proton launcher script - executing via python3 for Box64 compatibility"
       runner=(python3 "$proton_path" run "$LAUNCH_BINARY_NAME")
