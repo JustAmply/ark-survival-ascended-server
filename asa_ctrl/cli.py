@@ -60,8 +60,7 @@ class RconCommand:
         except RconPasswordNotFoundError:
             exit_with_error(
                 "Could not read RCON password. Configure ServerAdminPassword via start parameters or "
-                "GameUserSettings.ini. Passwordless localhost access is enabled by default; set "
-                "ASA_ALLOW_PASSWORDLESS_RCON=0 to require a password even on 127.0.0.1.",
+                "GameUserSettings.ini, or provide ASA_ADMIN_PASSWORD/ASA_DEFAULT_ADMIN_PASSWORD.",
                 ExitCodes.RCON_PASSWORD_NOT_FOUND
             )
         except RconAuthenticationError:

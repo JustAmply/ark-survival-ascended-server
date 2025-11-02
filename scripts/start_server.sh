@@ -733,7 +733,7 @@ perform_shutdown_sequence() {
       rcon_status=$?
       case "$rcon_status" in
         3)
-          reason="RCON password not found; configure ServerAdminPassword in start params or GameUserSettings.ini."
+          reason="RCON password not found; set ASA_ADMIN_PASSWORD or configure ServerAdminPassword in start params/GameUserSettings.ini."
           ;;
         4)
           reason="RCON authentication failed; verify ServerAdminPassword matches the server configuration."
