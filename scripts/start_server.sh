@@ -410,6 +410,59 @@ install_proton_if_needed() {
   tar -xf "$archive" -C "$STEAM_COMPAT_DIR" && rm -f "$archive"
 }
 
+ensure_proton_box64_wrappers() {
+  if [ "$USE_BOX64" != "1" ]; then
+    return 0
+  fi
+
+  if ! command -v box64 >/dev/null 2>&1; then
+    log "Warning: box64 binary not found - Proton may fail to launch on ARM64"
+    return 0
+  fi
+
+  local proton_root="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME"
+  if [ ! -d "$proton_root" ]; then
+    return 0
+  fi
+
+  local -a bin_dirs=(
+    "$proton_root/files/bin"
+    "$proton_root/files/bin-wow64"
+  )
+
+  local dir bin target real
+  for dir in "${bin_dirs[@]}"; do
+    [ -d "$dir" ] || continue
+    for bin in wine wine64 wineserver; do
+      target="$dir/$bin"
+      real="$dir/$bin.real"
+
+      if [ -e "$real" ]; then
+        if [ -x "$target" ]; then
+          continue
+        fi
+      elif [ -x "$target" ] && [ ! -L "$target" ]; then
+        if mv "$target" "$real" 2>/dev/null; then
+          log "Wrapping Proton binary $target with box64"
+        else
+          log "Warning: unable to wrap $target for box64 execution"
+          continue
+        fi
+      else
+        continue
+      fi
+
+      cat >"$target" <<'EOF_WRAPPER'
+#!/bin/bash
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+base="$(basename "${BASH_SOURCE[0]}")"
+exec box64 "$dir/${base}.real" "$@"
+EOF_WRAPPER
+      chmod +x "$target" 2>/dev/null || true
+    done
+  done
+}
+
 ensure_proton_compat_data() {
   if [ ! -d "$ASA_COMPAT_DATA" ]; then
     log "Setting up Proton compat data..."
@@ -498,24 +551,15 @@ launch_server() {
   log "Starting ASA dedicated server..."
   log "Start parameters: $ASA_START_PARAMS"
   cd "$ASA_BINARY_DIR"
+  local proton_launcher="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton"
   local runner
-  
-  if [ "$USE_BOX64" = "1" ]; then
-    # ARM64: Use Box64 to run Proton
-    if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL box64 "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-    else
-      runner=(box64 "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-    fi
+
+  if command -v stdbuf >/dev/null 2>&1; then
+    runner=(stdbuf -oL -eL "$proton_launcher" run "$LAUNCH_BINARY_NAME")
   else
-    # AMD64: Direct execution
-    if command -v stdbuf >/dev/null 2>&1; then
-      runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-    else
-      runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-    fi
+    runner=("$proton_launcher" run "$LAUNCH_BINARY_NAME")
   fi
-  
+
   "${runner[@]}" $ASA_START_PARAMS &
   SERVER_PID=$!
   echo "$SERVER_PID" > "$PID_FILE"
@@ -665,6 +709,7 @@ run_server() {
   update_server_files
   resolve_proton_version
   install_proton_if_needed
+  ensure_proton_box64_wrappers
   ensure_proton_compat_data
   inject_mods_param
   prepare_runtime_env
