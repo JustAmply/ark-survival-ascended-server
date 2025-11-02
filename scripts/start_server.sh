@@ -539,6 +539,57 @@ start_log_streamer() {
 }
 
 #############################
+# 8b. Machine ID Preparation
+#############################
+ensure_machine_id() {
+  local target="/etc/machine-id"
+
+  if [ -s "$target" ]; then
+    return 0
+  fi
+
+  log "machine-id missing - attempting to create $target"
+
+  if [ "$(id -u)" != "0" ]; then
+    log "Warning: Unable to create $target without root privileges"
+    return 1
+  fi
+
+  local source="/var/lib/dbus/machine-id"
+  if [ -r "$source" ] && [ -s "$source" ]; then
+    if cp "$source" "$target" 2>/dev/null; then
+      log "Copied machine-id from $source"
+      return 0
+    fi
+  fi
+
+  if command -v dbus-uuidgen >/dev/null 2>&1; then
+    if dbus-uuidgen --ensure="$target" >/dev/null 2>&1; then
+      log "Generated machine-id via dbus-uuidgen"
+      return 0
+    fi
+  fi
+
+  local new_id=""
+  if command -v uuidgen >/dev/null 2>&1; then
+    new_id=$(uuidgen 2>/dev/null || true)
+  elif [ -r /proc/sys/kernel/random/uuid ]; then
+    new_id=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || true)
+  fi
+
+  if [ -n "$new_id" ]; then
+    new_id=${new_id//-/}
+    if printf '%s\n' "$new_id" >"$target" 2>/dev/null; then
+      log "Generated machine-id from random UUID fallback"
+      return 0
+    fi
+  fi
+
+  log "Warning: Unable to create $target - Proton may fail to start"
+  return 1
+}
+
+#############################
 # 9. Launch Server
 #############################
 launch_server() {
@@ -548,13 +599,15 @@ launch_server() {
   local -a runner
   local proton_path="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton"
 
-  local proton_is_text_script=0
-  if [ -f "$proton_path" ] && command -v file >/dev/null 2>&1; then
-    local proton_file_type
-    proton_file_type=$(file -b "$proton_path" 2>/dev/null || true)
-    local proton_file_type_lower=${proton_file_type,,}
-    if [[ "$proton_file_type_lower" == *text* || "$proton_file_type_lower" == *script* ]]; then
-      proton_is_text_script=1
+  # Detect whether the Proton launcher is an ELF binary or a text script
+  # without relying on external tools like 'file' (not installed in image).
+  local proton_is_text_script=1
+  if [ -f "$proton_path" ]; then
+    # Read first 4 bytes and compare to ELF magic 0x7F 45 4C 46
+    local magic
+    magic=$(od -An -tx1 -N4 "$proton_path" 2>/dev/null | tr -d ' \n' || true)
+    if [ "$magic" = "7f454c46" ]; then
+      proton_is_text_script=0
     fi
   fi
 
@@ -752,6 +805,7 @@ configure_box64
 if [ "$(id -u)" = "0" ]; then
   configure_timezone
 fi
+ensure_machine_id || true
 maybe_debug
 ensure_permissions
 register_supervisor_pid

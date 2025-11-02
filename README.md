@@ -174,7 +174,7 @@ The ARM64 version pairs [Box64](https://github.com/ptitSeb/box64) for 64-bit bin
 - SteamCMD (32-bit x86) to download and manage game files through Box86
 - Proton (x86_64 compatibility layer) to run the Windows game server through Box64
 - Full feature parity with the AMD64 version
-- Box86 ships from the Pi-Apps-Coders generic ARM prebuilt package, pinned by checksum so you never compile it yourself
+- Box64/Box86 install automatically from the Pi-Apps-Coders apt repositories—no manual downloads required
 
 ### Performance Notes
 

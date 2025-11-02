@@ -1,10 +1,5 @@
 # syntax=docker/dockerfile:1.4
 ARG PYTHON_IMAGE=python:3.12-slim
-ARG BOX64_VERSION="v0.2.4"
-ARG BOX64_PACKAGE="box64-GENERIC_ARM-RelWithDebInfo.zip"
-ARG BOX64_SHA256="0ba1e169a0bc846875366162cda126341cb959b24bc3907171de7c961a6c35af"
-ARG BOX86_DEB_URL="https://raw.githubusercontent.com/Pi-Apps-Coders/box86-debs/15c9a44765003761d316db33054acff6788644cc/debian/box86-generic-arm_0.3.9+20250213T063429.fa59e74-1_armhf.deb"
-ARG BOX86_DEB_SHA256="a811475076792a1fb834afe4b137fbc3ccd5c766a8ca16d42762013c627a4d70"
 
 FROM ${PYTHON_IMAGE} AS base
 
@@ -91,43 +86,6 @@ WORKDIR /home/gameserver
 # Entry point
 ENTRYPOINT ["/usr/bin/start_server.sh"]
 
-FROM base AS arm64-build
-ARG BOX64_VERSION
-ARG BOX64_PACKAGE
-ARG BOX64_SHA256
-ARG BOX86_DEB_URL
-ARG BOX86_DEB_SHA256
-
-RUN set -eux; \
-    echo "Preparing to download Box64 (inputs: version=${BOX64_VERSION}, package=${BOX64_PACKAGE}, sha256=${BOX64_SHA256:-unset})"; \
-    BOX64_URL="https://github.com/ptitSeb/box64/releases/download/${BOX64_VERSION}/${BOX64_PACKAGE}"; \
-    curl -fsSL "$BOX64_URL" -o /tmp/box64.zip; \
-    if [ -n "${BOX64_SHA256}" ]; then \
-        echo "${BOX64_SHA256}  /tmp/box64.zip" | sha256sum -c -; \
-    fi; \
-    unzip /tmp/box64.zip -d /tmp/box64; \
-    install -m 0755 /tmp/box64/box64 /usr/local/bin/box64; \
-    rm -rf /tmp/box64 /tmp/box64.zip
-
-RUN set -eux; \
-    echo "Downloading Box86 from ${BOX86_DEB_URL}"; \
-    curl -fsSL "${BOX86_DEB_URL}" -o /tmp/box86.deb; \
-    if [ -n "${BOX86_DEB_SHA256}" ]; then \
-        echo "${BOX86_DEB_SHA256}  /tmp/box86.deb" | sha256sum -c -; \
-    fi; \
-    mkdir -p /tmp/box86; \
-    dpkg-deb -x /tmp/box86.deb /tmp/box86/extracted; \
-    install -m 0755 /tmp/box86/extracted/usr/local/bin/box86 /usr/local/bin/box86; \
-    mkdir -p /usr/lib/box86-i386-linux-gnu; \
-    cp -a /tmp/box86/extracted/usr/lib/box86-i386-linux-gnu/. /usr/lib/box86-i386-linux-gnu/; \
-    install -Dm 0644 /tmp/box86/extracted/etc/box86.box86rc /etc/box86/box86rc; \
-    if [ -f /tmp/box86/extracted/etc/binfmt.d/box86.conf ]; then \
-        install -Dm 0644 /tmp/box86/extracted/etc/binfmt.d/box86.conf /etc/binfmt.d/box86.conf; \
-    fi;
-RUN set -eux; \
-    rm -rf /tmp/box86 /tmp/box86.deb; \
-    ldconfig
-
 FROM base AS final
 ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
@@ -148,6 +106,21 @@ RUN set -eux; \
             dpkg --add-architecture armhf; \
             dpkg --add-architecture i386; \
             dpkg --add-architecture amd64; \
+            mkdir -p /usr/share/keyrings /etc/apt/sources.list.d; \
+            curl -fsSL https://pi-apps-coders.github.io/box64-debs/KEY.gpg -o /usr/share/keyrings/box64-archive-keyring.gpg; \
+            curl -fsSL https://pi-apps-coders.github.io/box86-debs/KEY.gpg -o /usr/share/keyrings/box86-archive-keyring.gpg; \
+            printf '%s\n' \
+                'Types: deb' \
+                'URIs: https://Pi-Apps-Coders.github.io/box64-debs/debian' \
+                'Suites: ./' \
+                'Signed-By: /usr/share/keyrings/box64-archive-keyring.gpg' \
+                > /etc/apt/sources.list.d/box64.sources; \
+            printf '%s\n' \
+                'Types: deb' \
+                'URIs: https://Pi-Apps-Coders.github.io/box86-debs/debian' \
+                'Suites: ./' \
+                'Signed-By: /usr/share/keyrings/box86-archive-keyring.gpg' \
+                > /etc/apt/sources.list.d/box86.sources; \
             apt-get update; \
             apt-get install -y --no-install-recommends \
                 libc6:armhf \
@@ -171,7 +144,9 @@ RUN set -eux; \
                 zlib1g:amd64 \
                 libcurl4:amd64 \
                 libfontconfig1:amd64 \
-                libfontconfig1:arm64; \
+                libfontconfig1:arm64 \
+                box64-generic-arm \
+                box86-generic-arm:armhf; \
             ;; \
         *) \
             echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; \
@@ -180,21 +155,3 @@ RUN set -eux; \
     esac; \
     rm -rf /var/lib/apt/lists/*; \
     ldconfig
-
-RUN --mount=type=bind,from=arm64-build,source=/,target=/arm64-root \
-    set -eux; \
-    if [ "${TARGETARCH}" = "arm64" ]; then \
-        install -m 0755 /arm64-root/usr/local/bin/box64 /usr/local/bin/box64; \
-        install -m 0755 /arm64-root/usr/local/bin/box86 /usr/local/bin/box86; \
-        mkdir -p /usr/lib/box86-i386-linux-gnu; \
-        cp -a /arm64-root/usr/lib/box86-i386-linux-gnu/. /usr/lib/box86-i386-linux-gnu/; \
-        if [ -d /arm64-root/etc/box86 ]; then \
-            mkdir -p /etc/box86; \
-            cp -a /arm64-root/etc/box86/. /etc/box86/; \
-        fi; \
-        if [ -f /arm64-root/etc/binfmt.d/box86.conf ]; then \
-            mkdir -p /etc/binfmt.d; \
-            install -m 0644 /arm64-root/etc/binfmt.d/box86.conf /etc/binfmt.d/box86.conf; \
-        fi; \
-        ldconfig; \
-    fi
