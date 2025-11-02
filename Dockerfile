@@ -34,6 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     unzip \
     libfreetype6 \
+    libfontconfig1 \
     && rm -rf /var/lib/apt/lists/* && \
     echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen && \
     locale-gen
@@ -99,7 +100,8 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
         lib32stdc++6 \
         lib32z1 \
-        lib32gcc-s1; \
+        lib32gcc-s1 \
+        libfontconfig1:i386; \
     rm -rf /var/lib/apt/lists/*; \
     ldconfig
 
@@ -163,7 +165,9 @@ RUN set -eux; \
         libstdc++6:amd64 \
         libgcc-s1:amd64 \
         zlib1g:amd64 \
-        libcurl4:amd64; \
+        libcurl4:amd64 \
+        libfontconfig1:amd64 \
+        libfontconfig1:i386; \
     rm -rf /var/lib/apt/lists/*
 COPY --from=arm64-build /usr/local/bin/box64 /usr/local/bin/box64
 COPY --from=arm64-build /usr/local/bin/box86 /usr/local/bin/box86

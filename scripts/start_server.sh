@@ -185,6 +185,46 @@ configure_timezone() {
   fi
 }
 
+ensure_machine_id() {
+  local machine_id_file="/etc/machine-id"
+
+  if [ -s "$machine_id_file" ]; then
+    return 0
+  fi
+
+  if [ "$(id -u)" != "0" ]; then
+    log "Warning: /etc/machine-id missing or empty but insufficient permissions to create it"
+    return 0
+  fi
+
+  log "Generating /etc/machine-id (missing or empty)"
+
+  if command -v systemd-machine-id-setup >/dev/null 2>&1; then
+    if systemd-machine-id-setup >/dev/null 2>&1; then
+      return 0
+    else
+      log "systemd-machine-id-setup failed; falling back to uuid-based generation"
+    fi
+  fi
+
+  local new_id=""
+  if command -v dbus-uuidgen >/dev/null 2>&1; then
+    new_id="$(dbus-uuidgen 2>/dev/null)"
+  elif command -v uuidgen >/dev/null 2>&1; then
+    new_id="$(uuidgen 2>/dev/null)"
+  else
+    new_id="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || true)"
+  fi
+
+  if [ -z "$new_id" ]; then
+    log "Error: Unable to generate machine-id"
+    return 1
+  fi
+
+  printf '%s\n' "$new_id" >"$machine_id_file"
+  chmod 0444 "$machine_id_file" 2>/dev/null || true
+}
+
 #############################
 # 1. Debug Hold
 #############################
@@ -554,7 +594,7 @@ launch_server() {
   local proton_launcher="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton"
   local runner
 
-  if command -v stdbuf >/dev/null 2>&1; then
+  if [ "${USE_BOX64:-0}" != "1" ] && command -v stdbuf >/dev/null 2>&1; then
     runner=(stdbuf -oL -eL "$proton_launcher" run "$LAUNCH_BINARY_NAME")
   else
     runner=("$proton_launcher" run "$LAUNCH_BINARY_NAME")
@@ -731,6 +771,7 @@ configure_box64
 if [ "$(id -u)" = "0" ]; then
   configure_timezone
 fi
+ensure_machine_id
 maybe_debug
 ensure_permissions
 register_supervisor_pid
