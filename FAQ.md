@@ -156,17 +156,18 @@ docker exec asa-server-1 asa-ctrl rcon --exec 'kickplayer PlayerName'
 
 ### **Q: I can't use RCON commands**
 
-**A:** Make sure RCON is properly configured:
+**A:** RCON requires `ServerAdminPassword` to be set. Make sure your `ASA_START_PARAMS` includes:
 
-1. **Check your start params** include `?RCONEnabled=True` and `?RCONPort=27020`
-2. **Set admin password** in `GameUserSettings.ini`:
-   ```ini
-   [ServerSettings]
-   RCONEnabled=True
-   ServerAdminPassword=your_secret_password
-   RCONPort=27020
+1. **Ensure all required parameters** are in your `docker-compose.yml`:
+   ```yaml
+   - ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?ServerAdminPassword=ChangeMeASA! -WinLiveMaxPlayers=50
    ```
-3. **Restart server** after changes
+   
+2. **⚠️ ServerAdminPassword is required** - Without it, RCON won't work and the server can't save properly during shutdown
+
+3. **Restart server** after changes: `docker compose up -d`
+
+**Note**: The password can also be set in `GameUserSettings.ini` but using `ASA_START_PARAMS` is recommended for easier configuration.
 
 ### **Q: How do I enable debug mode?**
 

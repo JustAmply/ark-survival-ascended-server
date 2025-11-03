@@ -54,6 +54,17 @@ def test_start_params_helper():
     assert parsed.get('RCONPort') == '27020'
     assert parsed.get('WinLiveMaxPlayers') == '50'
 
+    # Test parsing ServerAdminPassword from query string format (with ?)
+    test_params_with_query_password = (
+        "TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?ServerAdminPassword=ChangeMeASA! "
+        "-WinLiveMaxPlayers=50"
+    )
+    assert StartParamsHelper.get_value(test_params_with_query_password, "ServerAdminPassword") == "ChangeMeASA!"
+    
+    parsed_query = parse_start_params(test_params_with_query_password)
+    assert parsed_query.get('ServerAdminPassword') == 'ChangeMeASA!'
+    assert parsed_query.get('RCONEnabled') == 'True'
+
     print("✓ StartParamsHelper tests passed")
 
 

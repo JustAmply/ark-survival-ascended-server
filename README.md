@@ -68,7 +68,7 @@ Before starting your server, you can customize it by editing the `docker-compose
 ```yaml
 environment:
   # Change map, ports, and player limit
-  - ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50
+  - ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?ServerAdminPassword=ChangeMeASA! -WinLiveMaxPlayers=50
 ```
 
 ### Popular Configuration Changes
@@ -76,6 +76,7 @@ environment:
 - **Change map**: Replace `TheIsland_WP` with `ScorchedEarth_WP`, `TheCenter_WP`, etc.
 - **Change ports**: Modify `Port=7777` and `RCONPort=27020`
 - **Player limit**: Adjust `-WinLiveMaxPlayers=50`
+- **RCON password**: Change `ServerAdminPassword=ChangeMeASA!` to your own secure password (required for RCON commands and proper server shutdown)
 - **Timezone**: Add `TZ=Europe/Berlin` (or your region) to keep server logs and saves in local time (default: `UTC`)
 
 ## 🎮 Server Management
