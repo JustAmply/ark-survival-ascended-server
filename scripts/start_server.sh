@@ -644,8 +644,10 @@ launch_server() {
   # server terminates with a non-zero status (for example 128+SIGTERM when we
   # trigger a scheduled restart).  That behaviour is architecture dependent –
   # under ARM/Box64 the exit status propagates directly and the supervisor
-  # exits before it can relaunch the server.  Temporarily disable ``-e`` so we
-  # can capture the status and continue the supervision loop.
+  # exits before it can relaunch the server. On AMD64, this issue does not occur
+  # because the Proton wrapper (or native shell) absorbs the signal or handles the
+  # exit status differently, allowing the supervision loop to continue as intended.
+  # Temporarily disable ``-e`` so we can capture the status and continue the supervision loop.
   set +e
   wait "$SERVER_PID"
   local exit_code=$?
