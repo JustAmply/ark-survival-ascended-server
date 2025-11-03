@@ -70,13 +70,14 @@ Edit your `docker-compose.yml` file to customize:
 
 ```yaml
 environment:
-  - ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50
+  - ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?ServerAdminPassword=ChangeMeASA! -WinLiveMaxPlayers=50
 ```
 
 **Popular Changes:**
 - **🗺️ Change map**: Replace `TheIsland_WP` with `ScorchedEarth_WP`, `TheCenter_WP`, `Aberration_WP`, `Extinction_WP`
 - **🔢 Change ports**: Modify `Port=7777` and `RCONPort=27020`
 - **👥 Player limit**: Adjust `-WinLiveMaxPlayers=50`
+- **🔐 RCON password**: Change `ServerAdminPassword=ChangeMeASA!` to your own secure password (required for RCON functionality and proper server shutdown with world saving)
 - **🕒 Timezone**: Set `TZ=Europe/Berlin` (or your region) so server logs follow your local time (default: `UTC`)
 
 ### 📂 File Locations
@@ -162,6 +163,12 @@ Add `-mods=12345,67891` to your `ASA_START_PARAMS` in `docker-compose.yml`.
 4. Restart server
 
 ### 🎯 RCON Commands
+
+**⚠️ Important**: RCON requires `ServerAdminPassword` to be set in your `ASA_START_PARAMS`. This password is needed for:
+- Manual server administration commands
+- Automatic world saving during server shutdown
+- Scheduled restart notifications
+
 ```bash
 # Save world
 docker exec asa-server-1 asa-ctrl rcon --exec 'saveworld'
