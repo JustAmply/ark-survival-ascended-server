@@ -55,6 +55,7 @@ def test_start_params_helper():
     assert parsed.get('WinLiveMaxPlayers') == '50'
 
     # Test parsing ServerAdminPassword from query string format (with ?)
+    # Note: Using the default password from docker-compose.yml to validate the actual production example
     test_params_with_query_password = (
         "TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?ServerAdminPassword=ChangeMeASA! "
         "-WinLiveMaxPlayers=50"

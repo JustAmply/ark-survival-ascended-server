@@ -167,7 +167,7 @@ docker exec asa-server-1 asa-ctrl rcon --exec 'kickplayer PlayerName'
 
 3. **Restart server** after changes: `docker compose up -d`
 
-**Note**: The password can also be set in `GameUserSettings.ini` but using `ASA_START_PARAMS` is recommended for easier configuration.
+**Note**: While the password can also be set in `GameUserSettings.ini`, using `ASA_START_PARAMS` is strongly recommended for this Docker setup as it makes configuration management clearer and easier to maintain in one place.
 
 ### **Q: How do I enable debug mode?**
 
