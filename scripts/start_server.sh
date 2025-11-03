@@ -763,8 +763,11 @@ supervisor_loop() {
   restart_delay="${SERVER_RESTART_DELAY:-15}"
 
   while true; do
-    run_server
-    exit_code=$?
+    if run_server; then
+      exit_code=0
+    else
+      exit_code=$?
+    fi
 
     if [ "${SUPERVISOR_EXIT_REQUESTED:-0}" = "1" ]; then
       log "Supervisor exit requested - stopping with code $exit_code"
