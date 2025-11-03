@@ -804,8 +804,12 @@ run_server() {
   handle_plugin_loader
   start_log_streamer
 
-  launch_server
-  local exit_code=$?
+  local exit_code
+  if launch_server; then
+    exit_code=0
+  else
+    exit_code=$?
+  fi
   rm -f "$PID_FILE" || true
   SERVER_PID=""
   return $exit_code
