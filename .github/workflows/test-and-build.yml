@@ -32,6 +32,7 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: pyproject.toml
 
       - name: Install dependencies
         run: |
@@ -116,5 +117,5 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.run_id }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=asa-docker
+          cache-to: type=gha,mode=max,scope=asa-docker
