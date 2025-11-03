@@ -639,8 +639,17 @@ launch_server() {
   "${runner[@]}" $ASA_START_PARAMS &
   SERVER_PID=$!
   echo "$SERVER_PID" > "$PID_FILE"
+
+  # ``set -e`` would cause the supervisor shell to exit immediately if the
+  # server terminates with a non-zero status (for example 128+SIGTERM when we
+  # trigger a scheduled restart).  That behaviour is architecture dependent –
+  # under ARM/Box64 the exit status propagates directly and the supervisor
+  # exits before it can relaunch the server.  Temporarily disable ``-e`` so we
+  # can capture the status and continue the supervision loop.
+  set +e
   wait "$SERVER_PID"
   local exit_code=$?
+  set -e
   log "Server process exited with code $exit_code"
   return $exit_code
 }
