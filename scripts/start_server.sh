@@ -621,8 +621,22 @@ launch_server() {
     # Box64 already normalizes stdout/stderr buffering; piping through stdbuf can
     # introduce hangs or dropped output, so we skip stdbuf for emulated runs.
     if [ "$proton_is_text_script" = "1" ]; then
-      log "Detected Proton launcher script - executing via python3 to avoid Box64 ELF header conflicts."
-      runner=(python3 "$proton_path" run "$LAUNCH_BINARY_NAME")
+      local proton_python=""
+      local candidate
+      for candidate in "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME"/files/bin/python3*; do
+        if [ -x "$candidate" ]; then
+          proton_python="$candidate"
+          break
+        fi
+      done
+
+      if [ -n "$proton_python" ]; then
+        log "Detected Proton launcher script - executing via box64-wrapped Proton python interpreter ($proton_python)."
+        runner=(box64 "$proton_python" "$proton_path" run "$LAUNCH_BINARY_NAME")
+      else
+        log "Detected Proton launcher script - Proton python interpreter missing, falling back to host python3."
+        runner=(python3 "$proton_path" run "$LAUNCH_BINARY_NAME")
+      fi
     else
       # ARM64 fallback: Use Box64 to run Proton binary directly
       runner=(box64 "$proton_path" run "$LAUNCH_BINARY_NAME")
