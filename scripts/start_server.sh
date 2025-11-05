@@ -455,10 +455,16 @@ ensure_wine_real_binaries() {
   done
 
   # If any wrappers were found without backups, remove the entire Proton installation
-  # so it can be re-downloaded with clean binaries
+  # and its compat data so everything can be recreated cleanly
   if [ "$corrupted" = "1" ]; then
     log "Removing corrupted Proton installation at $STEAM_COMPAT_DIR/$PROTON_DIR_NAME"
     rm -rf "${STEAM_COMPAT_DIR:?}/${PROTON_DIR_NAME:?}" 2>/dev/null || true
+    
+    # Also remove the compat data to avoid version mismatch issues
+    if [ -d "$ASA_COMPAT_DATA" ]; then
+      log "Removing compat data at $ASA_COMPAT_DATA to force clean recreation"
+      rm -rf "${ASA_COMPAT_DATA:?}" 2>/dev/null || true
+    fi
   fi
 }
 
