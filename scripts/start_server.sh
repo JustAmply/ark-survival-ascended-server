@@ -386,7 +386,10 @@ resolve_proton_version() {
 }
 
 install_proton_if_needed() {
-  if [ -d "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME" ]; then return 0; fi
+  if [ -d "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME" ]; then
+    ensure_wine_real_binaries
+    return 0
+  fi
   log "Downloading Proton $PROTON_DIR_NAME..."
   mkdir -p "$STEAM_COMPAT_DIR"
   local base="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton$PROTON_VERSION"
@@ -408,6 +411,40 @@ install_proton_if_needed() {
     log "Checksum file unavailable"; [ "${PROTON_SKIP_CHECKSUM:-0}" != "1" ] && exit 201 || log "Continuing without verification"
   fi
   tar -xf "$archive" -C "$STEAM_COMPAT_DIR" && rm -f "$archive"
+  ensure_wine_real_binaries
+}
+
+ensure_wine_real_binaries() {
+  if [ "$USE_BOX64" != "1" ]; then
+    return 0
+  fi
+
+  local bin_dir="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/bin"
+  if [ ! -d "$bin_dir" ]; then
+    log "Warning: Proton bin directory not found at $bin_dir"
+    return 0
+  fi
+
+  local name src dst
+  for name in wine wine64 wine-preloader wine64-preloader; do
+    src="$bin_dir/$name"
+    dst="$src.real"
+
+    if [ -e "$dst" ]; then
+      continue
+    fi
+
+    if [ ! -e "$src" ]; then
+      log "Warning: Missing Proton binary '$src'; skipping .real companion creation"
+      continue
+    fi
+
+    if cp -p "$src" "$dst"; then
+      log "Created Proton binary companion $(basename "$dst")"
+    else
+      log "Warning: Failed to create $(basename "$dst")"
+    fi
+  done
 }
 
 ensure_proton_compat_data() {
@@ -601,6 +638,8 @@ launch_server() {
   cd "$ASA_BINARY_DIR"
   local -a runner
   local proton_path="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton"
+
+  ensure_wine_real_binaries
 
   # Detect whether the Proton launcher is an ELF binary or a text script
   # without relying on external tools like 'file' (not installed in image).
