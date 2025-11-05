@@ -80,6 +80,25 @@ configure_box64() {
   export BOX64_DYNAREC_CALLRET=1
   export BOX64_DYNAREC_X87DOUBLE=1
 
+  # Configure binfmt_misc for automatic x86/x86_64 emulation
+  # This allows Python subprocess calls to x86_64 binaries (like wine) to work transparently
+  if [ -f /proc/sys/fs/binfmt_misc/register ] && [ -w /proc/sys/fs/binfmt_misc/register ]; then
+    # Register x86_64 binaries to use box64 (if not already registered)
+    if [ ! -f /proc/sys/fs/binfmt_misc/box64 ]; then
+      printf ':box64:M::\\x7fELF\\x02\\x01\\x01\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x02\\x00\\x3e\\x00:\\xff\\xff\\xff\\xff\\xff\\xfe\\xfe\\x00\\xff\\xff\\xff\\xff\\xff\\xff\\xff\\xff\\xfe\\xff\\xff\\xff:/usr/bin/box64:OCF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null && \
+        log "Registered binfmt_misc handler for x86_64 binaries" || \
+        log "Warning: Failed to register binfmt_misc for x86_64 (container may need --privileged flag)"
+    fi
+    # Register x86 (32-bit) binaries to use box86 (if not already registered)
+    if [ ! -f /proc/sys/fs/binfmt_misc/box86 ]; then
+      printf ':box86:M::\\x7fELF\\x01\\x01\\x01\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x02\\x00\\x03\\x00:\\xff\\xff\\xff\\xff\\xff\\xfe\\xfe\\x00\\xff\\xff\\xff\\xff\\xff\\xff\\xff\\xff\\xfe\\xff\\xff\\xff:/usr/bin/box86:OCF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null && \
+        log "Registered binfmt_misc handler for x86 binaries" || \
+        log "Warning: Failed to register binfmt_misc for x86"
+    fi
+  else
+    log "Note: binfmt_misc not available (container needs --privileged flag for automatic x86/x86_64 emulation)"
+  fi
+
   log "Box64 environment configured for performance"
 }
 
