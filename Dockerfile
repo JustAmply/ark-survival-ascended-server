@@ -91,8 +91,9 @@ ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN set -eux; \
-    # Ensure libfontconfig1 is present for all supported architectures to satisfy
-    # font and rendering dependencies required by the Steam client embedded browser.
+    # Ensure required runtime libraries (font rendering and crypto primitives)
+    # are present for all supported architectures so Proton / Steam components
+    # can launch under emulation.
     case "${TARGETARCH}" in \
         amd64) \
             apt-get update; \
@@ -100,7 +101,8 @@ RUN set -eux; \
                 lib32stdc++6 \
                 lib32z1 \
                 lib32gcc-s1 \
-                libfontconfig1; \
+                libfontconfig1 \
+                libgcrypt20; \
             ;; \
         arm64) \
             dpkg --add-architecture armhf; \
@@ -129,6 +131,7 @@ RUN set -eux; \
                 libtinfo6:armhf \
                 zlib1g:armhf \
                 libfontconfig1:armhf \
+                libgcrypt20:armhf \
                 libc6:i386 \
                 libstdc++6:i386 \
                 libgcc-s1:i386 \
@@ -138,13 +141,16 @@ RUN set -eux; \
                 libx11-6:i386 \
                 libxext6:i386 \
                 libfontconfig1:i386 \
+                libgcrypt20:i386 \
                 libc6:amd64 \
                 libstdc++6:amd64 \
                 libgcc-s1:amd64 \
                 zlib1g:amd64 \
                 libcurl4:amd64 \
                 libfontconfig1:amd64 \
+                libgcrypt20:amd64 \
                 libfontconfig1:arm64 \
+                libgcrypt20:arm64 \
                 box64-generic-arm \
                 box86-generic-arm:armhf; \
             ;; \
