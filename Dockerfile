@@ -125,6 +125,8 @@ RUN set -eux; \
             apt-get update && apt-get install -y --no-install-recommends \
                 box64-generic-arm \
                 box86-generic-arm:armhf \
+                libfontconfig1:arm64 \
+                libgcrypt20:arm64 \
                 libc6:amd64 \
                 libcurl4:amd64 \
                 libfontconfig1:amd64 \

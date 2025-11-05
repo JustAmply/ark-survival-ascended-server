@@ -41,6 +41,7 @@ jobs:
 
   build-docker:
     name: Build and push Docker image
+    needs: test
     runs-on: ubuntu-latest
     env:
       REGISTRY: ghcr.io
