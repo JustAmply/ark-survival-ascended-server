@@ -425,9 +425,9 @@ ensure_wine_real_binaries() {
     return 0
   fi
 
-  # In newer Proton versions (10-25+), wine binaries are already bash scripts that handle
-  # Box64 execution internally. We don't need to create wrappers for scripts.
-  # Only create .real companions for actual ELF binaries (older Proton versions).
+  # ProtonGE wine binaries are ELF executables that work directly with Box64 emulation.
+  # Previous attempts to create wrapper scripts were unnecessary and caused issues.
+  # This function now only cleans up any wrapper scripts from previous runs.
   
   local name src dst
   for name in wine wine64 wine-preloader wine64-preloader; do
@@ -435,31 +435,19 @@ ensure_wine_real_binaries() {
     dst="$src.real"
 
     if [ ! -e "$src" ]; then
-      log "Warning: Missing Proton binary '$src'; skipping .real companion creation"
       continue
     fi
 
-    # Check if the file is already a script (starts with shebang)
-    if head -n1 "$src" 2>/dev/null | grep -q "^#!"; then
-      # File is a script - no action needed for newer Proton versions
-      # Clean up any .real files from previous runs since they're not needed
+    # Check if this is our old wrapper script (contains our signature comment)
+    if [ -f "$src" ] && grep -q "# Box64 wrapper for Proton Wine binary" "$src" 2>/dev/null; then
+      # This is our wrapper script from a previous run - restore original binary
       if [ -e "$dst" ]; then
-        rm -f "$dst" 2>/dev/null || true
+        log "Restoring original Proton binary from $(basename "$dst")"
+        rm -f "$src" 2>/dev/null || true
+        mv "$dst" "$src" 2>/dev/null || true
+      else
+        log "Warning: Found wrapper for $name but $(basename "$dst") is missing - cannot restore"
       fi
-      continue
-    fi
-
-    # File is an ELF binary - check if we already have a .real backup
-    if [ -e "$dst" ]; then
-      # Already have a backup, skip
-      continue
-    fi
-
-    # Create a backup copy of the ELF binary
-    if cp -p "$src" "$dst"; then
-      log "Created Proton binary companion $(basename "$dst")"
-    else
-      log "Warning: Failed to create $(basename "$dst")"
     fi
   done
 }
