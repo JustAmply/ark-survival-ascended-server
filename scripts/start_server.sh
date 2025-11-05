@@ -81,6 +81,45 @@ configure_box64() {
   export BOX64_DYNAREC_X87DOUBLE=1
 
   log "Box64 environment configured for performance"
+
+  # Ensure the kernel routes x86_64 ELF launches through box64.  Proton's
+  # launcher script eventually invokes Wine binaries directly; without a
+  # registered binfmt handler the kernel reports an Exec format error when
+  # running on ARM64.
+  if command -v box64 >/dev/null 2>&1; then
+    local binfmt_dir="/proc/sys/fs/binfmt_misc"
+    local binfmt_entry="$binfmt_dir/box64"
+
+    if [ -d "$binfmt_dir" ] && [ ! -e "$binfmt_dir/register" ] && [ "$(id -u)" = "0" ]; then
+      if mount -t binfmt_misc binfmt_misc "$binfmt_dir" 2>/dev/null; then
+        log "Mounted binfmt_misc for box64 registration"
+      else
+        log "Warning: Failed to mount binfmt_misc; box64 registration may not be possible."
+      fi
+    fi
+
+    if [ -d "$binfmt_dir" ] && [ ! -e "$binfmt_entry" ]; then
+      if [ "$(id -u)" = "0" ]; then
+        if box64 --install >/dev/null 2>&1; then
+          log "Registered box64 binfmt handler for x86_64 executables"
+        else
+          log "Warning: Failed to register box64 binfmt handler; x86_64 binaries may not launch correctly."
+        fi
+      else
+        log "Warning: box64 binfmt handler not present and insufficient privileges to install it."
+      fi
+    elif [ -e "$binfmt_entry" ]; then
+      if ! grep -q '^enabled' "$binfmt_entry" 2>/dev/null && [ "$(id -u)" = "0" ]; then
+        if printf '1\n' >"$binfmt_entry" 2>/dev/null; then
+          log "Re-enabled existing box64 binfmt handler"
+        else
+          log "Warning: Unable to re-enable box64 binfmt handler; x86_64 binaries may fail to start."
+        fi
+      fi
+    fi
+  else
+    log "Warning: box64 executable not found; x86_64 emulation will fail on ARM64."
+  fi
 }
 
 configure_box86_runtime() {
