@@ -622,19 +622,43 @@ launch_server() {
     # introduce hangs or dropped output, so we skip stdbuf for emulated runs.
     if [ "$proton_is_text_script" = "1" ]; then
       local proton_python=""
-      local candidate
-      for candidate in "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME"/files/bin/python3*; do
-        if [ -x "$candidate" ]; then
-          proton_python="$candidate"
-          break
-        fi
-      done
+      local search_root="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files"
+
+      if [ -d "$search_root" ]; then
+        local -a search_dirs=(
+          "$search_root/bin"
+          "$search_root"
+          "$search_root/lib"
+          "$search_root/lib64"
+        )
+        local dir
+        local candidate base
+        for dir in "${search_dirs[@]}"; do
+          if [ ! -d "$dir" ]; then
+            continue
+          fi
+          while IFS= read -r -d '' candidate; do
+            if [ ! -x "$candidate" ]; then
+              continue
+            fi
+            base="$(basename "$candidate")"
+            case "$base" in
+              python3|python3.[0-9]*)
+                proton_python="$candidate"
+                break 2
+                ;;
+              *)
+                ;;
+            esac
+          done < <(find "$dir" -maxdepth 5 -type f -name 'python3*' -print0 2>/dev/null)
+        done
+      fi
 
       if [ -n "$proton_python" ]; then
         log "Detected Proton launcher script - executing via box64-wrapped Proton python interpreter ($proton_python)."
         runner=(box64 "$proton_python" "$proton_path" run "$LAUNCH_BINARY_NAME")
       else
-        log "Detected Proton launcher script - Proton python interpreter missing, falling back to host python3."
+        log "Detected Proton launcher script - Proton python interpreter unavailable; falling back to native python3."
         runner=(python3 "$proton_path" run "$LAUNCH_BINARY_NAME")
       fi
     else
