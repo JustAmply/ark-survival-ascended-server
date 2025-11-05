@@ -86,78 +86,78 @@ WORKDIR /home/gameserver
 # Entry point
 ENTRYPOINT ["/usr/bin/start_server.sh"]
 
-FROM base
+# Create a dependency installation stage to improve caching
+FROM base AS deps
 ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
 
+# Install dependencies based on the target architecture
 RUN set -eux; \
-    # Ensure required runtime libraries (font rendering and crypto primitives)
-    # are present for all supported architectures so Proton / Steam components
-    # can launch under emulation.
     case "${TARGETARCH}" in \
         amd64) \
-            apt-get update; \
-            apt-get install -y --no-install-recommends \
+            apt-get update && apt-get install -y --no-install-recommends \
                 lib32stdc++6 \
                 lib32z1 \
                 lib32gcc-s1 \
                 libfontconfig1 \
-                libgcrypt20; \
+                libgcrypt20 \
+                && rm -rf /var/lib/apt/lists/* \
             ;; \
         arm64) \
-            dpkg --add-architecture armhf; \
-            dpkg --add-architecture i386; \
-            dpkg --add-architecture amd64; \
-            mkdir -p /usr/share/keyrings /etc/apt/sources.list.d; \
-            curl -fsSL https://pi-apps-coders.github.io/box64-debs/KEY.gpg -o /usr/share/keyrings/box64-archive-keyring.gpg; \
-            curl -fsSL https://pi-apps-coders.github.io/box86-debs/KEY.gpg -o /usr/share/keyrings/box86-archive-keyring.gpg; \
+            dpkg --add-architecture armhf && \
+            dpkg --add-architecture i386 && \
+            dpkg --add-architecture amd64 && \
+            mkdir -p /usr/share/keyrings /etc/apt/sources.list.d && \
+            curl -fsSL https://pi-apps-coders.github.io/box64-debs/KEY.gpg -o /usr/share/keyrings/box64-archive-keyring.gpg && \
+            curl -fsSL https://pi-apps-coders.github.io/box86-debs/KEY.gpg -o /usr/share/keyrings/box86-archive-keyring.gpg && \
             printf '%s\n' \
                 'Types: deb' \
                 'URIs: https://Pi-Apps-Coders.github.io/box64-debs/debian' \
                 'Suites: ./' \
                 'Signed-By: /usr/share/keyrings/box64-archive-keyring.gpg' \
-                > /etc/apt/sources.list.d/box64.sources; \
+                > /etc/apt/sources.list.d/box64.sources && \
             printf '%s\n' \
                 'Types: deb' \
                 'URIs: https://Pi-Apps-Coders.github.io/box86-debs/debian' \
                 'Suites: ./' \
                 'Signed-By: /usr/share/keyrings/box86-archive-keyring.gpg' \
-                > /etc/apt/sources.list.d/box86.sources; \
-            apt-get update; \
-            apt-get install -y --no-install-recommends \
-                libc6:armhf \
-                libstdc++6:armhf \
-                libgcc-s1:armhf \
-                libtinfo6:armhf \
-                zlib1g:armhf \
-                libfontconfig1:armhf \
-                libgcrypt20:armhf \
-                libc6:i386 \
-                libstdc++6:i386 \
-                libgcc-s1:i386 \
-                zlib1g:i386 \
-                libcurl4:i386 \
-                libbz2-1.0:i386 \
-                libx11-6:i386 \
-                libxext6:i386 \
-                libfontconfig1:i386 \
-                libgcrypt20:i386 \
+                > /etc/apt/sources.list.d/box86.sources && \
+            apt-get update && apt-get install -y --no-install-recommends \
+                box64-generic-arm \
+                box86-generic-arm:armhf \
                 libc6:amd64 \
-                libstdc++6:amd64 \
-                libgcc-s1:amd64 \
-                zlib1g:amd64 \
                 libcurl4:amd64 \
                 libfontconfig1:amd64 \
+                libgcc-s1:amd64 \
                 libgcrypt20:amd64 \
-                libfontconfig1:arm64 \
-                libgcrypt20:arm64 \
-                box64-generic-arm \
-                box86-generic-arm:armhf; \
+                libstdc++6:amd64 \
+                zlib1g:amd64 \
+                libc6:armhf \
+                libfontconfig1:armhf \
+                libgcc-s1:armhf \
+                libgcrypt20:armhf \
+                libstdc++6:armhf \
+                libtinfo6:armhf \
+                zlib1g:armhf \
+                libbz2-1.0:i386 \
+                libc6:i386 \
+                libcurl4:i386 \
+                libfontconfig1:i386 \
+                libgcc-s1:i386 \
+                libgcrypt20:i386 \
+                libstdc++6:i386 \
+                libx11-6:i386 \
+                libxext6:i386 \
+                zlib1g:i386 \
+                && rm -rf /var/lib/apt/lists/* \
             ;; \
         *) \
-            echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; \
-            exit 1; \
+            echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2 && \
+            exit 1 \
             ;; \
-    esac; \
-    rm -rf /var/lib/apt/lists/*; \
+    esac && \
     ldconfig
+
+# Create the final image, copying dependencies and application code
+FROM base
+COPY --from=deps / /
