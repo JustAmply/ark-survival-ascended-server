@@ -92,7 +92,8 @@ ensure_box64_proton_wrappers() {
     return 0
   fi
 
-  if ! command -v box64 >/dev/null 2>&1; then
+  local box64_path
+  if ! box64_path="$(command -v box64 2>/dev/null)" || [ -z "$box64_path" ]; then
     log "Warning: box64 executable not found; Proton Wine binaries cannot run on ARM64."
     return 0
   fi
@@ -113,36 +114,43 @@ ensure_box64_proton_wrappers() {
       continue
     fi
 
-    if head -n1 "$path" 2>/dev/null | grep -Fq "$marker"; then
+    if grep -Fq "$marker" "$path" 2>/dev/null; then
       continue
     fi
 
     real="$path.real"
-    if [ -e "$real" ]; then
+
+    if [ -e "$real" ] && grep -Fq "$marker" "$real" 2>/dev/null; then
       rm -f "$real"
     fi
 
-    if ! mv "$path" "$real" 2>/dev/null; then
-      log "Warning: Unable to prepare box64 wrapper for $path"
+    if ! mv -f "$path" "$real" 2>/dev/null; then
+      log "Warning: Unable to move $path to $real for box64 wrapper"
       continue
     fi
 
-    cat >"$path" <<EOF
-#!/bin/bash
+    if ! cat <<EOF >"$path"
+#!/bin/sh
 $marker
-dir="\$(cd "\$(dirname -- "\${BASH_SOURCE[0]}")" && pwd)"
-exec box64 "\$dir/${binary}.real" "\$@"
+dir=\$(dirname -- "\$0")
+exec "$box64_path" "\$dir/${binary}.real" "\$@"
 EOF
-    if ! chmod --reference="$real" "$path" 2>/dev/null; then
-      chmod 755 "$path"
+    then
+      log "Warning: Failed to create box64 wrapper at $path"
+      mv -f "$real" "$path" 2>/dev/null || true
+      continue
     fi
+
+    chmod 0755 "$path" 2>/dev/null || true
+    log "Installed box64 wrapper for $binary"
     updated=1
   done
 
   if [ "$updated" = "1" ]; then
-    log "Ensured Proton Wine binaries launch through box64 wrappers"
+    log "Ensured Proton Wine binaries launch through box64 wrappers (box64 at $box64_path)"
   fi
 }
+
 
 configure_box86_runtime() {
   if [ "$USE_BOX64" != "1" ]; then
