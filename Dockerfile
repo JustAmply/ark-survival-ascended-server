@@ -86,7 +86,7 @@ WORKDIR /home/gameserver
 # Entry point
 ENTRYPOINT ["/usr/bin/start_server.sh"]
 
-# Create a dependency installation stage to improve caching
+# Create a dependency installation stage for architecture-specific libraries
 FROM base AS deps
 ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
@@ -95,6 +95,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN set -eux; \
     case "${TARGETARCH}" in \
         amd64) \
+            mkdir -p /usr/share/keyrings && \
             apt-get update && apt-get install -y --no-install-recommends \
                 lib32stdc++6 \
                 lib32z1 \
@@ -160,6 +161,20 @@ RUN set -eux; \
     esac && \
     ldconfig
 
-# Create the final image, copying dependencies and application code
-FROM base
-COPY --from=deps / /
+# Create the final image, copying only library and dependency directories from deps stage
+FROM base AS final
+
+# Temporarily save our scripts before copying deps
+RUN cp /usr/bin/start_server.sh /tmp/start_server.sh.backup
+
+# Copy library directories from deps stage
+COPY --from=deps /usr/lib /usr/lib
+COPY --from=deps /lib /lib
+COPY --from=deps /lib64 /lib64
+COPY --from=deps /etc/apt /etc/apt
+COPY --from=deps /usr/share/keyrings /usr/share/keyrings
+# Copy binaries (includes box64/box86 for ARM64)
+COPY --from=deps /usr/bin /usr/bin
+
+# Restore our scripts that got overwritten
+RUN mv /tmp/start_server.sh.backup /usr/bin/start_server.sh
