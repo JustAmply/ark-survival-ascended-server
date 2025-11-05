@@ -427,9 +427,9 @@ ensure_wine_real_binaries() {
 
   # ProtonGE wine binaries are ELF executables that work directly with Box64 emulation.
   # Previous attempts to create wrapper scripts were unnecessary and caused issues.
-  # This function now only cleans up any wrapper scripts from previous runs.
+  # This function detects and removes wrapper scripts, re-downloading Proton if needed.
   
-  local name src dst
+  local name src dst corrupted=0
   for name in wine wine64 wine-preloader wine64-preloader; do
     src="$bin_dir/$name"
     dst="$src.real"
@@ -440,16 +440,26 @@ ensure_wine_real_binaries() {
 
     # Check if this is our old wrapper script (contains our signature comment)
     if [ -f "$src" ] && grep -q "# Box64 wrapper for Proton Wine binary" "$src" 2>/dev/null; then
-      # This is our wrapper script from a previous run - restore original binary
+      # This is our wrapper script from a previous run
       if [ -e "$dst" ]; then
+        # Restore original binary from backup
         log "Restoring original Proton binary from $(basename "$dst")"
         rm -f "$src" 2>/dev/null || true
         mv "$dst" "$src" 2>/dev/null || true
       else
-        log "Warning: Found wrapper for $name but $(basename "$dst") is missing - cannot restore"
+        # Wrapper exists but .real backup is missing - Proton installation is corrupted
+        log "Warning: Corrupted wrapper detected for $name - Proton installation needs to be re-downloaded"
+        corrupted=1
       fi
     fi
   done
+
+  # If any wrappers were found without backups, remove the entire Proton installation
+  # so it can be re-downloaded with clean binaries
+  if [ "$corrupted" = "1" ]; then
+    log "Removing corrupted Proton installation at $STEAM_COMPAT_DIR/$PROTON_DIR_NAME"
+    rm -rf "${STEAM_COMPAT_DIR:?}/${PROTON_DIR_NAME:?}" 2>/dev/null || true
+  fi
 }
 
 ensure_proton_compat_data() {
