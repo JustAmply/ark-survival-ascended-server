@@ -27,7 +27,7 @@ ASA_COMPAT_DATA="$STEAM_COMPAT_DATA/2430930"
 STEAM_COMPAT_DIR="/home/gameserver/Steam/compatibilitytools.d"
 ASA_BINARY_NAME="ArkAscendedServer.exe"
 ASA_PLUGIN_BINARY_NAME="AsaApiLoader.exe"
-FALLBACK_PROTON_VERSION="8-21"
+FALLBACK_PROTON_VERSION="10-24"
 PID_FILE="/home/gameserver/.asa-server.pid"
 ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
 SHUTDOWN_IN_PROGRESS=0
@@ -280,103 +280,42 @@ update_server_files() {
 #############################
 # 4. Proton Handling
 #############################
-check_proton_release_assets() {
-  local version="$1"
-  if [ -z "$version" ]; then return 1; fi
-  local base="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton$version"
-  local archive_url="$base/GE-Proton$version.tar.gz"
-  local sum_url="$base/GE-Proton$version.sha512sum"
-  if wget --spider -q "$archive_url" 2>/dev/null && wget --spider -q "$sum_url" 2>/dev/null; then
-    return 0
-  fi
-  return 1
-}
-
-find_latest_release_with_assets() {
-  local skip_version="${1:-}"
-  local page json tags tag version
-  for page in 1 2 3; do
-    json=$(wget -qO- "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases?per_page=10&page=$page" 2>/dev/null || true)
-    if [ -z "$json" ]; then
-      continue
-    fi
-    if command -v jq >/dev/null 2>&1; then
-      tags=$(printf '%s' "$json" | jq -r '.[].tag_name' 2>/dev/null || true)
-    else
-      tags=$(printf '%s' "$json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(GE-Proton[^"]*\)".*/\1/p')
-    fi
-    for tag in $tags; do
-      version=${tag#GE-Proton}
-      if [ -z "$version" ] || ! printf '%s' "$version" | grep -Eq '^[0-9][0-9A-Za-z._-]*$'; then
-        continue
-      fi
-      if [ -n "$skip_version" ] && [ "$version" = "$skip_version" ]; then
-        continue
-      fi
-      if check_proton_release_assets "$version"; then
-        printf '%s' "$version"
-        return 0
-      fi
-    done
-  done
-  return 1
-}
-
 resolve_proton_version() {
-  local detected=""
-  if [ -z "${PROTON_VERSION:-}" ]; then
-    log "Detecting latest Proton GE version..."
+  local resolved=""
+  
+  # If PROTON_VERSION is set to "latest", fetch from GitHub API
+  if [ "${PROTON_VERSION:-}" = "latest" ]; then
+    log "Detecting latest Proton GE version from GitHub..."
     if json=$(wget -qO- https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest 2>/dev/null || true); then
-      # Try jq first if present (most reliable)
       if command -v jq >/dev/null 2>&1; then
         ver=$(printf '%s' "$json" | jq -r '.tag_name' 2>/dev/null || true)
       else
-        # Fallback to sed extraction of tag_name value
         ver=$(printf '%s' "$json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(GE-Proton[^"]*\)".*/\1/p' | head -n1 || true)
       fi
-      # Sanitize / normalize: strip optional leading GE-Proton
       if [ -n "${ver:-}" ]; then
         ver=${ver#GE-Proton}
-        # Basic validation: must start with a digit and contain only allowed chars (digits, dots, dashes)
         if printf '%s' "$ver" | grep -Eq '^[0-9][0-9A-Za-z._-]*$'; then
-          detected="$ver"
-          log "Using detected GE-Proton version: $detected"
+          resolved="$ver"
+          log "Using latest GE-Proton version: $resolved"
         else
-          log "Detected tag_name malformed ('$ver'); ignoring"
+          log "Detected tag_name malformed ('$ver'); falling back to default"
         fi
       else
-        log "Failed to parse latest release tag_name"
+        log "Failed to parse latest release tag_name; falling back to default"
       fi
     else
-      log "Could not query GitHub API for Proton releases"
+      log "Could not query GitHub API for Proton releases; falling back to default"
     fi
-  else
-    detected="$PROTON_VERSION"
+  # If PROTON_VERSION is set to a specific value, use it
+  elif [ -n "${PROTON_VERSION:-}" ]; then
+    resolved="$PROTON_VERSION"
+    log "Using specified Proton version: $resolved"
   fi
-
-  local resolved="${PROTON_VERSION:-}"
-  if [ -z "$resolved" ] && [ -n "$detected" ]; then
-    if check_proton_release_assets "$detected"; then
-      resolved="$detected"
-    else
-      log "Latest GE-Proton release GE-Proton$detected missing assets; searching previous releases..."
-    fi
-  fi
-
-  if [ -z "$resolved" ] && [ -z "${PROTON_VERSION:-}" ]; then
-    if fallback_ver=$(find_latest_release_with_assets "$detected"); then
-      resolved="$fallback_ver"
-      log "Using fallback GE-Proton release: $resolved"
-    else
-      log "No suitable Proton release with assets found via GitHub API"
-    fi
-  fi
-
+  
+  # If still not resolved, use the default
   if [ -z "$resolved" ]; then
-    resolved="${PROTON_VERSION:-$FALLBACK_PROTON_VERSION}"
-    if [ "$resolved" = "$FALLBACK_PROTON_VERSION" ]; then
-      log "Falling back to default Proton version: $resolved"
-    fi
+    resolved="$FALLBACK_PROTON_VERSION"
+    log "Using default Proton version: $resolved"
   fi
 
   PROTON_VERSION="$resolved"
