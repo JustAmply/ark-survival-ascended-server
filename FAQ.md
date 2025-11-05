@@ -70,6 +70,20 @@ free -h
 netstat -tlnp | grep :7777
 ```
 
+### **Q: Does this work on ARM64 / Oracle Cloud / Raspberry Pi?**
+
+**A:** Yes! ARM64 is fully supported via Box64/Box86 emulation:
+
+- **Oracle Cloud Free Tier**: Works great on Ampere A1 instances (4 OCPU, 24GB RAM)
+- **Raspberry Pi**: Requires Pi 4/5 with at least 16GB RAM (performance may vary)
+- **ARM Cloud Servers**: Any ARM64 Linux server with sufficient resources
+
+**Important notes:**
+- First startup takes ~15-20 minutes (Box64/Box86 setup and shader caching)
+- Performance is ~80-90% of equivalent x86_64 hardware
+- The image automatically detects ARM64 and configures Box64 for 64-bit binaries and Box86 for 32-bit utilities like SteamCMD
+- Box64/Box86 install automatically from the Pi-Apps-Coders apt repositories—no compilation required in your environment
+
 ### **Q: How do I completely reset my server?**
 
 **A:** ⚠️ **This deletes everything!**
@@ -142,17 +156,18 @@ docker exec asa-server-1 asa-ctrl rcon --exec 'kickplayer PlayerName'
 
 ### **Q: I can't use RCON commands**
 
-**A:** Make sure RCON is properly configured:
+**A:** RCON requires `ServerAdminPassword` to be set. Make sure your `ASA_START_PARAMS` includes:
 
-1. **Check your start params** include `?RCONEnabled=True` and `?RCONPort=27020`
-2. **Set admin password** in `GameUserSettings.ini`:
-   ```ini
-   [ServerSettings]
-   RCONEnabled=True
-   ServerAdminPassword=your_secret_password
-   RCONPort=27020
+1. **Ensure all required parameters** are in your `docker-compose.yml`:
+   ```yaml
+   - ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?ServerAdminPassword=ChangeMeASA! -WinLiveMaxPlayers=50
    ```
-3. **Restart server** after changes
+   
+2. **⚠️ ServerAdminPassword is required** - Without it, RCON won't work and the server can't save properly during shutdown
+
+3. **Restart server** after changes: `docker compose up -d`
+
+**Note**: While the password can also be set in `GameUserSettings.ini`, using `ASA_START_PARAMS` is strongly recommended for this Docker setup as it makes configuration management clearer and easier to maintain in one place.
 
 ### **Q: How do I enable debug mode?**
 

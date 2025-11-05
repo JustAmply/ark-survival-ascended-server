@@ -8,9 +8,12 @@ Your complete guide to getting an amazing ARK server up and running! This covers
 - **RAM**: ~13 GB per server (more = better performance!)
 - **Storage**: ~31 GB for server files + space for saves
 - **OS**: Any Linux with Docker support
-- **Tested on**: Ubuntu 24.04, Debian 12
+- **Architecture**: AMD64 (x86_64) or ARM64 (aarch64)
+- **Tested on**: Ubuntu 24.04, Debian 12, Oracle Cloud Ampere A1 (ARM64)
 
 **⚠️ Avoid Ubuntu 22.04** - Known issues cause high CPU usage and server startup failures.
+
+**💡 ARM64 Note**: First startup on ARM64 takes longer (~15-20 minutes) due to Box64/Box86 initialization and shader caching. Subsequent starts are faster.
 
 ### 🐳 Prerequisites
 - Docker and Docker Compose installed on your system
@@ -67,13 +70,14 @@ Edit your `docker-compose.yml` file to customize:
 
 ```yaml
 environment:
-  - ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50
+  - ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?ServerAdminPassword=ChangeMeASA! -WinLiveMaxPlayers=50
 ```
 
 **Popular Changes:**
 - **🗺️ Change map**: Replace `TheIsland_WP` with `ScorchedEarth_WP`, `TheCenter_WP`, `Aberration_WP`, `Extinction_WP`
 - **🔢 Change ports**: Modify `Port=7777` and `RCONPort=27020`
 - **👥 Player limit**: Adjust `-WinLiveMaxPlayers=50`
+- **🔐 RCON password**: Change `ServerAdminPassword=ChangeMeASA!` to your own secure password (required for RCON functionality and proper server shutdown with world saving)
 - **🕒 Timezone**: Set `TZ=Europe/Berlin` (or your region) so server logs follow your local time (default: `UTC`)
 
 ### 📂 File Locations
@@ -91,6 +95,29 @@ Forward these ports in your router:
 
 ### ☁️ Cloud Setup
 No port forwarding needed! Docker handles this automatically.
+
+### 🌩️ Oracle Cloud Free Tier (ARM64)
+
+Oracle Cloud offers generous free tier ARM instances that work great for ARK servers:
+
+**Instance Specs (Free Tier):**
+- Up to 4 ARM-based Ampere A1 OCPUs
+- Up to 24 GB RAM
+- 200 GB block storage
+
+**Setup Steps:**
+1. Create an Ampere A1 instance with Ubuntu 24.04 ARM64
+2. Allocate maximum free tier resources (4 OCPUs, 24GB RAM)
+3. Configure Security List/Network Security Group:
+   - Ingress rule: UDP port 7777 (game)
+   - Ingress rule: TCP port 27020 (RCON, optional)
+4. Install Docker and Docker Compose
+5. Follow the quick setup steps above
+
+**First Launch:**
+- Initial startup takes ~15-20 minutes on ARM64 (Box64/Box86 setup + game download)
+- Monitor progress: `docker logs -f asa-server-1`
+- Subsequent restarts are much faster (~5 minutes)
 
 ## 🎛️ Server Management
 
@@ -136,6 +163,12 @@ Add `-mods=12345,67891` to your `ASA_START_PARAMS` in `docker-compose.yml`.
 4. Restart server
 
 ### 🎯 RCON Commands
+
+**⚠️ Important**: RCON requires `ServerAdminPassword` to be set in your `ASA_START_PARAMS`. This password is needed for:
+- Manual server administration commands
+- Automatic world saving during server shutdown
+- Scheduled restart notifications
+
 ```bash
 # Save world
 docker exec asa-server-1 asa-ctrl rcon --exec 'saveworld'

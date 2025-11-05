@@ -27,7 +27,7 @@ ASA_COMPAT_DATA="$STEAM_COMPAT_DATA/2430930"
 STEAM_COMPAT_DIR="/home/gameserver/Steam/compatibilitytools.d"
 ASA_BINARY_NAME="ArkAscendedServer.exe"
 ASA_PLUGIN_BINARY_NAME="AsaApiLoader.exe"
-FALLBACK_PROTON_VERSION="8-21"
+FALLBACK_PROTON_VERSION="10-24"
 PID_FILE="/home/gameserver/.asa-server.pid"
 ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
 SHUTDOWN_IN_PROGRESS=0
@@ -37,6 +37,104 @@ SUPERVISOR_PID_FILE="/home/gameserver/.asa-supervisor.pid"
 RESTART_SCHEDULER_PID=""
 
 log() { echo "[asa-start] $*"; }
+
+#############################
+# Architecture Detection
+#############################
+detect_architecture() {
+  local arch
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64)
+      ARCH="amd64"
+      USE_BOX64=0
+      ;;
+    aarch64|arm64)
+      ARCH="arm64"
+      USE_BOX64=1
+      log "ARM64 architecture detected - using Box64 for x86_64 emulation"
+      ;;
+    *)
+      log "Warning: Unsupported architecture: $arch. Falling back to amd64 mode which may not work correctly on this platform."
+      ARCH="amd64"
+      USE_BOX64=0
+      ;;
+  esac
+  export ARCH USE_BOX64
+}
+
+configure_box64() {
+  if [ "$USE_BOX64" != "1" ]; then
+    return 0
+  fi
+
+  # Box64 environment configuration for optimal performance
+  export BOX64_NOBANNER=1
+  export BOX64_LOG=0
+  export BOX64_SHOWSEGV=0
+  export BOX64_DYNAREC_BIGBLOCK=3
+  export BOX64_DYNAREC_STRONGMEM=1
+  export BOX64_DYNAREC_FASTNAN=1
+  export BOX64_DYNAREC_FASTROUND=1
+  export BOX64_DYNAREC_SAFEFLAGS=0
+  export BOX64_DYNAREC_CALLRET=1
+  export BOX64_DYNAREC_X87DOUBLE=1
+
+  log "Box64 environment configured for performance"
+}
+
+configure_box86_runtime() {
+  if [ "$USE_BOX64" != "1" ]; then
+    return 0
+  fi
+
+  # Build the Box86 search paths dynamically so we only include
+  # directories that actually exist in the current container.
+  local -a ld_paths=(
+    "$STEAMCMD_DIR/linux32"
+    "/usr/lib/box86-i386-linux-gnu"
+    "/usr/lib/i386-linux-gnu"
+    "/lib/i386-linux-gnu"
+  )
+  local -a exec_paths=(
+    "$STEAMCMD_DIR"
+    "$STEAMCMD_DIR/linux32"
+    "/usr/lib/box86-i386-linux-gnu"
+  )
+
+  local -a filtered_ld_paths=()
+  local path
+  for path in "${ld_paths[@]}"; do
+    if [ -d "$path" ]; then
+      filtered_ld_paths+=("$path")
+    fi
+  done
+
+  if [ ${#filtered_ld_paths[@]} -gt 0 ]; then
+    local joined_ld_path
+    joined_ld_path=$(IFS=:; echo "${filtered_ld_paths[*]}")
+    export BOX86_LD_LIBRARY_PATH="$joined_ld_path"
+  fi
+
+  local -a filtered_exec_paths=()
+  for path in "${exec_paths[@]}"; do
+    if [ -d "$path" ]; then
+      filtered_exec_paths+=("$path")
+    fi
+  done
+
+  if [ ${#filtered_exec_paths[@]} -gt 0 ]; then
+    local joined_exec_path
+    joined_exec_path=$(IFS=:; echo "${filtered_exec_paths[*]}")
+    export BOX86_PATH="$joined_exec_path"
+  fi
+
+  if [ -n "${BOX86_LD_LIBRARY_PATH:-}" ]; then
+    log "Configured Box86 LD_LIBRARY_PATH=$BOX86_LD_LIBRARY_PATH"
+  else
+    log "Warning: No Box86 library paths detected; steamcmd may fail. Ensure Box86 is installed and library directories exist."
+  fi
+}
 
 register_supervisor_pid() {
   echo "$$" >"$SUPERVISOR_PID_FILE"
@@ -140,113 +238,84 @@ ensure_steamcmd() {
     mkdir -p "$STEAMCMD_DIR"
     (cd "$STEAMCMD_DIR" && wget -q https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz && tar xf steamcmd_linux.tar.gz)
   fi
+
+  configure_box86_runtime
 }
 
 update_server_files() {
   log "Updating / validating ASA server files..."
-  (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+  local -a steamcmd_cmd=("./steamcmd.sh")
+  local -a steamcmd_env=()
+
+  if [ "$USE_BOX64" = "1" ]; then
+    # steamcmd provides a 32-bit ELF which needs box86 rather than box64.
+    # Instead of executing the shell script via box86 (which triggers an ELF
+    # header error) we instruct the bootstrap script to launch the 32-bit
+    # binary through box86 by setting the DEBUGGER variable it honours.
+    if command -v box86 >/dev/null 2>&1; then
+      log "Routing steamcmd through box86 via DEBUGGER variable"
+      steamcmd_env+=("DEBUGGER=box86")
+    else
+      log "Warning: Box86 not found; attempting to use qemu-i386 for steamcmd."
+      if command -v qemu-i386 >/dev/null 2>&1; then
+        steamcmd_env+=("DEBUGGER=qemu-i386")
+      else
+        log "Error: No compatible x86 emulator available; aborting steamcmd update"
+        return 1
+      fi
+    fi
+  fi
+
+  (
+    cd "$STEAMCMD_DIR"
+    env "${steamcmd_env[@]}" \
+      "${steamcmd_cmd[@]}" \
+      +force_install_dir "$SERVER_FILES_DIR" \
+      +login anonymous \
+      +app_update 2430930 validate \
+      +quit
+  )
 }
 
 #############################
 # 4. Proton Handling
 #############################
-check_proton_release_assets() {
-  local version="$1"
-  if [ -z "$version" ]; then return 1; fi
-  local base="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton$version"
-  local archive_url="$base/GE-Proton$version.tar.gz"
-  local sum_url="$base/GE-Proton$version.sha512sum"
-  if wget --spider -q "$archive_url" 2>/dev/null && wget --spider -q "$sum_url" 2>/dev/null; then
-    return 0
-  fi
-  return 1
-}
-
-find_latest_release_with_assets() {
-  local skip_version="${1:-}"
-  local page json tags tag version
-  for page in 1 2 3; do
-    json=$(wget -qO- "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases?per_page=10&page=$page" 2>/dev/null || true)
-    if [ -z "$json" ]; then
-      continue
-    fi
-    if command -v jq >/dev/null 2>&1; then
-      tags=$(printf '%s' "$json" | jq -r '.[].tag_name' 2>/dev/null || true)
-    else
-      tags=$(printf '%s' "$json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(GE-Proton[^"]*\)".*/\1/p')
-    fi
-    for tag in $tags; do
-      version=${tag#GE-Proton}
-      if [ -z "$version" ] || ! printf '%s' "$version" | grep -Eq '^[0-9][0-9A-Za-z._-]*$'; then
-        continue
-      fi
-      if [ -n "$skip_version" ] && [ "$version" = "$skip_version" ]; then
-        continue
-      fi
-      if check_proton_release_assets "$version"; then
-        printf '%s' "$version"
-        return 0
-      fi
-    done
-  done
-  return 1
-}
-
 resolve_proton_version() {
-  local detected=""
-  if [ -z "${PROTON_VERSION:-}" ]; then
-    log "Detecting latest Proton GE version..."
+  local resolved=""
+  
+  # If PROTON_VERSION is set to "latest", fetch from GitHub API
+  if [ "${PROTON_VERSION:-}" = "latest" ]; then
+    log "Detecting latest Proton GE version from GitHub..."
     if json=$(wget -qO- https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest 2>/dev/null || true); then
-      # Try jq first if present (most reliable)
       if command -v jq >/dev/null 2>&1; then
         ver=$(printf '%s' "$json" | jq -r '.tag_name' 2>/dev/null || true)
       else
-        # Fallback to sed extraction of tag_name value
         ver=$(printf '%s' "$json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(GE-Proton[^"]*\)".*/\1/p' | head -n1 || true)
       fi
-      # Sanitize / normalize: strip optional leading GE-Proton
       if [ -n "${ver:-}" ]; then
         ver=${ver#GE-Proton}
-        # Basic validation: must start with a digit and contain only allowed chars (digits, dots, dashes)
         if printf '%s' "$ver" | grep -Eq '^[0-9][0-9A-Za-z._-]*$'; then
-          detected="$ver"
-          log "Using detected GE-Proton version: $detected"
+          resolved="$ver"
+          log "Using latest GE-Proton version: $resolved"
         else
-          log "Detected tag_name malformed ('$ver'); ignoring"
+          log "Detected tag_name malformed ('$ver'); falling back to default"
         fi
       else
-        log "Failed to parse latest release tag_name"
+        log "Failed to parse latest release tag_name; falling back to default"
       fi
     else
-      log "Could not query GitHub API for Proton releases"
+      log "Could not query GitHub API for Proton releases; falling back to default"
     fi
-  else
-    detected="$PROTON_VERSION"
+  # If PROTON_VERSION is set to a specific value, use it
+  elif [ -n "${PROTON_VERSION:-}" ]; then
+    resolved="$PROTON_VERSION"
+    log "Using specified Proton version: $resolved"
   fi
-
-  local resolved="${PROTON_VERSION:-}"
-  if [ -z "$resolved" ] && [ -n "$detected" ]; then
-    if check_proton_release_assets "$detected"; then
-      resolved="$detected"
-    else
-      log "Latest GE-Proton release GE-Proton$detected missing assets; searching previous releases..."
-    fi
-  fi
-
-  if [ -z "$resolved" ] && [ -z "${PROTON_VERSION:-}" ]; then
-    if fallback_ver=$(find_latest_release_with_assets "$detected"); then
-      resolved="$fallback_ver"
-      log "Using fallback GE-Proton release: $resolved"
-    else
-      log "No suitable Proton release with assets found via GitHub API"
-    fi
-  fi
-
+  
+  # If still not resolved, use the default
   if [ -z "$resolved" ]; then
-    resolved="${PROTON_VERSION:-$FALLBACK_PROTON_VERSION}"
-    if [ "$resolved" = "$FALLBACK_PROTON_VERSION" ]; then
-      log "Falling back to default Proton version: $resolved"
-    fi
+    resolved="$FALLBACK_PROTON_VERSION"
+    log "Using default Proton version: $resolved"
   fi
 
   PROTON_VERSION="$resolved"
@@ -281,11 +350,60 @@ install_proton_if_needed() {
 }
 
 ensure_proton_compat_data() {
-  if [ ! -d "$ASA_COMPAT_DATA" ]; then
-    log "Setting up Proton compat data..."
-    mkdir -p "$STEAM_COMPAT_DATA"
-    cp -r "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx" "$ASA_COMPAT_DATA"
+  local prefix_dir="$ASA_COMPAT_DATA"
+  local default_prefix="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx"
+  local prefix_version_file="$prefix_dir/version"
+  local default_version_file="$default_prefix/version"
+  local expected_version=""
+  local current_version=""
+  local preserve_prefix="${ASA_PRESERVE_PREFIX:-0}"
+
+  if [ -f "$default_version_file" ]; then
+    expected_version="$(head -n1 "$default_version_file" 2>/dev/null | tr -d '\r')"
   fi
+  if [ -z "$expected_version" ]; then
+    expected_version="$PROTON_DIR_NAME"
+  fi
+
+  if [ -f "$prefix_version_file" ]; then
+    current_version="$(head -n1 "$prefix_version_file" 2>/dev/null | tr -d '\r')"
+  fi
+
+  if [ -d "$prefix_dir" ]; then
+    if [ -z "$current_version" ] || [ "$current_version" != "$expected_version" ]; then
+      log "Detected Proton prefix version mismatch (have: '${current_version:-unknown}', expected: '$expected_version')."
+      if [ "$preserve_prefix" = "1" ]; then
+        log "ASA_PRESERVE_PREFIX=1 set; preserving existing prefix despite mismatch."
+        return 0
+      fi
+
+      local backup_dir="${prefix_dir}.bak.$(date +%Y%m%d%H%M%S)"
+      if mv "$prefix_dir" "$backup_dir" 2>/dev/null; then
+        log "Backed up mismatched prefix to $backup_dir"
+      else
+        log "Failed to back up mismatched prefix; purging $prefix_dir"
+        rm -rf "$prefix_dir"
+      fi
+    fi
+  fi
+
+  if [ ! -d "$prefix_dir" ]; then
+    log "Setting up Proton compat data from $default_prefix"
+    mkdir -p "$STEAM_COMPAT_DATA"
+    if [ ! -d "$default_prefix" ]; then
+      log "Error: Default Proton prefix not found at $default_prefix"
+      return 1
+    fi
+    # Use 'cp -a' to preserve symlinks, permissions, and timestamps when copying the Proton prefix.
+    # This is important for correct operation; Ubuntu 24.04 base image (both amd64 and arm64) guarantees support for '-a'.
+    if ! cp -a "$default_prefix" "$prefix_dir"; then
+      log "Error: Failed to copy default Proton prefix to $prefix_dir"
+      rm -rf "$prefix_dir"
+      return 1
+    fi
+  fi
+
+  return 0
 }
 
 #############################
@@ -362,23 +480,117 @@ start_log_streamer() {
 }
 
 #############################
+# 8b. Machine ID Preparation
+#############################
+ensure_machine_id() {
+  local target="/etc/machine-id"
+
+  if [ -s "$target" ]; then
+    return 0
+  fi
+
+  log "machine-id missing - attempting to create $target"
+
+  if [ "$(id -u)" != "0" ]; then
+    log "Warning: Unable to create $target without root privileges"
+    return 1
+  fi
+
+  local source="/var/lib/dbus/machine-id"
+  if [ -r "$source" ] && [ -s "$source" ]; then
+    if cp "$source" "$target" 2>/dev/null; then
+      log "Copied machine-id from $source"
+      return 0
+    fi
+  fi
+
+  if command -v dbus-uuidgen >/dev/null 2>&1; then
+    if dbus-uuidgen --ensure="$target" >/dev/null 2>&1; then
+      log "Generated machine-id via dbus-uuidgen"
+      return 0
+    fi
+  fi
+
+  local new_id=""
+  if command -v uuidgen >/dev/null 2>&1; then
+    new_id=$(uuidgen 2>/dev/null || true)
+  elif [ -r /proc/sys/kernel/random/uuid ]; then
+    new_id=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || true)
+  fi
+
+  if [ -n "$new_id" ]; then
+    # machine-id format requires 32 hex digits without hyphens
+    new_id=${new_id//-/}
+    if printf '%s\n' "$new_id" >"$target" 2>/dev/null; then
+      log "Generated machine-id from random UUID fallback"
+      return 0
+    fi
+  fi
+
+  log "Warning: Unable to create $target - Proton may fail to start"
+  return 1
+}
+
+#############################
 # 9. Launch Server
 #############################
 launch_server() {
   log "Starting ASA dedicated server..."
   log "Start parameters: $ASA_START_PARAMS"
   cd "$ASA_BINARY_DIR"
-  local runner
-  if command -v stdbuf >/dev/null 2>&1; then
-    runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
-  else
-    runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+  local -a runner
+  local proton_path="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton"
+
+  # Detect whether the Proton launcher is an ELF binary or a text script
+  # without relying on external tools like 'file' (not installed in image).
+  local proton_is_text_script=1
+  if [ -f "$proton_path" ]; then
+    # Read first 4 bytes and compare to ELF magic 0x7F 45 4C 46
+    # Assumes 'od' is present (provided by coreutils in Ubuntu 24.04 base image).
+    local magic
+    magic=$(od -An -tx1 -N4 "$proton_path" 2>/dev/null | tr -d ' \n' || true)
+    # ELF magic: 0x7F 'E' 'L' 'F'
+    if [ "$magic" = "7f454c46" ]; then
+      proton_is_text_script=0
+    fi
   fi
+
+  if [ "$USE_BOX64" = "1" ]; then
+    export PROTON_USE_WINED3D=0
+    # Box64 already normalizes stdout/stderr buffering; piping through stdbuf can
+    # introduce hangs or dropped output, so we skip stdbuf for emulated runs.
+    if [ "$proton_is_text_script" = "1" ]; then
+      log "Detected Proton launcher script - executing via python3 to avoid Box64 ELF header conflicts."
+      runner=(python3 "$proton_path" run "$LAUNCH_BINARY_NAME")
+    else
+      # ARM64 fallback: Use Box64 to run Proton binary directly
+      runner=(box64 "$proton_path" run "$LAUNCH_BINARY_NAME")
+    fi
+  else
+    # AMD64: Direct execution
+    if command -v stdbuf >/dev/null 2>&1; then
+      runner=(stdbuf -oL -eL "$proton_path" run "$LAUNCH_BINARY_NAME")
+    else
+      runner=("$proton_path" run "$LAUNCH_BINARY_NAME")
+    fi
+  fi
+
   "${runner[@]}" $ASA_START_PARAMS &
   SERVER_PID=$!
   echo "$SERVER_PID" > "$PID_FILE"
+
+  # ``set -e`` would cause the supervisor shell to exit immediately if the
+  # server terminates with a non-zero status (for example 128+SIGTERM when we
+  # trigger a scheduled restart).  That behaviour is architecture dependent –
+  # under ARM/Box64 the exit status propagates directly and the supervisor
+  # exits before it can relaunch the server. On AMD64, this issue does not occur
+  # because the Proton wrapper (or native shell) absorbs the signal or handles the
+  # exit status differently, allowing the supervision loop to continue as intended.
+  # Temporarily disable ``-e`` so we can capture the status and continue the supervision loop.
+  set +e
   wait "$SERVER_PID"
   local exit_code=$?
+  set -e
   log "Server process exited with code $exit_code"
   return $exit_code
 }
@@ -492,8 +704,11 @@ supervisor_loop() {
   restart_delay="${SERVER_RESTART_DELAY:-15}"
 
   while true; do
-    run_server
-    exit_code=$?
+    if run_server; then
+      exit_code=0
+    else
+      exit_code=$?
+    fi
 
     if [ "${SUPERVISOR_EXIT_REQUESTED:-0}" = "1" ]; then
       log "Supervisor exit requested - stopping with code $exit_code"
@@ -523,14 +738,22 @@ run_server() {
   update_server_files
   resolve_proton_version
   install_proton_if_needed
-  ensure_proton_compat_data
+  ensure_proton_compat_data || return 1
+  if [ ! -d "$ASA_COMPAT_DATA" ]; then
+    log "Error: Proton compat data missing at $ASA_COMPAT_DATA"
+    return 1
+  fi
   inject_mods_param
   prepare_runtime_env
   handle_plugin_loader
   start_log_streamer
 
-  launch_server
-  local exit_code=$?
+  local exit_code
+  if launch_server; then
+    exit_code=0
+  else
+    exit_code=$?
+  fi
   rm -f "$PID_FILE" || true
   SERVER_PID=""
   return $exit_code
@@ -539,9 +762,12 @@ run_server() {
 #############################
 # Main Flow
 #############################
+detect_architecture
+configure_box64
 if [ "$(id -u)" = "0" ]; then
   configure_timezone
 fi
+ensure_machine_id || true
 maybe_debug
 ensure_permissions
 register_supervisor_pid
