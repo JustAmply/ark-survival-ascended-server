@@ -425,16 +425,22 @@ ensure_wine_real_binaries() {
     return 0
   fi
 
-  local name src dst had_real
+  local name src dst
   for name in wine wine64 wine-preloader wine64-preloader; do
     src="$bin_dir/$name"
     dst="$src.real"
 
-    # Skip if wrapper already exists (checking for our generated Box64 wrapper)
+    # Check if wrapper already exists and is valid
     if [ -f "$src" ] && grep -q 'exec box64 "\$REAL" "\$@"' "$src" 2>/dev/null; then
-      if [ ! -x "$dst" ]; then
-        log "Warning: Wrapper for $name detected but missing $(basename "$dst"); rebuilding"
+      # Wrapper exists - check if .real is present and executable
+      if [ -x "$dst" ]; then
+        # Both wrapper and .real exist and are valid - skip
+        continue
       else
+        # Wrapper exists but .real is missing or not executable
+        # Cannot rebuild without the original binary - must skip
+        log "Error: Wrapper for $name exists but $(basename "$dst") is missing or not executable"
+        log "Cannot rebuild wrapper without original binary. Proton installation may need to be re-downloaded."
         continue
       fi
     fi
@@ -444,18 +450,15 @@ ensure_wine_real_binaries() {
       continue
     fi
 
-    # Move/refresh the original binary to .real to ensure wrappers use the latest Proton binaries
-    had_real=0
+    # Move the original binary to .real (only happens if src is NOT already a wrapper)
     if [ -e "$dst" ]; then
-      had_real=1
+      # .real already exists - this shouldn't happen if we got here, but handle it
+      # Remove the old .real and move the current binary
+      rm -f "$dst" 2>/dev/null || true
     fi
 
-    if mv -f "$src" "$dst"; then
-      if [ "$had_real" -eq 1 ]; then
-        log "Refreshed Proton binary companion $(basename "$dst")"
-      else
-        log "Moved original Proton binary to $(basename "$dst")"
-      fi
+    if mv "$src" "$dst"; then
+      log "Moved original Proton binary to $(basename "$dst")"
     else
       log "Warning: Failed to move $name to .real; skipping wrapper creation"
       continue
