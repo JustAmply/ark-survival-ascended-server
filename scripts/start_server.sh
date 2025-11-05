@@ -81,44 +81,66 @@ configure_box64() {
   export BOX64_DYNAREC_X87DOUBLE=1
 
   log "Box64 environment configured for performance"
+}
 
-  # Ensure the kernel routes x86_64 ELF launches through box64.  Proton's
-  # launcher script eventually invokes Wine binaries directly; without a
-  # registered binfmt handler the kernel reports an Exec format error when
-  # running on ARM64.
-  if command -v box64 >/dev/null 2>&1; then
-    local binfmt_dir="/proc/sys/fs/binfmt_misc"
-    local binfmt_entry="$binfmt_dir/box64"
+ensure_box64_proton_wrappers() {
+  if [ "$USE_BOX64" != "1" ]; then
+    return 0
+  fi
 
-    if [ -d "$binfmt_dir" ] && [ ! -e "$binfmt_dir/register" ] && [ "$(id -u)" = "0" ]; then
-      if mount -t binfmt_misc binfmt_misc "$binfmt_dir" 2>/dev/null; then
-        log "Mounted binfmt_misc for box64 registration"
-      else
-        log "Warning: Failed to mount binfmt_misc; box64 registration may not be possible."
-      fi
+  if [ -z "${PROTON_DIR_NAME:-}" ]; then
+    return 0
+  fi
+
+  if ! command -v box64 >/dev/null 2>&1; then
+    log "Warning: box64 executable not found; Proton Wine binaries cannot run on ARM64."
+    return 0
+  fi
+
+  local proton_bin_dir="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/bin"
+  if [ ! -d "$proton_bin_dir" ]; then
+    log "Warning: Proton bin directory $proton_bin_dir not found; skipping box64 wrapper setup."
+    return 0
+  fi
+
+  local marker="# asa-start box64 wrapper"
+  local updated=0
+  local binary path real
+
+  for binary in wine64 wineserver; do
+    path="$proton_bin_dir/$binary"
+    if [ ! -e "$path" ]; then
+      continue
     fi
 
-    if [ -d "$binfmt_dir" ] && [ ! -e "$binfmt_entry" ]; then
-      if [ "$(id -u)" = "0" ]; then
-        if box64 --install >/dev/null 2>&1; then
-          log "Registered box64 binfmt handler for x86_64 executables"
-        else
-          log "Warning: Failed to register box64 binfmt handler; x86_64 binaries may not launch correctly."
-        fi
-      else
-        log "Warning: box64 binfmt handler not present and insufficient privileges to install it."
-      fi
-    elif [ -e "$binfmt_entry" ]; then
-      if ! grep -q '^enabled' "$binfmt_entry" 2>/dev/null && [ "$(id -u)" = "0" ]; then
-        if printf '1\n' >"$binfmt_entry" 2>/dev/null; then
-          log "Re-enabled existing box64 binfmt handler"
-        else
-          log "Warning: Unable to re-enable box64 binfmt handler; x86_64 binaries may fail to start."
-        fi
-      fi
+    if head -n1 "$path" 2>/dev/null | grep -Fq "$marker"; then
+      continue
     fi
-  else
-    log "Warning: box64 executable not found; x86_64 emulation will fail on ARM64."
+
+    real="$path.real"
+    if [ -e "$real" ]; then
+      rm -f "$real"
+    fi
+
+    if ! mv "$path" "$real" 2>/dev/null; then
+      log "Warning: Unable to prepare box64 wrapper for $path"
+      continue
+    fi
+
+    cat >"$path" <<EOF
+#!/bin/bash
+$marker
+dir="\$(cd "\$(dirname -- "\${BASH_SOURCE[0]}")" && pwd)"
+exec box64 "\$dir/${binary}.real" "\$@"
+EOF
+    if ! chmod --reference="$real" "$path" 2>/dev/null; then
+      chmod 755 "$path"
+    fi
+    updated=1
+  done
+
+  if [ "$updated" = "1" ]; then
+    log "Ensured Proton Wine binaries launch through box64 wrappers"
   fi
 }
 
@@ -655,6 +677,8 @@ launch_server() {
     fi
   fi
 
+  ensure_box64_proton_wrappers
+
   if [ "$USE_BOX64" = "1" ]; then
     export PROTON_USE_WINED3D=0
     # Box64 already normalizes stdout/stderr buffering; piping through stdbuf can
@@ -697,7 +721,7 @@ launch_server() {
         log "Detected Proton launcher script - executing via box64-wrapped Proton python interpreter ($proton_python)."
         runner=(box64 "$proton_python" "$proton_path" run "$LAUNCH_BINARY_NAME")
       else
-        log "Detected Proton launcher script - Proton python interpreter unavailable; falling back to native python3."
+        log "Detected Proton launcher script - Proton python interpreter unavailable; falling back to native python3 with box64 Wine wrappers."
         runner=(python3 "$proton_path" run "$LAUNCH_BINARY_NAME")
       fi
     else
