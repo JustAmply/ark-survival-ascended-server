@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.4
+# syntax=docker/dockerfile:1.7
 ARG PYTHON_IMAGE=python:3.12-slim
 
 FROM ${PYTHON_IMAGE} AS base
@@ -21,17 +21,18 @@ ENV TZ=UTC
 ARG DEBIAN_FRONTEND=noninteractive
 
 # Install base packages (common to all architectures)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    locales \
-    tzdata \
-    wget \
-    curl \
-    ca-certificates \
-    unzip \
-    libfreetype6 \
-    && rm -rf /var/lib/apt/lists/* && \
-    echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen && \
-    locale-gen
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+        locales \
+        tzdata \
+        wget \
+        curl \
+        ca-certificates \
+        unzip \
+        libfreetype6 \
+    && echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen \
+    && locale-gen
 
 # Set locale-related environment variables early (inherit to runtime)
 ENV LANG=en_US.UTF-8 \
@@ -90,7 +91,9 @@ FROM base
 ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
 
-RUN set -eux; \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    set -eux; \
     # Ensure required runtime libraries (font rendering and crypto primitives)
     # are present for all supported architectures so Proton / Steam components
     # can launch under emulation.
@@ -159,5 +162,4 @@ RUN set -eux; \
             exit 1; \
             ;; \
     esac; \
-    rm -rf /var/lib/apt/lists/*; \
     ldconfig
