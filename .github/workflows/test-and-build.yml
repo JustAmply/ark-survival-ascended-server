@@ -5,18 +5,52 @@ on:
     branches:
       - main
     tags:
-      - 'v*'
-      - '[0-9]+.*'
+      - "v*"
+      - "[0-9]+.*"
   pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
-  test-and-build:
-    name: Run tests and build Docker image
+  tests:
+    name: Run unit tests
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            pyproject.toml
+            requirements*.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest .
+
+      - name: Run tests
+        if: ${{ hashFiles('tests/**/*.py') != '' }}
+        run: |
+          pytest -q
+
+  build:
+    name: Build and publish Docker image
+    needs: tests
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    permissions:
+      contents: read
+      packages: write
     env:
       REGISTRY: ghcr.io
       IMAGE_BASENAME: ${{ github.repository_owner }}/asa-linux-server
@@ -30,30 +64,14 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: pyproject.toml
+          python-version: "3.12"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pytest
-          pip install .
-
-      - name: Run tests
-        if: ${{ hashFiles('tests/**/*.py') != '' }}
-        run: |
-          pytest -q
-
-      - name: Extract version from pyproject.toml
+      - name: Compute build metadata
         id: version
         run: |
-          VERSION=$(python3 -c "
-          import tomllib
-          with open('pyproject.toml', 'rb') as f:
-              data = tomllib.load(f)
-          print(data['project']['version'])
-          ")
+          VERSION=$(python3 -c "import tomllib, pathlib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             PR_NUMBER="${{ github.event.pull_request.number }}"
@@ -67,27 +85,35 @@ jobs:
             FINAL_VERSION="${VERSION}"
           fi
 
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "build_date=${BUILD_DATE}" >> "$GITHUB_OUTPUT"
           echo "version=${FINAL_VERSION}" >> $GITHUB_OUTPUT
           echo "Determined version: ${FINAL_VERSION}"
+
+      - name: Determine build platforms
+        id: platforms
+        run: |
+          echo "value=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
 
       - name: Generate image metadata
         id: metadata
         run: |
           IMAGE_BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
           VERSION="${{ steps.version.outputs.version }}"
+          SHORT_SHA="${{ steps.version.outputs.short_sha }}"
 
           TAGS="${IMAGE_BASE}:${VERSION}"
 
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             PR_NUMBER="${{ github.event.pull_request.number }}"
-            PR_SHA="${{ github.event.pull_request.head.sha }}"
-            PR_SHA_SHORT="${PR_SHA:0:7}"
+            PR_SHA_SHORT="${SHORT_SHA}"
             TAGS="${TAGS}"$'\n'"${IMAGE_BASE}:pr-${PR_NUMBER}"
             TAGS="${TAGS}"$'\n'"${IMAGE_BASE}:pr-${PR_NUMBER}-${PR_SHA_SHORT}"
           elif [[ "${{ github.ref_name }}" == "main" ]]; then
             TAGS="${TAGS}"$'\n'"${IMAGE_BASE}:latest"
           fi
 
+          echo "cache_ref=${IMAGE_BASE}:buildcache" >> "$GITHUB_OUTPUT"
           {
             echo "tags<<__EOF__"
             echo "${TAGS}"
@@ -96,7 +122,7 @@ jobs:
           echo "Generated tags: ${TAGS//$'\n'/, }"
 
       - name: Log in to GHCR
-        if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
+        # Authenticate before build so registry-backed caches can be pulled even when pushes are skipped
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -107,18 +133,44 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Set up QEMU
+        if: contains(steps.platforms.outputs.value, 'arm64')
         uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Warm base images
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+        run: |
+          while IFS=',' read -ra TARGETS; do
+            for PLATFORM in "${TARGETS[@]}"; do
+              docker pull --platform="${PLATFORM}" python:3.12-slim
+            done
+          done <<< "${{ steps.platforms.outputs.value }}"
+
+      - name: Determine provenance mode
+        id: provenance
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref_type }}" == "tag" || "${{ github.ref_name }}" == "main" ]]; then
+            echo "value=mode=max" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
+          platforms: ${{ steps.platforms.outputs.value }}
+          push: true
           tags: ${{ steps.metadata.outputs.tags }}
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
             GIT_COMMIT=${{ github.sha }}
-            BUILD_DATE=${{ github.run_id }}
-          cache-from: type=gha,scope=asa-docker
-          cache-to: type=gha,mode=max,scope=asa-docker
+            BUILD_DATE=${{ steps.version.outputs.build_date }}
+          cache-from: |
+            type=registry,ref=${{ steps.metadata.outputs.cache_ref }}
+          cache-to: |
+            type=registry,ref=${{ steps.metadata.outputs.cache_ref }},mode=max,ignore-error=true
+          provenance: ${{ steps.provenance.outputs.value }}
