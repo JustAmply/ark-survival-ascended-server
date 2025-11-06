@@ -49,13 +49,7 @@ jobs:
       - name: Compute build metadata
         id: version
         run: |
-          VERSION=$(python3 - <<'PY'
-            import tomllib
-            with open('pyproject.toml', 'rb') as f:
-                data = tomllib.load(f)
-            print(data['project']['version'])
-            PY
-            )
+          VERSION=$(python3 -c "import tomllib, pathlib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           SHORT_SHA="${GITHUB_SHA:0:7}"
           BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
