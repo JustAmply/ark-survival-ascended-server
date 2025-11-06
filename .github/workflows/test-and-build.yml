@@ -9,20 +9,17 @@ on:
       - "[0-9]+.*"
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
-  packages: write
 
 jobs:
-  test-and-build:
-    name: Run tests and build Docker image
+  tests:
+    name: Run unit tests
     runs-on: ubuntu-latest
-    env:
-      REGISTRY: ghcr.io
-      IMAGE_BASENAME: ${{ github.repository_owner }}/asa-linux-server
-    outputs:
-      image-tags: ${{ steps.metadata.outputs.tags }}
-      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -45,6 +42,28 @@ jobs:
         if: ${{ hashFiles('tests/**/*.py') != '' }}
         run: |
           pytest -q
+
+  build:
+    name: Build and publish Docker image
+    needs: tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_BASENAME: ${{ github.repository_owner }}/asa-linux-server
+    outputs:
+      image-tags: ${{ steps.metadata.outputs.tags }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
 
       - name: Compute build metadata
         id: version
@@ -69,6 +88,11 @@ jobs:
           echo "build_date=${BUILD_DATE}" >> "$GITHUB_OUTPUT"
           echo "version=${FINAL_VERSION}" >> $GITHUB_OUTPUT
           echo "Determined version: ${FINAL_VERSION}"
+
+      - name: Determine build platforms
+        id: platforms
+        run: |
+          echo "value=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
 
       - name: Generate image metadata
         id: metadata
@@ -108,14 +132,18 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Set up QEMU
+        if: contains(steps.platforms.outputs.value, 'arm64')
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
       - name: Warm base images
         run: |
-          docker pull --platform=linux/amd64 python:3.12-slim
-          docker pull --platform=linux/arm64 python:3.12-slim
+          while IFS=',' read -ra TARGETS; do
+            for PLATFORM in "${TARGETS[@]}"; do
+              docker pull --platform="${PLATFORM}" python:3.12-slim
+            done
+          done <<< "${{ steps.platforms.outputs.value }}"
 
       - name: Determine provenance mode
         id: provenance
@@ -132,7 +160,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ steps.platforms.outputs.value }}
           push: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
           tags: ${{ steps.metadata.outputs.tags }}
           build-args: |
