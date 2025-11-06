@@ -114,6 +114,18 @@ case "${TARGETARCH}" in
             libgcrypt20
         ;;
     arm64)
+        cat <<'SH' >/usr/bin/systemctl
+#!/bin/sh
+if [ "$1" = "restart" ] && [ "$2" = "systemd-binfmt" ]; then
+    if command -v update-binfmts >/dev/null 2>&1; then
+        update-binfmts --import || true
+    fi
+    exit 0
+fi
+printf 'systemctl shim ignored: %s\n' "$*" >&2
+exit 0
+SH
+        chmod +x /usr/bin/systemctl
         dpkg --add-architecture armhf
         dpkg --add-architecture i386
         dpkg --add-architecture amd64
@@ -134,6 +146,7 @@ case "${TARGETARCH}" in
             > /etc/apt/sources.list.d/box86.sources
         apt-get update
         apt-get install -y --no-install-recommends \
+            binfmt-support \
             libc6:armhf \
             libstdc++6:armhf \
             libgcc-s1:armhf \
@@ -162,6 +175,10 @@ case "${TARGETARCH}" in
             libgcrypt20:arm64 \
             box64-generic-arm \
             box86-generic-arm:armhf
+        update-binfmts --import || true
+        update-binfmts --display box64 || true
+        update-binfmts --display box86 || true
+        rm -f /usr/bin/systemctl
         ;;
     *)
         echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2
