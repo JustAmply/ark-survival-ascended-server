@@ -94,6 +94,7 @@ jobs:
             TAGS="${TAGS}"$'\n'"${IMAGE_BASE}:latest"
           fi
 
+          echo "cache_ref=${IMAGE_BASE}:buildcache" >> "$GITHUB_OUTPUT"
           {
             echo "tags<<__EOF__"
             echo "${TAGS}"
@@ -122,6 +123,17 @@ jobs:
           docker pull --platform=linux/amd64 python:3.12-slim
           docker pull --platform=linux/arm64 python:3.12-slim
 
+      - name: Determine provenance mode
+        id: provenance
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref_type }}" == "tag" || "${{ github.ref_name }}" == "main" ]]; then
+            echo "value=mode=max" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -135,8 +147,8 @@ jobs:
             BUILD_DATE=${{ steps.version.outputs.build_date }}
           cache-from: |
             type=gha,scope=asa-docker
-            type=registry,ref=${{ env.REGISTRY }}/${{ toLower(github.repository_owner) }}/asa-linux-server:buildcache
+            type=registry,ref=${{ steps.metadata.outputs.cache_ref }}
           cache-to: |
             type=gha,mode=max,scope=asa-docker
-            type=registry,ref=${{ env.REGISTRY }}/${{ toLower(github.repository_owner) }}/asa-linux-server:buildcache,mode=max,ignore-error=true
-          provenance: ${{ github.event_name == 'pull_request' && 'false' || (github.ref_type == 'tag' || github.ref_name == 'main') && 'mode=max' || 'false' }}
+            type=registry,ref=${{ steps.metadata.outputs.cache_ref }},mode=max,ignore-error=true
+          provenance: ${{ steps.provenance.outputs.value }}
