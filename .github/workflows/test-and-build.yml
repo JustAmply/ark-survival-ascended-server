@@ -134,6 +134,7 @@ jobs:
           platforms: arm64
 
       - name: Warm base images
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         run: |
           while IFS=',' read -ra TARGETS; do
             for PLATFORM in "${TARGETS[@]}"; do
