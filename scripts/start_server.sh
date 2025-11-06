@@ -461,7 +461,8 @@ wrap_proton_binaries_for_box64() {
     cat >"$path" <<'EOF'
 #!/bin/bash
 set -e
-real_binary="$(dirname "$0")/$(basename "$0").box64"
+wrapper_path="$(readlink -f "$0")"
+real_binary="$(dirname "$wrapper_path")/$(basename "$wrapper_path").box64"
 exec /usr/bin/env box64 "$real_binary" "$@"
 EOF
     chmod +x "$path"
