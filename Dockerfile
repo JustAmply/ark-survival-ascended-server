@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.7
 ARG PYTHON_IMAGE=python:3.12-slim
 
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
 FROM ${PYTHON_IMAGE} AS base
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Build arguments for metadata
 ARG VERSION="unknown"
@@ -95,6 +95,8 @@ WORKDIR /home/gameserver
 ENTRYPOINT ["/usr/bin/start_server.sh"]
 
 FROM base
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
 
