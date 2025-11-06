@@ -406,6 +406,71 @@ ensure_proton_compat_data() {
   return 0
 }
 
+wrap_proton_binaries_for_box64() {
+  if [ "$USE_BOX64" != "1" ]; then
+    return 0
+  fi
+
+  local proton_bin_dir="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/bin"
+  local marker="$proton_bin_dir/.box64_wrapped"
+
+  if [ ! -d "$proton_bin_dir" ]; then
+    log "Warning: Proton bin directory '$proton_bin_dir' missing; cannot configure Box64 wrappers."
+    return 0
+  fi
+
+  if [ -f "$marker" ]; then
+    return 0
+  fi
+
+  if ! command -v box64 >/dev/null 2>&1; then
+    log "Warning: box64 executable not found; Proton binaries will be launched without emulation wrapper."
+    return 0
+  fi
+
+  log "Configuring Proton binaries to launch through box64"
+
+  local target path real_path
+  local -a targets=(
+    "wine64"
+    "wine"
+    "wineserver"
+    "wineboot"
+    "winecfg"
+    "winemenubuilder"
+    "start.exe"
+  )
+
+  for target in "${targets[@]}"; do
+    path="$proton_bin_dir/$target"
+
+    if [ ! -f "$path" ] || [ -L "$path" ]; then
+      continue
+    fi
+
+    real_path="${path}.box64"
+    if [ -f "$real_path" ]; then
+      continue
+    fi
+
+    if ! mv "$path" "$real_path"; then
+      log "Warning: Unable to wrap $path for box64 execution"
+      continue
+    fi
+
+    cat >"$path" <<'EOF'
+#!/bin/bash
+set -e
+wrapper_path="$(readlink -f "$0")"
+real_binary="$(dirname "$wrapper_path")/$(basename "$wrapper_path").box64"
+exec /usr/bin/env box64 "$real_binary" "$@"
+EOF
+    chmod +x "$path"
+  done
+
+  : >"$marker"
+}
+
 #############################
 # 5. Mods parameter
 #############################
@@ -739,6 +804,7 @@ run_server() {
   resolve_proton_version
   install_proton_if_needed
   ensure_proton_compat_data || return 1
+  wrap_proton_binaries_for_box64
   if [ ! -d "$ASA_COMPAT_DATA" ]; then
     log "Error: Proton compat data missing at $ASA_COMPAT_DATA"
     return 1
