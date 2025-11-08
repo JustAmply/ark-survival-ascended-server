@@ -36,7 +36,8 @@ apt-get install -y --no-install-recommends \
     unzip \
     libfreetype6 \
     libgnutls30 \
-    gnutls-bin
+    gnutls-bin \
+    binutils
 echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen
 locale-gen
 apt-get clean
@@ -95,6 +96,63 @@ WORKDIR /home/gameserver
 
 # Entry point
 ENTRYPOINT ["/usr/bin/start_server.sh"]
+
+FROM debian:bookworm AS proton-compat-libs
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked <<'BASH'
+set -eux
+apt-get update
+apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    dpkg-dev \
+    xz-utils \
+    binutils
+dpkg --add-architecture i386
+apt-get update
+
+cat <<'EOF' >/tmp/pkg-versions
+libgnutls30 3.7.9-2+deb12u5
+libidn2-0 2.3.3-1
+libtasn1-6 4.19.0-2+deb12u1
+libnettle8 3.8.1-2
+libhogweed6 3.8.1-2
+libgmp10 2:6.2.1+dfsg1-1.1
+libp11-kit0 0.24.1-2
+libunistring2 1.0-2
+zlib1g 1:1.2.13.dfsg-1
+EOF
+
+mkdir -p /opt/compat/x86_64-linux-gnu /opt/compat/i386-linux-gnu
+versions_file=/opt/compat/VERSIONS.txt
+: >"$versions_file"
+while read -r pkg ver; do
+  printf '%s=%s\n' "$pkg" "$ver" >>"$versions_file"
+done </tmp/pkg-versions
+
+for arch in amd64 i386; do
+  workdir="/tmp/compat-${arch}"
+  mkdir -p "$workdir"
+  pushd "$workdir" >/dev/null
+  while read -r pkg ver; do
+    apt-get download "${pkg}:${arch}=${ver}"
+  done </tmp/pkg-versions
+  mkdir -p "/tmp/root-${arch}"
+  for deb in ./*.deb; do
+    dpkg-deb -x "$deb" "/tmp/root-${arch}"
+  done
+  popd >/dev/null
+done
+
+cp -a /tmp/root-amd64/usr/lib/x86_64-linux-gnu/. /opt/compat/x86_64-linux-gnu/
+cp -a /tmp/root-i386/usr/lib/i386-linux-gnu/. /opt/compat/i386-linux-gnu/
+
+find /opt/compat -type f -name '*.so*' -print0 | sort -z | xargs -0 sha256sum > /opt/compat/SHA256SUMS
+BASH
 
 FROM base
 
@@ -196,3 +254,8 @@ ldconfig
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 BASH
+
+COPY --from=proton-compat-libs /opt/compat/x86_64-linux-gnu /usr/lib/box64-compat/x86_64-linux-gnu
+COPY --from=proton-compat-libs /opt/compat/i386-linux-gnu /usr/lib/box64-compat/i386-linux-gnu
+COPY --from=proton-compat-libs /opt/compat/VERSIONS.txt /usr/share/box64-compat/VERSIONS.txt
+COPY --from=proton-compat-libs /opt/compat/SHA256SUMS /usr/share/box64-compat/SHA256SUMS

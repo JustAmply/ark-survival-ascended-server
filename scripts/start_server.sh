@@ -406,6 +406,19 @@ ensure_proton_compat_data() {
   return 0
 }
 
+purge_proton_compat_data() {
+  local compat_root="$STEAM_COMPAT_DATA"
+
+  if [ -d "$compat_root" ]; then
+    log "Purging Proton compatdata at $compat_root to start with a clean prefix"
+    if ! rm -rf "$compat_root"; then
+      log "Warning: Failed to remove $compat_root; continuing with existing data."
+    fi
+  fi
+
+  mkdir -p "$compat_root" || true
+}
+
 wrap_proton_binaries_for_box64() {
   if [ "$USE_BOX64" != "1" ]; then
     return 0
@@ -674,6 +687,7 @@ launch_server() {
   cd "$ASA_BINARY_DIR"
   local -a runner
   local proton_path="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton"
+  local compat_ld_path=""
 
   # Detect whether the Proton launcher is an ELF binary or a text script
   # without relying on external tools like 'file' (not installed in image).
@@ -690,6 +704,18 @@ launch_server() {
   fi
 
   if [ "$USE_BOX64" = "1" ]; then
+    local compat64="/usr/lib/box64-compat/x86_64-linux-gnu"
+    local compat32="/usr/lib/box64-compat/i386-linux-gnu"
+    local compat_paths=()
+    if [ -d "$compat64" ]; then
+      compat_paths+=("$compat64")
+    fi
+    if [ -d "$compat32" ]; then
+      compat_paths+=("$compat32")
+    fi
+    if [ ${#compat_paths[@]} -gt 0 ]; then
+      compat_ld_path=$(IFS=:; echo "${compat_paths[*]}")
+    fi
     export PROTON_USE_WINED3D=0
     # Box64 already normalizes stdout/stderr buffering; piping through stdbuf can
     # introduce hangs or dropped output, so we skip stdbuf for emulated runs.
@@ -709,7 +735,18 @@ launch_server() {
     fi
   fi
 
-  "${runner[@]}" $ASA_START_PARAMS &
+  if [ -n "$compat_ld_path" ]; then
+    local merged_ld
+    if [ -n "${LD_LIBRARY_PATH:-}" ]; then
+      merged_ld="$compat_ld_path:$LD_LIBRARY_PATH"
+    else
+      merged_ld="$compat_ld_path"
+    fi
+    log "Box64 compat libraries enabled (LD_LIBRARY_PATH=$merged_ld)"
+    LD_LIBRARY_PATH="$merged_ld" "${runner[@]}" $ASA_START_PARAMS &
+  else
+    "${runner[@]}" $ASA_START_PARAMS &
+  fi
   SERVER_PID=$!
   echo "$SERVER_PID" > "$PID_FILE"
 
@@ -873,6 +910,7 @@ run_server() {
   update_server_files
   resolve_proton_version
   install_proton_if_needed
+  purge_proton_compat_data
   ensure_proton_compat_data || return 1
   wrap_proton_binaries_for_box64
   if [ ! -d "$ASA_COMPAT_DATA" ]; then
