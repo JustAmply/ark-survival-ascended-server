@@ -34,7 +34,9 @@ apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     unzip \
-    libfreetype6
+    libfreetype6 \
+    libgnutls30 \
+    gnutls-bin
 echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen
 locale-gen
 apt-get clean
@@ -111,7 +113,8 @@ case "${TARGETARCH}" in
             lib32z1 \
             lib32gcc-s1 \
             libfontconfig1 \
-            libgcrypt20
+            libgcrypt20 \
+            libgnutls30
         ;;
     arm64)
         cat <<'SH' >/usr/bin/systemctl
@@ -154,6 +157,7 @@ SH
             zlib1g:armhf \
             libfontconfig1:armhf \
             libgcrypt20:armhf \
+            libgnutls30:armhf \
             libc6:i386 \
             libstdc++6:i386 \
             libgcc-s1:i386 \
@@ -164,6 +168,7 @@ SH
             libxext6:i386 \
             libfontconfig1:i386 \
             libgcrypt20:i386 \
+            libgnutls30:i386 \
             libc6:amd64 \
             libstdc++6:amd64 \
             libgcc-s1:amd64 \
@@ -171,8 +176,10 @@ SH
             libcurl4:amd64 \
             libfontconfig1:amd64 \
             libgcrypt20:amd64 \
+            libgnutls30:amd64 \
             libfontconfig1:arm64 \
             libgcrypt20:arm64 \
+            libgnutls30:arm64 \
             box64-generic-arm \
             box86-generic-arm:armhf
         update-binfmts --import || true
