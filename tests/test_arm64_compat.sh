@@ -147,5 +147,81 @@ else
 fi
 echo
 
+echo "Test 8: Box64 GnuTLS Compat Shim"
+COMPAT_BASE="/usr/lib/box64-compat"
+if [ -d "$COMPAT_BASE" ]; then
+    status=0
+    for arch_dir in x86_64-linux-gnu i386-linux-gnu; do
+        compat_lib="$COMPAT_BASE/$arch_dir/libgnutls.so.30"
+        if [ ! -f "$compat_lib" ]; then
+            echo "  ✗ Missing $compat_lib"
+            status=1
+            continue
+        fi
+        if nm -D "$compat_lib" | grep -q '_gnutls_ecdh_compute_key$'; then
+            echo "  ✓ $arch_dir libgnutls exports _gnutls_ecdh_compute_key"
+        else
+            echo "  ✗ $arch_dir libgnutls lacks _gnutls_ecdh_compute_key"
+            status=1
+        fi
+    done
+    if [ $status -ne 0 ]; then
+        exit 1
+    fi
+else
+    echo "  ⊘ Compat shim directory missing; has the image been rebuilt?"
+    exit 1
+fi
+echo
+
+echo "Test 9: Proton Compat Load (best effort)"
+if [ "$EXPECTED_BOX64" = true ]; then
+    proton_launcher=$(find /home/gameserver/Steam/compatibilitytools.d -maxdepth 2 -type f -name proton 2>/dev/null | head -n1 || true)
+    if [ -z "$proton_launcher" ]; then
+        echo "  ⊘ Proton not installed yet; skipping load-path validation"
+    else
+        compat64="$COMPAT_BASE/x86_64-linux-gnu"
+        compat32="$COMPAT_BASE/i386-linux-gnu"
+        compat_ld=""
+        compat_paths=()
+        [ -d "$compat64" ] && compat_paths+=("$compat64")
+        [ -d "$compat32" ] && compat_paths+=("$compat32")
+        if [ ${#compat_paths[@]} -gt 0 ]; then
+            compat_ld=$(IFS=:; echo "${compat_paths[*]}")
+        fi
+        tmp_log=$(mktemp)
+        export STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/gameserver/Steam"
+        export STEAM_COMPAT_DATA_PATH="/tmp/test-proton-compat"
+        mkdir -p "$STEAM_COMPAT_DATA_PATH"
+        ld_merge="${LD_LIBRARY_PATH:-}"
+        if [ -n "$compat_ld" ]; then
+            if [ -n "$ld_merge" ]; then
+                ld_merge="$compat_ld:$ld_merge"
+            else
+                ld_merge="$compat_ld"
+            fi
+        fi
+        if timeout 30s env BOX64_LOG=0 WINEDEBUG=+loaddll LD_LIBRARY_PATH="$ld_merge" "$proton_launcher" run /bin/true >"$tmp_log" 2>&1; then
+            if grep -q "/usr/lib/box64-compat/x86_64-linux-gnu/libgnutls.so.30" "$tmp_log"; then
+                echo "  ✓ Proton loaded libgnutls from compat path"
+            else
+                echo "  ✗ Proton did not load libgnutls from compat path"
+                sed -n '1,80p' "$tmp_log"
+                rm -rf "$tmp_log" "$STEAM_COMPAT_DATA_PATH"
+                exit 1
+            fi
+        else
+            echo "  ⊘ Proton test invocation failed; output follows"
+            sed -n '1,120p' "$tmp_log"
+            rm -rf "$tmp_log" "$STEAM_COMPAT_DATA_PATH"
+            exit 1
+        fi
+        rm -rf "$tmp_log" "$STEAM_COMPAT_DATA_PATH"
+    fi
+else
+    echo "  ⊘ Proton compat test skipped on AMD64 host"
+fi
+echo
+
 echo "=== All Tests Passed ==="
 exit 0

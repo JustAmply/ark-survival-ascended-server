@@ -406,6 +406,19 @@ ensure_proton_compat_data() {
   return 0
 }
 
+purge_proton_compat_data() {
+  local compat_root="$STEAM_COMPAT_DATA"
+
+  if [ -d "$compat_root" ]; then
+    log "Purging Proton compatdata at $compat_root to start with a clean prefix"
+    if ! rm -rf "$compat_root"; then
+      log "Warning: Failed to remove $compat_root; continuing with existing data."
+    fi
+  fi
+
+  mkdir -p "$compat_root" || true
+}
+
 wrap_proton_binaries_for_box64() {
   if [ "$USE_BOX64" != "1" ]; then
     return 0
@@ -510,6 +523,75 @@ prepare_runtime_env() {
 }
 
 #############################
+# 6b. Proton / Box64 Debugging Helpers
+#############################
+configure_runtime_debugging() {
+  local debug_flag="${ASA_DEBUG_TRANSLATION:-0}"
+  if [ "${ENABLE_PROTON_DEBUG:-0}" = "1" ] || [ "$debug_flag" = "1" ]; then
+    local proton_log_root="${PROTON_LOG_DIR:-$LOG_DIR/proton}"
+    mkdir -p "$proton_log_root" || true
+    PROTON_LOG_DIR="$proton_log_root"
+    export PROTON_LOG_DIR
+    export PROTON_LOG=1
+    if [ -z "${WINEDEBUG:-}" ]; then
+      export WINEDEBUG="+timestamp,+pid,+seh"
+    fi
+    if [ -z "${PROTON_DUMP_DEBUG_COMMANDS:-}" ]; then
+      export PROTON_DUMP_DEBUG_COMMANDS=1
+    fi
+    log "Proton debug logging enabled (PROTON_LOG_DIR=$PROTON_LOG_DIR, WINEDEBUG=$WINEDEBUG)"
+  fi
+
+  if [ "${ENABLE_BOX64_DEBUG:-0}" = "1" ] || [ "$debug_flag" = "1" ]; then
+    local box64_logfile="${BOX64_LOGFILE:-$LOG_DIR/box64-debug.log}"
+    mkdir -p "$(dirname "$box64_logfile")" || true
+    BOX64_LOGFILE="$box64_logfile"
+    export BOX64_LOGFILE
+    export BOX64_LOG="${BOX64_LOG_LEVEL:-1}"
+    log "Box64 debug logging enabled (BOX64_LOG=$BOX64_LOG, BOX64_LOGFILE=$BOX64_LOGFILE)"
+  fi
+}
+
+collect_fault_diagnostics() {
+  local exit_code="$1"
+  if [ "$exit_code" -eq 0 ]; then
+    return 0
+  fi
+
+  local wants_diag=0
+  if [ "${ENABLE_PROTON_DEBUG:-0}" = "1" ] || [ "${ENABLE_BOX64_DEBUG:-0}" = "1" ] || [ "${ASA_DEBUG_TRANSLATION:-0}" = "1" ] || [ "${ASA_COLLECT_DIAGNOSTICS:-0}" = "1" ]; then
+    wants_diag=1
+  fi
+  if [ "$wants_diag" -ne 1 ]; then
+    return 0
+  fi
+
+  local diag_root="$LOG_DIR/diagnostics"
+  local stamp
+  stamp="$(date +%Y%m%d%H%M%S)"
+  local diag_dir="$diag_root/${stamp}_exit${exit_code}"
+  mkdir -p "$diag_dir" || return 0
+
+  if [ -f "$LOG_DIR/ShooterGame.log" ]; then
+    cp "$LOG_DIR/ShooterGame.log" "$diag_dir/ShooterGame.log" 2>/dev/null || true
+  fi
+
+  if [ -n "${PROTON_LOG_DIR:-}" ] && [ -d "$PROTON_LOG_DIR" ]; then
+    find "$PROTON_LOG_DIR" -maxdepth 1 -type f -name 'steam-*.log' -exec cp {} "$diag_dir/" \; 2>/dev/null || true
+  fi
+
+  if [ -n "${BOX64_LOGFILE:-}" ] && [ -f "$BOX64_LOGFILE" ]; then
+    cp "$BOX64_LOGFILE" "$diag_dir/" 2>/dev/null || true
+  fi
+
+  if [ -d "$ASA_COMPAT_DATA" ]; then
+    find "$ASA_COMPAT_DATA" -maxdepth 2 -type f -name 'pfx.log' -exec cp {} "$diag_dir/" \; 2>/dev/null || true
+  fi
+
+  log "Captured translation-layer diagnostics at $diag_dir (exit code $exit_code)"
+}
+
+#############################
 # 7. Plugin Loader Handling
 #############################
 handle_plugin_loader() {
@@ -605,6 +687,7 @@ launch_server() {
   cd "$ASA_BINARY_DIR"
   local -a runner
   local proton_path="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton"
+  local compat_ld_path=""
 
   # Detect whether the Proton launcher is an ELF binary or a text script
   # without relying on external tools like 'file' (not installed in image).
@@ -621,6 +704,18 @@ launch_server() {
   fi
 
   if [ "$USE_BOX64" = "1" ]; then
+    local compat64="/usr/lib/box64-compat/x86_64-linux-gnu"
+    local compat32="/usr/lib/box64-compat/i386-linux-gnu"
+    local compat_paths=()
+    if [ -d "$compat64" ]; then
+      compat_paths+=("$compat64")
+    fi
+    if [ -d "$compat32" ]; then
+      compat_paths+=("$compat32")
+    fi
+    if [ ${#compat_paths[@]} -gt 0 ]; then
+      compat_ld_path=$(IFS=:; echo "${compat_paths[*]}")
+    fi
     export PROTON_USE_WINED3D=0
     # Box64 already normalizes stdout/stderr buffering; piping through stdbuf can
     # introduce hangs or dropped output, so we skip stdbuf for emulated runs.
@@ -640,7 +735,18 @@ launch_server() {
     fi
   fi
 
-  "${runner[@]}" $ASA_START_PARAMS &
+  if [ -n "$compat_ld_path" ]; then
+    local merged_ld
+    if [ -n "${LD_LIBRARY_PATH:-}" ]; then
+      merged_ld="$compat_ld_path:$LD_LIBRARY_PATH"
+    else
+      merged_ld="$compat_ld_path"
+    fi
+    log "Box64 compat libraries enabled (LD_LIBRARY_PATH=$merged_ld)"
+    LD_LIBRARY_PATH="$merged_ld" "${runner[@]}" $ASA_START_PARAMS &
+  else
+    "${runner[@]}" $ASA_START_PARAMS &
+  fi
   SERVER_PID=$!
   echo "$SERVER_PID" > "$PID_FILE"
 
@@ -657,6 +763,7 @@ launch_server() {
   local exit_code=$?
   set -e
   log "Server process exited with code $exit_code"
+  collect_fault_diagnostics "$exit_code"
   return $exit_code
 }
 
@@ -803,6 +910,7 @@ run_server() {
   update_server_files
   resolve_proton_version
   install_proton_if_needed
+  purge_proton_compat_data
   ensure_proton_compat_data || return 1
   wrap_proton_binaries_for_box64
   if [ ! -d "$ASA_COMPAT_DATA" ]; then
@@ -811,6 +919,7 @@ run_server() {
   fi
   inject_mods_param
   prepare_runtime_env
+  configure_runtime_debugging
   handle_plugin_loader
   start_log_streamer
 
