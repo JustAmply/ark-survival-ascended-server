@@ -113,6 +113,7 @@ apt-get install -y --no-install-recommends \
     xz-utils \
     binutils
 dpkg --add-architecture i386
+dpkg --add-architecture amd64
 apt-get update
 
 cat <<'EOF' >/tmp/pkg-versions
