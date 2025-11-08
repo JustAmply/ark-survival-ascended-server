@@ -118,7 +118,7 @@ apt-get update
 
 cat <<'EOF' >/tmp/pkg-versions
 libgnutls30 3.7.9-2+deb12u5
-libidn2-0 2.3.3-1
+libidn2-0 2.3.3-1+b1
 libtasn1-6 4.19.0-2+deb12u1
 libnettle8 3.8.1-2
 libhogweed6 3.8.1-2
