@@ -157,7 +157,7 @@ SH
             zlib1g:armhf \
             libfontconfig1:armhf \
             libgcrypt20:armhf \
-            libgnutls30:armhf \
+            libgnutls30t64:armhf \
             libc6:i386 \
             libstdc++6:i386 \
             libgcc-s1:i386 \
@@ -168,7 +168,7 @@ SH
             libxext6:i386 \
             libfontconfig1:i386 \
             libgcrypt20:i386 \
-            libgnutls30:i386 \
+            libgnutls30t64:i386 \
             libc6:amd64 \
             libstdc++6:amd64 \
             libgcc-s1:amd64 \
@@ -176,10 +176,10 @@ SH
             libcurl4:amd64 \
             libfontconfig1:amd64 \
             libgcrypt20:amd64 \
-            libgnutls30:amd64 \
+            libgnutls30t64:amd64 \
             libfontconfig1:arm64 \
             libgcrypt20:arm64 \
-            libgnutls30:arm64 \
+            libgnutls30t64:arm64 \
             box64-generic-arm \
             box86-generic-arm:armhf
         update-binfmts --import || true
