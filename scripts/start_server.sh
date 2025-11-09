@@ -33,6 +33,11 @@ FEX_ROOTFS_URL="https://rootfs.fex-emu.gg/Ubuntu_24_04/2025-03-04/Ubuntu_24_04.s
 FEX_ROOTFS_HASH="6d469a5d2bb838ac"
 FEX_SETUP_MARKER="$FEX_DATA_DIR/.fex-setup"
 FEX_CONFIG_FILE="$FEX_DATA_DIR/Config.json"
+FEX_APT_DIST="${FEX_APT_DIST:-noble}"
+FEX_APT_BASE_URL="http://ppa.launchpad.net/fex-emu/fex/ubuntu"
+FEX_APT_KEY_URL="https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0xEDB98BFE8A2310DC9C4A376E76DBFEBEA206F5AC"
+FEX_APT_KEYRING="/etc/apt/keyrings/fex-emu.gpg"
+FEX_APT_LIST="/etc/apt/sources.list.d/fex-emu-fex.list"
 CPU_FEATURES=()
 FALLBACK_PROTON_VERSION="8-21"
 PID_FILE="/home/gameserver/.asa-server.pid"
@@ -159,6 +164,22 @@ detect_fex_variant() {
   esac
 }
 
+ensure_fex_repo() {
+  if [ ! -f "$FEX_APT_KEYRING" ]; then
+    log "Importing FEX APT signing key"
+    mkdir -p "$(dirname "$FEX_APT_KEYRING")"
+    wget -qO- "$FEX_APT_KEY_URL" | gpg --dearmor --yes -o "$FEX_APT_KEYRING"
+    chmod 644 "$FEX_APT_KEYRING"
+  fi
+
+  if [ ! -f "$FEX_APT_LIST" ]; then
+    log "Adding FEX APT repository (Ubuntu $FEX_APT_DIST)"
+    cat <<EOF >"$FEX_APT_LIST"
+deb [arch=arm64 signed-by=$FEX_APT_KEYRING] $FEX_APT_BASE_URL $FEX_APT_DIST main
+EOF
+  fi
+}
+
 register_fex_binfmt() {
   local fex_bin
   fex_bin="$(command -v FEX 2>/dev/null || true)"
@@ -242,12 +263,10 @@ ensure_fex_emulation() {
   fi
   log "Configuring FEX emulator support for ARM hosts"
   mkdir -p "$FEX_DATA_DIR"
-  DEBIAN_FRONTEND=noninteractive apt-get update -y
-  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends software-properties-common gnupg ca-certificates apt-transport-https lsb-release xxhash
-  if ! grep -rq 'fex-emu/fex' /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null; then
-    add-apt-repository -y ppa:fex-emu/fex
-    DEBIAN_FRONTEND=noninteractive apt-get update -y
-  fi
+  DEBIAN_FRONTEND=noninteractive apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gnupg ca-certificates apt-transport-https lsb-release xxhash
+  ensure_fex_repo
+  DEBIAN_FRONTEND=noninteractive apt-get update
   local variant
   variant="$(detect_fex_variant)"
   log "Detected CPU variant ${variant} → installing fex-emu-${variant}"
