@@ -33,6 +33,8 @@ ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
 DEPOTDOWNLOADER_LINUX_BIN="${DEPOTDOWNLOADER_LINUX_BIN:-/opt/depotdownloader/linux/DepotDownloader}"
 DEPOTDOWNLOADER_WINDOWS_BIN="${DEPOTDOWNLOADER_WINDOWS_BIN:-/opt/depotdownloader/windows/DepotDownloader.exe}"
 DEPOTDOWNLOADER_COMPAT_DATA="${DEPOTDOWNLOADER_COMPAT_DATA:-$STEAM_COMPAT_DATA/asa-depotdownloader}"
+STEAMCMD_WINDOWS_BIN="${STEAMCMD_WINDOWS_BIN:-/opt/steamcmd-windows/steamcmd.exe}"
+STEAMCMD_WINDOWS_COMPAT_DATA="${STEAMCMD_WINDOWS_COMPAT_DATA:-$STEAM_COMPAT_DATA/asa-steamcmd}"
 SHUTDOWN_IN_PROGRESS=0
 SUPERVISOR_EXIT_REQUESTED=0
 RESTART_REQUESTED=0
@@ -199,10 +201,13 @@ build_depotdownloader_args() {
     fi
   fi
 
-  if [ -n "${DEPOTDOWNLOADER_USERNAME:-}" ]; then
-    __cmd_ref+=(-username "$DEPOTDOWNLOADER_USERNAME")
-    if [ -n "${DEPOTDOWNLOADER_PASSWORD:-}" ]; then
-      __cmd_ref+=(-password "$DEPOTDOWNLOADER_PASSWORD")
+  local auth_user="${DEPOTDOWNLOADER_USERNAME:-${STEAM_LOGIN_USERNAME:-}}"
+  local auth_pass="${DEPOTDOWNLOADER_PASSWORD:-${STEAM_LOGIN_PASSWORD:-}}"
+
+  if [ -n "$auth_user" ]; then
+    __cmd_ref+=(-username "$auth_user")
+    if [ -n "$auth_pass" ]; then
+      __cmd_ref+=(-password "$auth_pass")
     fi
   else
     __cmd_ref+=(-anonymous)
@@ -256,6 +261,58 @@ run_depotdownloader_windows() {
   "${cmd[@]}" "${args[@]}"
 }
 
+run_steamcmd_windows() {
+  if [ ! -f "$STEAMCMD_WINDOWS_BIN" ]; then
+    log "Windows SteamCMD binary missing at $STEAMCMD_WINDOWS_BIN"
+    return 1
+  fi
+
+  ensure_proton_ready
+  prepare_runtime_env
+  ensure_companion_compat_data "$STEAMCMD_WINDOWS_COMPAT_DATA"
+
+  local proton_bin="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton"
+  if [ ! -x "$proton_bin" ]; then
+    log "Proton binary missing at $proton_bin"
+    return 1
+  fi
+
+  local login_args=()
+  if [ -n "${STEAM_LOGIN_USERNAME:-}" ]; then
+    if [ -z "${STEAM_LOGIN_PASSWORD:-}" ]; then
+      log "STEAM_LOGIN_USERNAME provided but STEAM_LOGIN_PASSWORD missing."
+      return 1
+    fi
+    login_args=("+login" "$STEAM_LOGIN_USERNAME" "$STEAM_LOGIN_PASSWORD")
+  else
+    login_args=("+login" "anonymous")
+  fi
+
+  local force_dir
+  force_dir=$(windows_path "$SERVER_FILES_DIR")
+
+  local app_cmd=("+app_update" "$ASA_STEAM_APP_ID")
+  if [ -n "${DEPOTDOWNLOADER_BRANCH:-}" ]; then
+    app_cmd+=("-beta" "$DEPOTDOWNLOADER_BRANCH")
+    if [ -n "${DEPOTDOWNLOADER_BRANCH_PASSWORD:-}" ]; then
+      app_cmd+=("-betapassword" "$DEPOTDOWNLOADER_BRANCH_PASSWORD")
+    fi
+  fi
+  if [ "${ASA_SKIP_VALIDATE:-0}" != "1" ]; then
+    app_cmd+=("validate")
+  fi
+
+  log "Updating ASA server files via Windows SteamCMD fallback..."
+  STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/gameserver/Steam" \
+  STEAM_COMPAT_DATA_PATH="$STEAMCMD_WINDOWS_COMPAT_DATA" \
+  "$proton_bin" run "$STEAMCMD_WINDOWS_BIN" \
+    "+@sSteamCmdForcePlatformType" "windows" \
+    "${login_args[@]}" \
+    "+force_install_dir" "$force_dir" \
+    "${app_cmd[@]}" \
+    "+quit"
+}
+
 maybe_update_server_files() {
   if [ "${ASA_SKIP_STEAM_UPDATE:-0}" = "1" ]; then
     log "Skipping ASA server file update because ASA_SKIP_STEAM_UPDATE=1"
@@ -263,6 +320,7 @@ maybe_update_server_files() {
   fi
 
   local linux_rc=0
+  local last_error=1
   local attempted_linux=0
 
   if [ "${DEPOTDOWNLOADER_FORCE_WINDOWS:-0}" != "1" ]; then
@@ -273,27 +331,41 @@ maybe_update_server_files() {
       return 0
     else
       linux_rc=$?
+      last_error=$linux_rc
     fi
     log "DepotDownloader (Linux) failed with exit code $linux_rc"
   fi
 
-  if [ "${DEPOTDOWNLOADER_DISABLE_WINDOWS_FALLBACK:-0}" = "1" ]; then
+  local windows_rc=1
+  if [ "${DEPOTDOWNLOADER_DISABLE_WINDOWS_FALLBACK:-0}" != "1" ]; then
+    if run_depotdownloader_windows; then
+      return 0
+    else
+      windows_rc=$?
+      last_error=$windows_rc
+      log "DepotDownloader (Windows via Proton) failed with exit code $windows_rc"
+    fi
+  else
+    log "DepotDownloader Windows fallback disabled; skipping."
     if [ "$attempted_linux" = "1" ]; then
       return "$linux_rc"
     fi
-    log "DepotDownloader Windows fallback disabled; aborting update."
-    return 1
   fi
 
-  local windows_rc=0
-  if run_depotdownloader_windows; then
-    return 0
+  if [ "${STEAMCMD_DISABLE_WINDOWS_FALLBACK:-0}" != "1" ]; then
+    local steamcmd_rc=0
+    if run_steamcmd_windows; then
+      return 0
+    else
+      steamcmd_rc=$?
+      last_error=$steamcmd_rc
+      log "Windows SteamCMD fallback failed with exit code $steamcmd_rc"
+    fi
   else
-    windows_rc=$?
+    log "Windows SteamCMD fallback disabled; skipping."
   fi
 
-  log "DepotDownloader (Windows via Proton) failed with exit code $windows_rc"
-  return "$windows_rc"
+  return "$last_error"
 }
 
 #############################
@@ -419,6 +491,13 @@ inject_mods_param() {
     ASA_START_PARAMS="${ASA_START_PARAMS:-} $mods"
   fi
   export ASA_START_PARAMS
+}
+
+windows_path() {
+  local path="$1"
+  path="${path%/}"
+  local converted=${path//\//\\}
+  printf 'Z:%s\n' "$converted"
 }
 
 #############################

@@ -119,10 +119,13 @@ The container now bundles the cross-platform [DepotDownloader](https://github.co
 - `ASA_STEAM_APP_ID` – override the Steam App ID (defaults to `2430930`).
 - `DEPOTDOWNLOADER_FORCE_WINDOWS=1` – always use the Proton-backed Windows build (skip the Linux attempt).
 - `DEPOTDOWNLOADER_DISABLE_WINDOWS_FALLBACK=1` – turn off the Windows fallback.
+- `STEAM_LOGIN_USERNAME` / `STEAM_LOGIN_PASSWORD` – provide Steam credentials (needed only for private branches; anonymous is default).
+- `STEAMCMD_DISABLE_WINDOWS_FALLBACK=1` – skip the final SteamCMD fallback.
+- `ASA_SKIP_VALIDATE=1` – skip the validation step to speed up updates (use with caution).
 - `ASA_SKIP_STEAM_UPDATE` – set to `1` only if you intend to handle updates outside the container (rare).
 - `PROTON_VERSION=10-23` – pin a specific GE-Proton release; otherwise the image auto-selects from its curated list.
 
-Leave these unset unless you know you need them—the defaults are ideal for public servers, and the Windows fallback will automatically kick in if QEMU has trouble executing the Linux binary on ARM hosts.
+Leave these unset unless you know you need them—the defaults are ideal for public servers. The updater now chains together three strategies (native Linux, Windows DepotDownloader via Proton, and Windows SteamCMD via Proton) so even brittle qemu setups continue working automatically on ARM hosts.
 
 ### 🎮 Mod Management
 

@@ -68,6 +68,16 @@ RUN set -eux; \
     chmod +x "$DEPOTDOWNLOADER_WINDOWS_BIN"; \
     rm /tmp/depotdownloader-windows.zip
 
+# Install Windows SteamCMD (used via Proton fallback)
+ENV STEAMCMD_WINDOWS_DIR=/opt/steamcmd-windows \
+    STEAMCMD_WINDOWS_BIN=/opt/steamcmd-windows/steamcmd.exe
+
+RUN set -eux; \
+    mkdir -p "$STEAMCMD_WINDOWS_DIR"; \
+    wget -q -O /tmp/steamcmd.zip https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip; \
+    unzip -q /tmp/steamcmd.zip -d "$STEAMCMD_WINDOWS_DIR"; \
+    rm /tmp/steamcmd.zip
+
 # Copy Python application
 COPY asa_ctrl /usr/share/asa_ctrl
 

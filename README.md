@@ -141,10 +141,13 @@ Customize behavior with environment variables:
 - `DEPOTDOWNLOADER_EXTRA_ARGS` – pass any additional flags supported by DepotDownloader (space-separated).
 - `DEPOTDOWNLOADER_FORCE_WINDOWS=1` – skip the Linux binary and always run the Proton-backed Windows build (handy if you *know* QEMU crashes immediately).
 - `DEPOTDOWNLOADER_DISABLE_WINDOWS_FALLBACK=1` – opt out of the Proton fallback entirely.
+- `STEAM_LOGIN_USERNAME` / `STEAM_LOGIN_PASSWORD` – optional credentials used by both DepotDownloader and SteamCMD fallbacks (anonymous downloads remain the default).
+- `STEAMCMD_DISABLE_WINDOWS_FALLBACK=1` – skip the final Windows SteamCMD attempt (mainly for debugging).
+- `ASA_SKIP_VALIDATE=1` – omit the `validate` flag during updates (faster but riskier).
 - `ASA_STEAM_APP_ID` – override the Steam App ID if Wildcard ever changes it (default `2430930`).
 - `ASA_SKIP_STEAM_UPDATE` – set to `1` only if you plan to manage server files yourself (for example, when debugging or using a shared cache).
 
-Most users can leave these at their defaults; the fallback engages automatically on ARM devices such as the Oracle free tier.
+Most users can leave these at their defaults; the script will try the native Linux binary first, then the Windows DepotDownloader via Proton, and finally Windows SteamCMD (also via Proton) before giving up. That layered fallback means updates continue to work even when `qemu-user` crashes on ARM hosts such as the Oracle free tier.
 
 ### Proton Version Selection
 
