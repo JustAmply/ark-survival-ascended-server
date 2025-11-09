@@ -271,8 +271,9 @@ maybe_update_server_files() {
     ensure_depotdownloader_linux
     if update_server_files; then
       return 0
+    else
+      linux_rc=$?
     fi
-    linux_rc=$?
     log "DepotDownloader (Linux) failed with exit code $linux_rc"
   fi
 
@@ -284,11 +285,13 @@ maybe_update_server_files() {
     return 1
   fi
 
+  local windows_rc=0
   if run_depotdownloader_windows; then
     return 0
+  else
+    windows_rc=$?
   fi
 
-  local windows_rc=$?
   log "DepotDownloader (Windows via Proton) failed with exit code $windows_rc"
   return "$windows_rc"
 }
@@ -461,6 +464,18 @@ handle_plugin_loader() {
     LAUNCH_BINARY_NAME="$ASA_BINARY_NAME"
   fi
   export LAUNCH_BINARY_NAME
+}
+
+ensure_server_binary_exists() {
+  if [ ! -d "$ASA_BINARY_DIR" ]; then
+    log "ASA binary directory '$ASA_BINARY_DIR' missing after update."
+    return 1
+  fi
+  if [ ! -f "$ASA_BINARY_DIR/$ASA_BINARY_NAME" ]; then
+    log "ASA server binary '$ASA_BINARY_NAME' not found in $ASA_BINARY_DIR."
+    return 1
+  fi
+  return 0
 }
 
 #############################
@@ -642,6 +657,10 @@ run_server() {
   install_proton_if_needed
   ensure_proton_compat_data
   maybe_update_server_files
+  if ! ensure_server_binary_exists; then
+    log "Server files missing - aborting startup"
+    exit 202
+  fi
   inject_mods_param
   prepare_runtime_env
   handle_plugin_loader
