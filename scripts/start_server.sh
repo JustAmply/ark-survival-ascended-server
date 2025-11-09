@@ -3,7 +3,7 @@
 # Responsibilities:
 #   1. Ensure permissions & drop privileges
 #   2. Optional debug hold
-#   3. Install / update steamcmd + server files
+#   3. Download / update ASA server files
 #   4. Resolve Proton version & install if missing
 #   5. Prepare dynamic mods parameter
 #   6. Prepare runtime environment (XDG, compat data)
@@ -18,18 +18,23 @@ set -Ee -o pipefail
 #############################
 TARGET_UID=25000
 TARGET_GID=25000
-STEAMCMD_DIR="/home/gameserver/steamcmd"
 SERVER_FILES_DIR="/home/gameserver/server-files"
 ASA_BINARY_DIR="$SERVER_FILES_DIR/ShooterGame/Binaries/Win64"
 LOG_DIR="$SERVER_FILES_DIR/ShooterGame/Saved/Logs"
 STEAM_COMPAT_DATA="$SERVER_FILES_DIR/steamapps/compatdata"
-ASA_COMPAT_DATA="$STEAM_COMPAT_DATA/2430930"
+ASA_STEAM_APP_ID="${ASA_STEAM_APP_ID:-2430930}"
+ASA_COMPAT_DATA="$STEAM_COMPAT_DATA/$ASA_STEAM_APP_ID"
 STEAM_COMPAT_DIR="/home/gameserver/Steam/compatibilitytools.d"
 ASA_BINARY_NAME="ArkAscendedServer.exe"
 ASA_PLUGIN_BINARY_NAME="AsaApiLoader.exe"
 FALLBACK_PROTON_VERSION="8-21"
 PID_FILE="/home/gameserver/.asa-server.pid"
 ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
+DEPOTDOWNLOADER_LINUX_BIN="${DEPOTDOWNLOADER_LINUX_BIN:-/opt/depotdownloader/linux/DepotDownloader}"
+DEPOTDOWNLOADER_WINDOWS_BIN="${DEPOTDOWNLOADER_WINDOWS_BIN:-/opt/depotdownloader/windows/DepotDownloader.exe}"
+DEPOTDOWNLOADER_COMPAT_DATA="${DEPOTDOWNLOADER_COMPAT_DATA:-$STEAM_COMPAT_DATA/asa-depotdownloader}"
+STEAMCMD_WINDOWS_BIN="${STEAMCMD_WINDOWS_BIN:-/opt/steamcmd-windows/steamcmd.exe}"
+STEAMCMD_WINDOWS_COMPAT_DATA="${STEAMCMD_WINDOWS_COMPAT_DATA:-$STEAM_COMPAT_DATA/asa-steamcmd}"
 SHUTDOWN_IN_PROGRESS=0
 SUPERVISOR_EXIT_REQUESTED=0
 RESTART_REQUESTED=0
@@ -87,6 +92,32 @@ configure_timezone() {
   fi
 }
 
+ensure_machine_id() {
+  local target="/etc/machine-id"
+  if [ -s "$target" ]; then
+    return 0
+  fi
+
+  if [ "$(id -u)" != "0" ]; then
+    log "Warning: /etc/machine-id missing but insufficient privileges to create it."
+    return 0
+  fi
+
+  log "Generating /etc/machine-id for Proton compatibility..."
+  if command -v dbus-uuidgen >/dev/null 2>&1; then
+    if dbus-uuidgen --ensure="$target" >/dev/null 2>&1; then
+      chmod 0444 "$target" 2>/dev/null || true
+      return 0
+    fi
+  fi
+
+  if cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' | tr '[:upper:]' '[:lower:]' | head -c32 >"$target"; then
+    chmod 0444 "$target" 2>/dev/null || true
+    return 0
+  fi
+
+  log "Failed to generate /etc/machine-id"
+}
 #############################
 # 1. Debug Hold
 #############################
@@ -108,7 +139,6 @@ ensure_permissions() {
   set -e
   local dirs=(
     "/home/gameserver/Steam"
-    "/home/gameserver/steamcmd"
     "$SERVER_FILES_DIR"
     "/home/gameserver/cluster-shared"
   )
@@ -132,19 +162,210 @@ ensure_permissions() {
 }
 
 #############################
-# 3. SteamCMD / Server Files
+# 3. DepotDownloader / Server Files
 #############################
-ensure_steamcmd() {
-  if [ ! -d "$STEAMCMD_DIR/linux32" ]; then
-    log "Installing steamcmd..."
-    mkdir -p "$STEAMCMD_DIR"
-    (cd "$STEAMCMD_DIR" && wget -q https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz && tar xf steamcmd_linux.tar.gz)
+ensure_depotdownloader_linux() {
+  if [ -x "$DEPOTDOWNLOADER_LINUX_BIN" ]; then
+    return 0
+  fi
+  log "DepotDownloader Linux binary missing at $DEPOTDOWNLOADER_LINUX_BIN"
+  log "This usually means the image was built without downloading the release asset."
+  exit 1
+}
+
+ensure_depotdownloader_windows() {
+  if [ -f "$DEPOTDOWNLOADER_WINDOWS_BIN" ]; then
+    return 0
+  fi
+  log "DepotDownloader Windows binary missing at $DEPOTDOWNLOADER_WINDOWS_BIN"
+  log "This usually means the image was built without downloading the release asset."
+  exit 1
+}
+
+build_depotdownloader_args() {
+  local -n __cmd_ref=$1
+  __cmd_ref=(-app "$ASA_STEAM_APP_ID" \
+    -os windows \
+    -osarch 64 \
+    -dir "$SERVER_FILES_DIR" \
+    -validate)
+
+  if [ -n "${DEPOTDOWNLOADER_MAX_DOWNLOADS:-}" ]; then
+    __cmd_ref+=(-max-downloads "$DEPOTDOWNLOADER_MAX_DOWNLOADS")
+  fi
+
+  if [ -n "${DEPOTDOWNLOADER_BRANCH:-}" ]; then
+    __cmd_ref+=(-branch "$DEPOTDOWNLOADER_BRANCH")
+    if [ -n "${DEPOTDOWNLOADER_BRANCH_PASSWORD:-}" ]; then
+      __cmd_ref+=(-branchpassword "$DEPOTDOWNLOADER_BRANCH_PASSWORD")
+    fi
+  fi
+
+  local auth_user="${DEPOTDOWNLOADER_USERNAME:-${STEAM_LOGIN_USERNAME:-}}"
+  local auth_pass="${DEPOTDOWNLOADER_PASSWORD:-${STEAM_LOGIN_PASSWORD:-}}"
+
+  if [ -n "$auth_user" ]; then
+    __cmd_ref+=(-username "$auth_user")
+    if [ -n "$auth_pass" ]; then
+      __cmd_ref+=(-password "$auth_pass")
+    fi
+  else
+    __cmd_ref+=(-anonymous)
+  fi
+
+  if [ -n "${DEPOTDOWNLOADER_EXTRA_ARGS:-}" ]; then
+    # shellcheck disable=SC2206
+    local extra_args=($DEPOTDOWNLOADER_EXTRA_ARGS)
+    __cmd_ref+=("${extra_args[@]}")
   fi
 }
 
 update_server_files() {
-  log "Updating / validating ASA server files..."
-  (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+  local args=()
+  build_depotdownloader_args args
+  "$DEPOTDOWNLOADER_LINUX_BIN" "${args[@]}"
+}
+
+ensure_proton_ready() {
+  resolve_proton_version
+  install_proton_if_needed
+}
+
+ensure_companion_compat_data() {
+  local target="$1"
+  if [ -d "$target" ]; then
+    return 0
+  fi
+  mkdir -p "$(dirname "$target")"
+  cp -r "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx" "$target"
+}
+
+run_depotdownloader_windows() {
+  ensure_depotdownloader_windows
+  ensure_proton_ready
+  prepare_runtime_env
+  ensure_companion_compat_data "$DEPOTDOWNLOADER_COMPAT_DATA"
+
+  local args=()
+  build_depotdownloader_args args
+  local proton_bin="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton"
+  if [ ! -x "$proton_bin" ]; then
+    log "Proton binary missing at $proton_bin"
+    return 1
+  fi
+
+  local cmd=("$proton_bin" run "$DEPOTDOWNLOADER_WINDOWS_BIN")
+  log "Running DepotDownloader (Windows) via Proton..."
+  STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/gameserver/Steam" \
+  STEAM_COMPAT_DATA_PATH="$DEPOTDOWNLOADER_COMPAT_DATA" \
+  "${cmd[@]}" "${args[@]}"
+}
+
+run_steamcmd_windows() {
+  if [ ! -f "$STEAMCMD_WINDOWS_BIN" ]; then
+    log "Windows SteamCMD binary missing at $STEAMCMD_WINDOWS_BIN"
+    return 1
+  fi
+
+  ensure_proton_ready
+  prepare_runtime_env
+  ensure_companion_compat_data "$STEAMCMD_WINDOWS_COMPAT_DATA"
+
+  local proton_bin="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton"
+  if [ ! -x "$proton_bin" ]; then
+    log "Proton binary missing at $proton_bin"
+    return 1
+  fi
+
+  local login_args=()
+  if [ -n "${STEAM_LOGIN_USERNAME:-}" ]; then
+    if [ -z "${STEAM_LOGIN_PASSWORD:-}" ]; then
+      log "STEAM_LOGIN_USERNAME provided but STEAM_LOGIN_PASSWORD missing."
+      return 1
+    fi
+    login_args=("+login" "$STEAM_LOGIN_USERNAME" "$STEAM_LOGIN_PASSWORD")
+  else
+    login_args=("+login" "anonymous")
+  fi
+
+  local force_dir
+  force_dir=$(windows_path "$SERVER_FILES_DIR")
+
+  local app_cmd=("+app_update" "$ASA_STEAM_APP_ID")
+  if [ -n "${DEPOTDOWNLOADER_BRANCH:-}" ]; then
+    app_cmd+=("-beta" "$DEPOTDOWNLOADER_BRANCH")
+    if [ -n "${DEPOTDOWNLOADER_BRANCH_PASSWORD:-}" ]; then
+      app_cmd+=("-betapassword" "$DEPOTDOWNLOADER_BRANCH_PASSWORD")
+    fi
+  fi
+  if [ "${ASA_SKIP_VALIDATE:-0}" != "1" ]; then
+    app_cmd+=("validate")
+  fi
+
+  log "Updating ASA server files via Windows SteamCMD fallback..."
+  STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/gameserver/Steam" \
+  STEAM_COMPAT_DATA_PATH="$STEAMCMD_WINDOWS_COMPAT_DATA" \
+  "$proton_bin" run "$STEAMCMD_WINDOWS_BIN" \
+    "+@sSteamCmdForcePlatformType" "windows" \
+    "${login_args[@]}" \
+    "+force_install_dir" "$force_dir" \
+    "${app_cmd[@]}" \
+    "+quit"
+}
+
+maybe_update_server_files() {
+  if [ "${ASA_SKIP_STEAM_UPDATE:-0}" = "1" ]; then
+    log "Skipping ASA server file update because ASA_SKIP_STEAM_UPDATE=1"
+    return 0
+  fi
+
+  local linux_rc=0
+  local last_error=1
+  local attempted_linux=0
+
+  if [ "${DEPOTDOWNLOADER_FORCE_WINDOWS:-0}" != "1" ]; then
+    attempted_linux=1
+    log "Updating / validating ASA server files via DepotDownloader (Linux)..."
+    ensure_depotdownloader_linux
+    if update_server_files; then
+      return 0
+    else
+      linux_rc=$?
+      last_error=$linux_rc
+    fi
+    log "DepotDownloader (Linux) failed with exit code $linux_rc"
+  fi
+
+  local windows_rc=1
+  if [ "${DEPOTDOWNLOADER_DISABLE_WINDOWS_FALLBACK:-0}" != "1" ]; then
+    if run_depotdownloader_windows; then
+      return 0
+    else
+      windows_rc=$?
+      last_error=$windows_rc
+      log "DepotDownloader (Windows via Proton) failed with exit code $windows_rc"
+    fi
+  else
+    log "DepotDownloader Windows fallback disabled; skipping."
+    if [ "$attempted_linux" = "1" ]; then
+      return "$linux_rc"
+    fi
+  fi
+
+  if [ "${STEAMCMD_DISABLE_WINDOWS_FALLBACK:-0}" != "1" ]; then
+    local steamcmd_rc=0
+    if run_steamcmd_windows; then
+      return 0
+    else
+      steamcmd_rc=$?
+      last_error=$steamcmd_rc
+      log "Windows SteamCMD fallback failed with exit code $steamcmd_rc"
+    fi
+  else
+    log "Windows SteamCMD fallback disabled; skipping."
+  fi
+
+  return "$last_error"
 }
 
 #############################
@@ -177,7 +398,7 @@ find_latest_release_with_assets() {
     fi
     for tag in $tags; do
       version=${tag#GE-Proton}
-      if [ -z "$version" ] || ! printf '%s' "$version" | grep -Eq '^[0-9][0-9A-Za-z._-]*$'; then
+      if [ -z "$version" ] || [[ ! "$version" =~ ^[0-9][0-9A-Za-z._-]*$ ]]; then
         continue
       fi
       if [ -n "$skip_version" ] && [ "$version" = "$skip_version" ]; then
@@ -193,63 +414,33 @@ find_latest_release_with_assets() {
 }
 
 resolve_proton_version() {
-  local detected=""
+  local candidates=(
+    "10-24" "10-23" "10-21" "10-18" "10-16" "10-13" "10-11" "10-9" "10-8" "10-6"
+    "10-2" "9-13" "9-10" "9-5" "9-2" "8-21" "8-16" "8-3" "8-2" "7-41" "7-37"
+    "6-9" "6-8" "6-6" "6-2" "6-1" "5-24" "5-21" "5-14"
+  )
+
+  if [ -n "${PROTON_VERSION:-}" ]; then
+    PROTON_VERSION="${PROTON_VERSION#GE-Proton}"
+    log "Using user-specified Proton version: $PROTON_VERSION"
+  fi
+
   if [ -z "${PROTON_VERSION:-}" ]; then
-    log "Detecting latest Proton GE version..."
-    if json=$(wget -qO- https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest 2>/dev/null || true); then
-      # Try jq first if present (most reliable)
-      if command -v jq >/dev/null 2>&1; then
-        ver=$(printf '%s' "$json" | jq -r '.tag_name' 2>/dev/null || true)
-      else
-        # Fallback to sed extraction of tag_name value
-        ver=$(printf '%s' "$json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(GE-Proton[^"]*\)".*/\1/p' | head -n1 || true)
+    log "Selecting Proton version from built-in list..."
+    for candidate in "${candidates[@]}"; do
+      if check_proton_release_assets "$candidate"; then
+        PROTON_VERSION="$candidate"
+        log "Selected GE-Proton$PROTON_VERSION"
+        break
       fi
-      # Sanitize / normalize: strip optional leading GE-Proton
-      if [ -n "${ver:-}" ]; then
-        ver=${ver#GE-Proton}
-        # Basic validation: must start with a digit and contain only allowed chars (digits, dots, dashes)
-        if printf '%s' "$ver" | grep -Eq '^[0-9][0-9A-Za-z._-]*$'; then
-          detected="$ver"
-          log "Using detected GE-Proton version: $detected"
-        else
-          log "Detected tag_name malformed ('$ver'); ignoring"
-        fi
-      else
-        log "Failed to parse latest release tag_name"
-      fi
-    else
-      log "Could not query GitHub API for Proton releases"
-    fi
-  else
-    detected="$PROTON_VERSION"
+    done
   fi
 
-  local resolved="${PROTON_VERSION:-}"
-  if [ -z "$resolved" ] && [ -n "$detected" ]; then
-    if check_proton_release_assets "$detected"; then
-      resolved="$detected"
-    else
-      log "Latest GE-Proton release GE-Proton$detected missing assets; searching previous releases..."
-    fi
+  if [ -z "${PROTON_VERSION:-}" ]; then
+    PROTON_VERSION="$FALLBACK_PROTON_VERSION"
+    log "No listed release available; falling back to GE-Proton$PROTON_VERSION"
   fi
 
-  if [ -z "$resolved" ] && [ -z "${PROTON_VERSION:-}" ]; then
-    if fallback_ver=$(find_latest_release_with_assets "$detected"); then
-      resolved="$fallback_ver"
-      log "Using fallback GE-Proton release: $resolved"
-    else
-      log "No suitable Proton release with assets found via GitHub API"
-    fi
-  fi
-
-  if [ -z "$resolved" ]; then
-    resolved="${PROTON_VERSION:-$FALLBACK_PROTON_VERSION}"
-    if [ "$resolved" = "$FALLBACK_PROTON_VERSION" ]; then
-      log "Falling back to default Proton version: $resolved"
-    fi
-  fi
-
-  PROTON_VERSION="$resolved"
   export PROTON_VERSION
   PROTON_DIR_NAME="GE-Proton$PROTON_VERSION"
   PROTON_ARCHIVE_NAME="$PROTON_DIR_NAME.tar.gz"
@@ -267,12 +458,14 @@ install_proton_if_needed() {
   fi
   log "Verifying checksum..."
   if wget -q -O "$sumfile" "$base/GE-Proton$PROTON_VERSION.sha512sum"; then
-    if (cd /tmp && sha512sum -c "$(basename "$sumfile")" 2>/dev/null | grep -q "$PROTON_ARCHIVE_NAME: OK"); then
+    if (cd /tmp && sha512sum -c "$(basename "$sumfile")" >/tmp/proton_sha_check 2>&1); then
       log "Checksum OK"
     else
-      echo "Error: sha512 checksum verification failed.";
+      echo "Error: sha512 checksum verification failed."
+      cat /tmp/proton_sha_check >&2 || true
       if [ "${PROTON_SKIP_CHECKSUM:-0}" != "1" ]; then exit 201; else log "Skipping checksum (override)"; fi
     fi
+    rm -f /tmp/proton_sha_check || true
     rm -f "$sumfile" || true
   else
     log "Checksum file unavailable"; [ "${PROTON_SKIP_CHECKSUM:-0}" != "1" ] && exit 201 || log "Continuing without verification"
@@ -298,6 +491,13 @@ inject_mods_param() {
     ASA_START_PARAMS="${ASA_START_PARAMS:-} $mods"
   fi
   export ASA_START_PARAMS
+}
+
+windows_path() {
+  local path="$1"
+  path="${path%/}"
+  local converted=${path//\//\\}
+  printf 'Z:%s\n' "$converted"
 }
 
 #############################
@@ -343,6 +543,18 @@ handle_plugin_loader() {
     LAUNCH_BINARY_NAME="$ASA_BINARY_NAME"
   fi
   export LAUNCH_BINARY_NAME
+}
+
+ensure_server_binary_exists() {
+  if [ ! -d "$ASA_BINARY_DIR" ]; then
+    log "ASA binary directory '$ASA_BINARY_DIR' missing after update."
+    return 1
+  fi
+  if [ ! -f "$ASA_BINARY_DIR/$ASA_BINARY_NAME" ]; then
+    log "ASA server binary '$ASA_BINARY_NAME' not found in $ASA_BINARY_DIR."
+    return 1
+  fi
+  return 0
 }
 
 #############################
@@ -520,10 +732,14 @@ run_server() {
   trap 'handle_restart_signal USR1' USR1
   trap cleanup EXIT
 
-  update_server_files
   resolve_proton_version
   install_proton_if_needed
   ensure_proton_compat_data
+  maybe_update_server_files
+  if ! ensure_server_binary_exists; then
+    log "Server files missing - aborting startup"
+    exit 202
+  fi
   inject_mods_param
   prepare_runtime_env
   handle_plugin_loader
@@ -541,11 +757,11 @@ run_server() {
 #############################
 if [ "$(id -u)" = "0" ]; then
   configure_timezone
+  ensure_machine_id
 fi
 maybe_debug
 ensure_permissions
 register_supervisor_pid
 start_restart_scheduler
-ensure_steamcmd
 supervisor_loop
 exit $?

@@ -14,7 +14,6 @@ services:
       - 27020:27020/tcp
     volumes:
       - steam-1:/home/gameserver/Steam:rw
-      - steamcmd-1:/home/gameserver/steamcmd:rw
       - server-files-1:/home/gameserver/server-files:rw
       - cluster-shared:/home/gameserver/cluster-shared:rw
 #  asa-server-2:
@@ -32,14 +31,11 @@ services:
 #      - 27021:27021/tcp
 #    volumes:
 #      - steam-2:/home/gameserver/Steam:rw
-#      - steamcmd-2:/home/gameserver/steamcmd:rw
 #      - server-files-2:/home/gameserver/server-files:rw
 #      - cluster-shared:/home/gameserver/cluster-shared:rw
 volumes:
   cluster-shared:
   steam-1:
-  steamcmd-1:
   server-files-1:
 #  steam-2:
-#  steamcmd-2:
 #  server-files-2:

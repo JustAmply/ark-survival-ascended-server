@@ -82,3 +82,5 @@ docker-compose.dev.yml
 /tmp/test-mods/
 /tmp/mods.json
 /tmp/mod-read-error
+
+GE-Proton*

@@ -4,6 +4,7 @@ FROM python:3.12-slim
 ARG VERSION="unknown"
 ARG GIT_COMMIT="unknown"
 ARG BUILD_DATE="unknown"
+ARG DEPOTDOWNLOADER_VERSION="DepotDownloader_3.4.0"
 
 # Add metadata labels
 LABEL org.opencontainers.image.version="${VERSION}" \
@@ -22,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
     wget \
     unzip \
+    ca-certificates \
     libc6-dev \
     lib32stdc++6 \
     lib32z1 \
@@ -43,10 +45,38 @@ RUN groupadd -g 25000 gameserver && \
 # Create necessary directories
 RUN mkdir -p \
     /home/gameserver/Steam \
-    /home/gameserver/steamcmd \
     /home/gameserver/server-files \
     /home/gameserver/cluster-shared && \
     chown -R gameserver:gameserver /home/gameserver
+
+# Install DepotDownloader (Linux + Windows builds for Proton fallback)
+ENV DEPOTDOWNLOADER_VERSION=${DEPOTDOWNLOADER_VERSION} \
+    DEPOTDOWNLOADER_BASE=/opt/depotdownloader \
+    DEPOTDOWNLOADER_LINUX_DIR=/opt/depotdownloader/linux \
+    DEPOTDOWNLOADER_LINUX_BIN=/opt/depotdownloader/linux/DepotDownloader \
+    DEPOTDOWNLOADER_WINDOWS_DIR=/opt/depotdownloader/windows \
+    DEPOTDOWNLOADER_WINDOWS_BIN=/opt/depotdownloader/windows/DepotDownloader.exe
+
+RUN set -eux; \
+    mkdir -p "$DEPOTDOWNLOADER_LINUX_DIR" "$DEPOTDOWNLOADER_WINDOWS_DIR"; \
+    wget -q -O /tmp/depotdownloader-linux.zip "https://github.com/SteamRE/DepotDownloader/releases/download/${DEPOTDOWNLOADER_VERSION}/DepotDownloader-linux-x64.zip"; \
+    unzip -q /tmp/depotdownloader-linux.zip -d "$DEPOTDOWNLOADER_LINUX_DIR"; \
+    rm /tmp/depotdownloader-linux.zip; \
+    chmod +x "$DEPOTDOWNLOADER_LINUX_BIN"; \
+    wget -q -O /tmp/depotdownloader-windows.zip "https://github.com/SteamRE/DepotDownloader/releases/download/${DEPOTDOWNLOADER_VERSION}/DepotDownloader-windows-x64.zip"; \
+    unzip -q /tmp/depotdownloader-windows.zip -d "$DEPOTDOWNLOADER_WINDOWS_DIR"; \
+    chmod +x "$DEPOTDOWNLOADER_WINDOWS_BIN"; \
+    rm /tmp/depotdownloader-windows.zip
+
+# Install Windows SteamCMD (used via Proton fallback)
+ENV STEAMCMD_WINDOWS_DIR=/opt/steamcmd-windows \
+    STEAMCMD_WINDOWS_BIN=/opt/steamcmd-windows/steamcmd.exe
+
+RUN set -eux; \
+    mkdir -p "$STEAMCMD_WINDOWS_DIR"; \
+    wget -q -O /tmp/steamcmd.zip https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip; \
+    unzip -q /tmp/steamcmd.zip -d "$STEAMCMD_WINDOWS_DIR"; \
+    rm /tmp/steamcmd.zip
 
 # Copy Python application
 COPY asa_ctrl /usr/share/asa_ctrl
@@ -70,7 +100,6 @@ RUN chmod +x /usr/bin/start_server.sh
 
 # Declare persistent data volumes
 VOLUME ["/home/gameserver/Steam", \
-        "/home/gameserver/steamcmd", \
         "/home/gameserver/server-files", \
         "/home/gameserver/cluster-shared"]
 

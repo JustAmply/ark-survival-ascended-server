@@ -129,6 +129,30 @@ environment:
 
 The scheduler sends chat alerts 30, 5 and 1 minute before the restart and triggers a safe shutdown (including `saveworld`) so the server comes back online automatically. Adjust the warning offsets via `SERVER_RESTART_WARNINGS` (comma-separated minutes, for example `SERVER_RESTART_WARNINGS=60,15,5,1`). Leave `SERVER_RESTART_CRON` empty to disable the feature.
 
+### DepotDownloader Configuration
+
+SteamCMD is no longer required inside the container—game updates are handled by bundled [DepotDownloader](https://github.com/SteamRE/DepotDownloader) binaries. Both the Linux and Windows builds are shipped: the Linux binary runs first, and if QEMU dies on an ARM host the script automatically retries with the Windows build through Proton (the same stack we already use to launch the ASA server). No manual host-side steps are needed.
+
+Customize behavior with environment variables:
+
+- `DEPOTDOWNLOADER_USERNAME` / `DEPOTDOWNLOADER_PASSWORD` – authenticate with a Steam account when a private branch is needed (defaults to anonymous).
+- `DEPOTDOWNLOADER_BRANCH` / `DEPOTDOWNLOADER_BRANCH_PASSWORD` – target beta branches or password-protected builds.
+- `DEPOTDOWNLOADER_MAX_DOWNLOADS` – override the concurrent chunk count (default is DepotDownloader’s internal value of 8).
+- `DEPOTDOWNLOADER_EXTRA_ARGS` – pass any additional flags supported by DepotDownloader (space-separated).
+- `DEPOTDOWNLOADER_FORCE_WINDOWS=1` – skip the Linux binary and always run the Proton-backed Windows build (handy if you *know* QEMU crashes immediately).
+- `DEPOTDOWNLOADER_DISABLE_WINDOWS_FALLBACK=1` – opt out of the Proton fallback entirely.
+- `STEAM_LOGIN_USERNAME` / `STEAM_LOGIN_PASSWORD` – optional credentials used by both DepotDownloader and SteamCMD fallbacks (anonymous downloads remain the default).
+- `STEAMCMD_DISABLE_WINDOWS_FALLBACK=1` – skip the final Windows SteamCMD attempt (mainly for debugging).
+- `ASA_SKIP_VALIDATE=1` – omit the `validate` flag during updates (faster but riskier).
+- `ASA_STEAM_APP_ID` – override the Steam App ID if Wildcard ever changes it (default `2430930`).
+- `ASA_SKIP_STEAM_UPDATE` – set to `1` only if you plan to manage server files yourself (for example, when debugging or using a shared cache).
+
+Most users can leave these at their defaults; the script will try the native Linux binary first, then the Windows DepotDownloader via Proton, and finally Windows SteamCMD (also via Proton) before giving up. That layered fallback means updates continue to work even when `qemu-user` crashes on ARM hosts such as the Oracle free tier.
+
+### Proton Version Selection
+
+By default the container keeps a curated list of known-good [GE-Proton](https://github.com/GloriousEggroll/proton-ge-custom) releases (starting from `GE-Proton10-24`) and picks the newest one whose assets are still available on GitHub. If you want to pin a specific build, set `PROTON_VERSION=10-23` (or similar) in your environment; the script automatically strips any `GE-Proton` prefix. The archive is downloaded and verified inside the container, so no host tooling is required.
+
 ## 🏗️ Project History
 
 This project is a **complete rewrite** of the original ARK server management tools. Here's the story:

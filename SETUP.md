@@ -108,6 +108,25 @@ docker logs -f asa-server-1
 docker restart asa-server-1
 ```
 
+### 📥 DepotDownloader Options
+
+The container now bundles the cross-platform [DepotDownloader](https://github.com/SteamRE/DepotDownloader) tool instead of the legacy SteamCMD runtime. This keeps updates working even on ARM hosts (where 32-bit compatibility layers often break) and still fetches the Windows build that Proton needs. Everything works anonymously by default, but you can fine-tune downloads by exporting extra environment variables in your `docker-compose.yml`:
+
+- `DEPOTDOWNLOADER_USERNAME` / `DEPOTDOWNLOADER_PASSWORD` – use your Steam credentials for private branches.
+- `DEPOTDOWNLOADER_BRANCH` / `DEPOTDOWNLOADER_BRANCH_PASSWORD` – pin the server to a specific beta branch.
+- `DEPOTDOWNLOADER_MAX_DOWNLOADS` – control how many download chunks run concurrently (number).
+- `DEPOTDOWNLOADER_EXTRA_ARGS` – append arbitrary DepotDownloader flags (space-separated string).
+- `ASA_STEAM_APP_ID` – override the Steam App ID (defaults to `2430930`).
+- `DEPOTDOWNLOADER_FORCE_WINDOWS=1` – always use the Proton-backed Windows build (skip the Linux attempt).
+- `DEPOTDOWNLOADER_DISABLE_WINDOWS_FALLBACK=1` – turn off the Windows fallback.
+- `STEAM_LOGIN_USERNAME` / `STEAM_LOGIN_PASSWORD` – provide Steam credentials (needed only for private branches; anonymous is default).
+- `STEAMCMD_DISABLE_WINDOWS_FALLBACK=1` – skip the final SteamCMD fallback.
+- `ASA_SKIP_VALIDATE=1` – skip the validation step to speed up updates (use with caution).
+- `ASA_SKIP_STEAM_UPDATE` – set to `1` only if you intend to handle updates outside the container (rare).
+- `PROTON_VERSION=10-23` – pin a specific GE-Proton release; otherwise the image auto-selects from its curated list.
+
+Leave these unset unless you know you need them—the defaults are ideal for public servers. The updater now chains together three strategies (native Linux, Windows DepotDownloader via Proton, and Windows SteamCMD via Proton) so even brittle qemu setups continue working automatically on ARM hosts.
+
 ### 🎮 Mod Management
 
 **🚀 Dynamic Method (Recommended):**
