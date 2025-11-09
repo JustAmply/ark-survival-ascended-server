@@ -27,6 +27,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     lib32z1 \
     lib32gcc-s1 \
     libfreetype6 \
+    software-properties-common \
+    lsb-release \
+    gnupg \
+    apt-transport-https \
+    ca-certificates \
+    xxhash \
+    binfmt-support \
     && rm -rf /var/lib/apt/lists/* && \
     echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen && \
     locale-gen
@@ -72,7 +79,8 @@ RUN chmod +x /usr/bin/start_server.sh
 VOLUME ["/home/gameserver/Steam", \
         "/home/gameserver/steamcmd", \
         "/home/gameserver/server-files", \
-        "/home/gameserver/cluster-shared"]
+        "/home/gameserver/cluster-shared", \
+        "/home/gameserver/.fex-emu"]
 
 # Set working directory
 WORKDIR /home/gameserver

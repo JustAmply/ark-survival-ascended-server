@@ -39,6 +39,14 @@ Your server will be discoverable in the "Unofficial" server browser once setup i
 - **Storage**: ~31 GB (server files only)
 - **OS**: Linux with Docker support
 - **Tested on**: Ubuntu 24.04, Debian 12, Docker Desktop on Windows
+ - **ARM64 hosts**: the container now detects `aarch64`, installs FEX via `ppa:fex-emu/fex`, registers binfmt handlers, and downloads the Ubuntu 24.04 rootfs into `/home/gameserver/.fex-emu`. The `.fex-emu` path is exposed as a persistent volume so the download is skipped on subsequent restarts.
+
+ ## 🧱 ARM64 + FEX workflow
+
+ - On ARM64 nodes the startup script automatically runs `apt` once before dropping privileges, installs the CPU-appropriate `fex-emu-armv8.*` package from `ppa:fex-emu/fex`, and keeps the rootfs at `/home/gameserver/.fex-emu/RootFS/Ubuntu_24_04.sqsh` (sha512 `6d469a5d2bb838ac`).
+ - Binfmt_misc handlers are registered manually so every x86/x86_64 binary executed from Proton/Steam will be routed through FEX without touching qemu.
+ - The first run will print `[asa-start] Configuring FEX emulator support for ARM hosts` and may download ~300 MB of rootfs data; keep `/home/gameserver/.fex-emu` mounted (the Docker image declares the directory as a volume) to cache that download for future runs.
+ - If you already have the rootfs, drop it into the same folder or mount a host directory at `.fex-emu`: the checksum is verified and the startup skips the download when it matches the expected value.
 
 ## 🎯 Main Use Cases
 
