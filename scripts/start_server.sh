@@ -297,7 +297,7 @@ find_latest_release_with_assets() {
     fi
     for tag in $tags; do
       version=${tag#GE-Proton}
-      if [ -z "$version" ] || ! printf '%s' "$version" | grep -Eq '^[0-9][0-9A-Za-z._-]*$'; then
+      if [ -z "$version" ] || [[ ! "$version" =~ ^[0-9][0-9A-Za-z._-]*$ ]]; then
         continue
       fi
       if [ -n "$skip_version" ] && [ "$version" = "$skip_version" ]; then
@@ -328,7 +328,7 @@ resolve_proton_version() {
       if [ -n "${ver:-}" ]; then
         ver=${ver#GE-Proton}
         # Basic validation: must start with a digit and contain only allowed chars (digits, dots, dashes)
-        if printf '%s' "$ver" | grep -Eq '^[0-9][0-9A-Za-z._-]*$'; then
+        if [[ "$ver" =~ ^[0-9][0-9A-Za-z._-]*$ ]]; then
           detected="$ver"
           log "Using detected GE-Proton version: $detected"
         else
@@ -387,12 +387,14 @@ install_proton_if_needed() {
   fi
   log "Verifying checksum..."
   if wget -q -O "$sumfile" "$base/GE-Proton$PROTON_VERSION.sha512sum"; then
-    if (cd /tmp && sha512sum -c "$(basename "$sumfile")" 2>/dev/null | grep -q "$PROTON_ARCHIVE_NAME: OK"); then
+    if (cd /tmp && sha512sum -c "$(basename "$sumfile")" >/tmp/proton_sha_check 2>&1); then
       log "Checksum OK"
     else
-      echo "Error: sha512 checksum verification failed.";
+      echo "Error: sha512 checksum verification failed."
+      cat /tmp/proton_sha_check >&2 || true
       if [ "${PROTON_SKIP_CHECKSUM:-0}" != "1" ]; then exit 201; else log "Skipping checksum (override)"; fi
     fi
+    rm -f /tmp/proton_sha_check || true
     rm -f "$sumfile" || true
   else
     log "Checksum file unavailable"; [ "${PROTON_SKIP_CHECKSUM:-0}" != "1" ] && exit 201 || log "Continuing without verification"
