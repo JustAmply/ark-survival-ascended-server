@@ -30,7 +30,9 @@ ASA_PLUGIN_BINARY_NAME="AsaApiLoader.exe"
 FALLBACK_PROTON_VERSION="8-21"
 PID_FILE="/home/gameserver/.asa-server.pid"
 ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
-DEPOTDOWNLOADER_BIN="${DEPOTDOWNLOADER_BIN:-/opt/depotdownloader/DepotDownloader}"
+DEPOTDOWNLOADER_LINUX_BIN="${DEPOTDOWNLOADER_LINUX_BIN:-/opt/depotdownloader/linux/DepotDownloader}"
+DEPOTDOWNLOADER_WINDOWS_BIN="${DEPOTDOWNLOADER_WINDOWS_BIN:-/opt/depotdownloader/windows/DepotDownloader.exe}"
+DEPOTDOWNLOADER_COMPAT_DATA="${DEPOTDOWNLOADER_COMPAT_DATA:-$STEAM_COMPAT_DATA/asa-depotdownloader}"
 SHUTDOWN_IN_PROGRESS=0
 SUPERVISOR_EXIT_REQUESTED=0
 RESTART_REQUESTED=0
@@ -134,19 +136,27 @@ ensure_permissions() {
 #############################
 # 3. DepotDownloader / Server Files
 #############################
-ensure_depotdownloader() {
-  if [ -x "$DEPOTDOWNLOADER_BIN" ]; then
+ensure_depotdownloader_linux() {
+  if [ -x "$DEPOTDOWNLOADER_LINUX_BIN" ]; then
     return 0
   fi
-  log "DepotDownloader binary missing at $DEPOTDOWNLOADER_BIN"
+  log "DepotDownloader Linux binary missing at $DEPOTDOWNLOADER_LINUX_BIN"
   log "This usually means the image was built without downloading the release asset."
   exit 1
 }
 
-build_depotdownloader_cmd() {
+ensure_depotdownloader_windows() {
+  if [ -f "$DEPOTDOWNLOADER_WINDOWS_BIN" ]; then
+    return 0
+  fi
+  log "DepotDownloader Windows binary missing at $DEPOTDOWNLOADER_WINDOWS_BIN"
+  log "This usually means the image was built without downloading the release asset."
+  exit 1
+}
+
+build_depotdownloader_args() {
   local -n __cmd_ref=$1
-  __cmd_ref=("$DEPOTDOWNLOADER_BIN" \
-    -app "$ASA_STEAM_APP_ID" \
+  __cmd_ref=(-app "$ASA_STEAM_APP_ID" \
     -os windows \
     -osarch 64 \
     -dir "$SERVER_FILES_DIR" \
@@ -180,10 +190,81 @@ build_depotdownloader_cmd() {
 }
 
 update_server_files() {
-  log "Updating / validating ASA server files via DepotDownloader..."
-  local depot_cmd=()
-  build_depotdownloader_cmd depot_cmd
-  "${depot_cmd[@]}"
+  local args=()
+  build_depotdownloader_args args
+  "$DEPOTDOWNLOADER_LINUX_BIN" "${args[@]}"
+}
+
+ensure_proton_ready() {
+  resolve_proton_version
+  install_proton_if_needed
+}
+
+ensure_companion_compat_data() {
+  local target="$1"
+  if [ -d "$target" ]; then
+    return 0
+  fi
+  mkdir -p "$(dirname "$target")"
+  cp -r "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx" "$target"
+}
+
+run_depotdownloader_windows() {
+  ensure_depotdownloader_windows
+  ensure_proton_ready
+  prepare_runtime_env
+  ensure_companion_compat_data "$DEPOTDOWNLOADER_COMPAT_DATA"
+
+  local args=()
+  build_depotdownloader_args args
+  local proton_bin="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton"
+  if [ ! -x "$proton_bin" ]; then
+    log "Proton binary missing at $proton_bin"
+    return 1
+  fi
+
+  local cmd=("$proton_bin" run "$DEPOTDOWNLOADER_WINDOWS_BIN")
+  log "Running DepotDownloader (Windows) via Proton..."
+  STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/gameserver/Steam" \
+  STEAM_COMPAT_DATA_PATH="$DEPOTDOWNLOADER_COMPAT_DATA" \
+  "${cmd[@]}" "${args[@]}"
+}
+
+maybe_update_server_files() {
+  if [ "${ASA_SKIP_STEAM_UPDATE:-0}" = "1" ]; then
+    log "Skipping ASA server file update because ASA_SKIP_STEAM_UPDATE=1"
+    return 0
+  fi
+
+  local linux_rc=0
+  local attempted_linux=0
+
+  if [ "${DEPOTDOWNLOADER_FORCE_WINDOWS:-0}" != "1" ]; then
+    attempted_linux=1
+    log "Updating / validating ASA server files via DepotDownloader (Linux)..."
+    ensure_depotdownloader_linux
+    if update_server_files; then
+      return 0
+    fi
+    linux_rc=$?
+    log "DepotDownloader (Linux) failed with exit code $linux_rc"
+  fi
+
+  if [ "${DEPOTDOWNLOADER_DISABLE_WINDOWS_FALLBACK:-0}" = "1" ]; then
+    if [ "$attempted_linux" = "1" ]; then
+      return "$linux_rc"
+    fi
+    log "DepotDownloader Windows fallback disabled; aborting update."
+    return 1
+  fi
+
+  if run_depotdownloader_windows; then
+    return 0
+  fi
+
+  local windows_rc=$?
+  log "DepotDownloader (Windows via Proton) failed with exit code $windows_rc"
+  return "$windows_rc"
 }
 
 #############################
@@ -559,10 +640,10 @@ run_server() {
   trap 'handle_restart_signal USR1' USR1
   trap cleanup EXIT
 
-  update_server_files
   resolve_proton_version
   install_proton_if_needed
   ensure_proton_compat_data
+  maybe_update_server_files
   inject_mods_param
   prepare_runtime_env
   handle_plugin_loader
@@ -585,6 +666,5 @@ maybe_debug
 ensure_permissions
 register_supervisor_pid
 start_restart_scheduler
-ensure_depotdownloader
 supervisor_loop
 exit $?

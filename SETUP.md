@@ -117,8 +117,11 @@ The container now bundles the cross-platform [DepotDownloader](https://github.co
 - `DEPOTDOWNLOADER_MAX_DOWNLOADS` – control how many download chunks run concurrently (number).
 - `DEPOTDOWNLOADER_EXTRA_ARGS` – append arbitrary DepotDownloader flags (space-separated string).
 - `ASA_STEAM_APP_ID` – override the Steam App ID (defaults to `2430930`).
+- `DEPOTDOWNLOADER_FORCE_WINDOWS=1` – always use the Proton-backed Windows build (skip the Linux attempt).
+- `DEPOTDOWNLOADER_DISABLE_WINDOWS_FALLBACK=1` – turn off the Windows fallback.
+- `ASA_SKIP_STEAM_UPDATE` – set to `1` only if you intend to handle updates outside the container (rare).
 
-Leave these unset unless you know you need them—the defaults are ideal for public servers.
+Leave these unset unless you know you need them—the defaults are ideal for public servers, and the Windows fallback will automatically kick in if QEMU has trouble executing the Linux binary on ARM hosts.
 
 ### 🎮 Mod Management
 

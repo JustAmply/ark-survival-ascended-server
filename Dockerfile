@@ -49,16 +49,24 @@ RUN mkdir -p \
     /home/gameserver/cluster-shared && \
     chown -R gameserver:gameserver /home/gameserver
 
-# Install DepotDownloader (self-contained .NET binary)
+# Install DepotDownloader (Linux + Windows builds for Proton fallback)
 ENV DEPOTDOWNLOADER_VERSION=${DEPOTDOWNLOADER_VERSION} \
-    DEPOTDOWNLOADER_DIR=/opt/depotdownloader \
-    DEPOTDOWNLOADER_BIN=/opt/depotdownloader/DepotDownloader
+    DEPOTDOWNLOADER_BASE=/opt/depotdownloader \
+    DEPOTDOWNLOADER_LINUX_DIR=/opt/depotdownloader/linux \
+    DEPOTDOWNLOADER_LINUX_BIN=/opt/depotdownloader/linux/DepotDownloader \
+    DEPOTDOWNLOADER_WINDOWS_DIR=/opt/depotdownloader/windows \
+    DEPOTDOWNLOADER_WINDOWS_BIN=/opt/depotdownloader/windows/DepotDownloader.exe
 
-RUN mkdir -p "$DEPOTDOWNLOADER_DIR" && \
-    wget -q -O /tmp/depotdownloader.zip "https://github.com/SteamRE/DepotDownloader/releases/download/${DEPOTDOWNLOADER_VERSION}/DepotDownloader-linux-x64.zip" && \
-    unzip -q /tmp/depotdownloader.zip -d "$DEPOTDOWNLOADER_DIR" && \
-    rm /tmp/depotdownloader.zip && \
-    chmod +x "$DEPOTDOWNLOADER_BIN"
+RUN set -eux; \
+    mkdir -p "$DEPOTDOWNLOADER_LINUX_DIR" "$DEPOTDOWNLOADER_WINDOWS_DIR"; \
+    wget -q -O /tmp/depotdownloader-linux.zip "https://github.com/SteamRE/DepotDownloader/releases/download/${DEPOTDOWNLOADER_VERSION}/DepotDownloader-linux-x64.zip"; \
+    unzip -q /tmp/depotdownloader-linux.zip -d "$DEPOTDOWNLOADER_LINUX_DIR"; \
+    rm /tmp/depotdownloader-linux.zip; \
+    chmod +x "$DEPOTDOWNLOADER_LINUX_BIN"; \
+    wget -q -O /tmp/depotdownloader-windows.zip "https://github.com/SteamRE/DepotDownloader/releases/download/${DEPOTDOWNLOADER_VERSION}/DepotDownloader-windows-x64.zip"; \
+    unzip -q /tmp/depotdownloader-windows.zip -d "$DEPOTDOWNLOADER_WINDOWS_DIR"; \
+    chmod +x "$DEPOTDOWNLOADER_WINDOWS_BIN"; \
+    rm /tmp/depotdownloader-windows.zip
 
 # Copy Python application
 COPY asa_ctrl /usr/share/asa_ctrl

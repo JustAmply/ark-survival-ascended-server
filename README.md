@@ -131,15 +131,20 @@ The scheduler sends chat alerts 30, 5 and 1 minute before the restart and trigge
 
 ### DepotDownloader Configuration
 
-SteamCMD is no longer required inside the container—game updates are handled by the bundled [DepotDownloader](https://github.com/SteamRE/DepotDownloader) binary. This avoids 32-bit compatibility headaches (especially on ARM hosts) while still downloading the Windows server build. You can tweak its behavior with optional environment variables:
+SteamCMD is no longer required inside the container—game updates are handled by bundled [DepotDownloader](https://github.com/SteamRE/DepotDownloader) binaries. Both the Linux and Windows builds are shipped: the Linux binary runs first, and if QEMU dies on an ARM host the script automatically retries with the Windows build through Proton (the same stack we already use to launch the ASA server). No manual host-side steps are needed.
+
+Customize behavior with environment variables:
 
 - `DEPOTDOWNLOADER_USERNAME` / `DEPOTDOWNLOADER_PASSWORD` – authenticate with a Steam account when a private branch is needed (defaults to anonymous).
 - `DEPOTDOWNLOADER_BRANCH` / `DEPOTDOWNLOADER_BRANCH_PASSWORD` – target beta branches or password-protected builds.
 - `DEPOTDOWNLOADER_MAX_DOWNLOADS` – override the concurrent chunk count (default is DepotDownloader’s internal value of 8).
 - `DEPOTDOWNLOADER_EXTRA_ARGS` – pass any additional flags supported by DepotDownloader (space-separated).
+- `DEPOTDOWNLOADER_FORCE_WINDOWS=1` – skip the Linux binary and always run the Proton-backed Windows build (handy if you *know* QEMU crashes immediately).
+- `DEPOTDOWNLOADER_DISABLE_WINDOWS_FALLBACK=1` – opt out of the Proton fallback entirely.
 - `ASA_STEAM_APP_ID` – override the Steam App ID if Wildcard ever changes it (default `2430930`).
+- `ASA_SKIP_STEAM_UPDATE` – set to `1` only if you plan to manage server files yourself (for example, when debugging or using a shared cache).
 
-Most users can ignore these knobs, but they can be helpful for high-latency networks or custom Steam depots.
+Most users can leave these at their defaults; the fallback engages automatically on ARM devices such as the Oracle free tier.
 
 ## 🏗️ Project History
 
