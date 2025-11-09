@@ -4,6 +4,7 @@ FROM python:3.12-slim
 ARG VERSION="unknown"
 ARG GIT_COMMIT="unknown"
 ARG BUILD_DATE="unknown"
+ARG DEPOTDOWNLOADER_VERSION="DepotDownloader_3.4.0"
 
 # Add metadata labels
 LABEL org.opencontainers.image.version="${VERSION}" \
@@ -22,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
     wget \
     unzip \
+    ca-certificates \
     libc6-dev \
     lib32stdc++6 \
     lib32z1 \
@@ -43,10 +45,20 @@ RUN groupadd -g 25000 gameserver && \
 # Create necessary directories
 RUN mkdir -p \
     /home/gameserver/Steam \
-    /home/gameserver/steamcmd \
     /home/gameserver/server-files \
     /home/gameserver/cluster-shared && \
     chown -R gameserver:gameserver /home/gameserver
+
+# Install DepotDownloader (self-contained .NET binary)
+ENV DEPOTDOWNLOADER_VERSION=${DEPOTDOWNLOADER_VERSION} \
+    DEPOTDOWNLOADER_DIR=/opt/depotdownloader \
+    DEPOTDOWNLOADER_BIN=/opt/depotdownloader/DepotDownloader
+
+RUN mkdir -p "$DEPOTDOWNLOADER_DIR" && \
+    wget -q -O /tmp/depotdownloader.zip "https://github.com/SteamRE/DepotDownloader/releases/download/${DEPOTDOWNLOADER_VERSION}/DepotDownloader-linux-x64.zip" && \
+    unzip -q /tmp/depotdownloader.zip -d "$DEPOTDOWNLOADER_DIR" && \
+    rm /tmp/depotdownloader.zip && \
+    chmod +x "$DEPOTDOWNLOADER_BIN"
 
 # Copy Python application
 COPY asa_ctrl /usr/share/asa_ctrl
@@ -70,7 +82,6 @@ RUN chmod +x /usr/bin/start_server.sh
 
 # Declare persistent data volumes
 VOLUME ["/home/gameserver/Steam", \
-        "/home/gameserver/steamcmd", \
         "/home/gameserver/server-files", \
         "/home/gameserver/cluster-shared"]
 

@@ -77,7 +77,7 @@ netstat -tlnp | grep :7777
 ```bash
 docker stop asa-server-1
 docker rm asa-server-1
-docker volume rm asa-server_server-files-1 asa-server_steam-1 asa-server_steamcmd-1 asa-server_cluster-shared
+docker volume rm asa-server_server-files-1 asa-server_steam-1 asa-server_cluster-shared
 docker compose up -d
 ```
 

@@ -3,7 +3,7 @@
 # Responsibilities:
 #   1. Ensure permissions & drop privileges
 #   2. Optional debug hold
-#   3. Install / update steamcmd + server files
+#   3. Download / update ASA server files
 #   4. Resolve Proton version & install if missing
 #   5. Prepare dynamic mods parameter
 #   6. Prepare runtime environment (XDG, compat data)
@@ -18,18 +18,19 @@ set -Ee -o pipefail
 #############################
 TARGET_UID=25000
 TARGET_GID=25000
-STEAMCMD_DIR="/home/gameserver/steamcmd"
 SERVER_FILES_DIR="/home/gameserver/server-files"
 ASA_BINARY_DIR="$SERVER_FILES_DIR/ShooterGame/Binaries/Win64"
 LOG_DIR="$SERVER_FILES_DIR/ShooterGame/Saved/Logs"
 STEAM_COMPAT_DATA="$SERVER_FILES_DIR/steamapps/compatdata"
-ASA_COMPAT_DATA="$STEAM_COMPAT_DATA/2430930"
+ASA_STEAM_APP_ID="${ASA_STEAM_APP_ID:-2430930}"
+ASA_COMPAT_DATA="$STEAM_COMPAT_DATA/$ASA_STEAM_APP_ID"
 STEAM_COMPAT_DIR="/home/gameserver/Steam/compatibilitytools.d"
 ASA_BINARY_NAME="ArkAscendedServer.exe"
 ASA_PLUGIN_BINARY_NAME="AsaApiLoader.exe"
 FALLBACK_PROTON_VERSION="8-21"
 PID_FILE="/home/gameserver/.asa-server.pid"
 ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
+DEPOTDOWNLOADER_BIN="${DEPOTDOWNLOADER_BIN:-/opt/depotdownloader/DepotDownloader}"
 SHUTDOWN_IN_PROGRESS=0
 SUPERVISOR_EXIT_REQUESTED=0
 RESTART_REQUESTED=0
@@ -108,7 +109,6 @@ ensure_permissions() {
   set -e
   local dirs=(
     "/home/gameserver/Steam"
-    "/home/gameserver/steamcmd"
     "$SERVER_FILES_DIR"
     "/home/gameserver/cluster-shared"
   )
@@ -132,19 +132,58 @@ ensure_permissions() {
 }
 
 #############################
-# 3. SteamCMD / Server Files
+# 3. DepotDownloader / Server Files
 #############################
-ensure_steamcmd() {
-  if [ ! -d "$STEAMCMD_DIR/linux32" ]; then
-    log "Installing steamcmd..."
-    mkdir -p "$STEAMCMD_DIR"
-    (cd "$STEAMCMD_DIR" && wget -q https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz && tar xf steamcmd_linux.tar.gz)
+ensure_depotdownloader() {
+  if [ -x "$DEPOTDOWNLOADER_BIN" ]; then
+    return 0
+  fi
+  log "DepotDownloader binary missing at $DEPOTDOWNLOADER_BIN"
+  log "This usually means the image was built without downloading the release asset."
+  exit 1
+}
+
+build_depotdownloader_cmd() {
+  local -n __cmd_ref=$1
+  __cmd_ref=("$DEPOTDOWNLOADER_BIN" \
+    -app "$ASA_STEAM_APP_ID" \
+    -os windows \
+    -osarch 64 \
+    -dir "$SERVER_FILES_DIR" \
+    -validate)
+
+  if [ -n "${DEPOTDOWNLOADER_MAX_DOWNLOADS:-}" ]; then
+    __cmd_ref+=(-max-downloads "$DEPOTDOWNLOADER_MAX_DOWNLOADS")
+  fi
+
+  if [ -n "${DEPOTDOWNLOADER_BRANCH:-}" ]; then
+    __cmd_ref+=(-branch "$DEPOTDOWNLOADER_BRANCH")
+    if [ -n "${DEPOTDOWNLOADER_BRANCH_PASSWORD:-}" ]; then
+      __cmd_ref+=(-branchpassword "$DEPOTDOWNLOADER_BRANCH_PASSWORD")
+    fi
+  fi
+
+  if [ -n "${DEPOTDOWNLOADER_USERNAME:-}" ]; then
+    __cmd_ref+=(-username "$DEPOTDOWNLOADER_USERNAME")
+    if [ -n "${DEPOTDOWNLOADER_PASSWORD:-}" ]; then
+      __cmd_ref+=(-password "$DEPOTDOWNLOADER_PASSWORD")
+    fi
+  else
+    __cmd_ref+=(-anonymous)
+  fi
+
+  if [ -n "${DEPOTDOWNLOADER_EXTRA_ARGS:-}" ]; then
+    # shellcheck disable=SC2206
+    local extra_args=($DEPOTDOWNLOADER_EXTRA_ARGS)
+    __cmd_ref+=("${extra_args[@]}")
   fi
 }
 
 update_server_files() {
-  log "Updating / validating ASA server files..."
-  (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+  log "Updating / validating ASA server files via DepotDownloader..."
+  local depot_cmd=()
+  build_depotdownloader_cmd depot_cmd
+  "${depot_cmd[@]}"
 }
 
 #############################
@@ -546,6 +585,6 @@ maybe_debug
 ensure_permissions
 register_supervisor_pid
 start_restart_scheduler
-ensure_steamcmd
+ensure_depotdownloader
 supervisor_loop
 exit $?

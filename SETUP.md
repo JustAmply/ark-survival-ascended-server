@@ -108,6 +108,18 @@ docker logs -f asa-server-1
 docker restart asa-server-1
 ```
 
+### 📥 DepotDownloader Options
+
+The container now bundles the cross-platform [DepotDownloader](https://github.com/SteamRE/DepotDownloader) tool instead of the legacy SteamCMD runtime. This keeps updates working even on ARM hosts (where 32-bit compatibility layers often break) and still fetches the Windows build that Proton needs. Everything works anonymously by default, but you can fine-tune downloads by exporting extra environment variables in your `docker-compose.yml`:
+
+- `DEPOTDOWNLOADER_USERNAME` / `DEPOTDOWNLOADER_PASSWORD` – use your Steam credentials for private branches.
+- `DEPOTDOWNLOADER_BRANCH` / `DEPOTDOWNLOADER_BRANCH_PASSWORD` – pin the server to a specific beta branch.
+- `DEPOTDOWNLOADER_MAX_DOWNLOADS` – control how many download chunks run concurrently (number).
+- `DEPOTDOWNLOADER_EXTRA_ARGS` – append arbitrary DepotDownloader flags (space-separated string).
+- `ASA_STEAM_APP_ID` – override the Steam App ID (defaults to `2430930`).
+
+Leave these unset unless you know you need them—the defaults are ideal for public servers.
+
 ### 🎮 Mod Management
 
 **🚀 Dynamic Method (Recommended):**

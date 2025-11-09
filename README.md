@@ -129,6 +129,18 @@ environment:
 
 The scheduler sends chat alerts 30, 5 and 1 minute before the restart and triggers a safe shutdown (including `saveworld`) so the server comes back online automatically. Adjust the warning offsets via `SERVER_RESTART_WARNINGS` (comma-separated minutes, for example `SERVER_RESTART_WARNINGS=60,15,5,1`). Leave `SERVER_RESTART_CRON` empty to disable the feature.
 
+### DepotDownloader Configuration
+
+SteamCMD is no longer required inside the container—game updates are handled by the bundled [DepotDownloader](https://github.com/SteamRE/DepotDownloader) binary. This avoids 32-bit compatibility headaches (especially on ARM hosts) while still downloading the Windows server build. You can tweak its behavior with optional environment variables:
+
+- `DEPOTDOWNLOADER_USERNAME` / `DEPOTDOWNLOADER_PASSWORD` – authenticate with a Steam account when a private branch is needed (defaults to anonymous).
+- `DEPOTDOWNLOADER_BRANCH` / `DEPOTDOWNLOADER_BRANCH_PASSWORD` – target beta branches or password-protected builds.
+- `DEPOTDOWNLOADER_MAX_DOWNLOADS` – override the concurrent chunk count (default is DepotDownloader’s internal value of 8).
+- `DEPOTDOWNLOADER_EXTRA_ARGS` – pass any additional flags supported by DepotDownloader (space-separated).
+- `ASA_STEAM_APP_ID` – override the Steam App ID if Wildcard ever changes it (default `2430930`).
+
+Most users can ignore these knobs, but they can be helpful for high-latency networks or custom Steam depots.
+
 ## 🏗️ Project History
 
 This project is a **complete rewrite** of the original ARK server management tools. Here's the story:
