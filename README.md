@@ -39,6 +39,7 @@ Your server will be discoverable in the "Unofficial" server browser once setup i
 - **Storage**: ~31 GB (server files only)
 - **OS**: Linux with Docker support
 - **Tested on**: Ubuntu 24.04, Debian 12, Docker Desktop on Windows
+ - **Container images**: GitHub Actions publishes multi-arch manifests (`linux/amd64`, `linux/arm64/v8`) so `docker compose pull` works on both x86_64 and ARM hosts.
  - **ARM64 hosts**: the container now detects `aarch64`, installs FEX via `ppa:fex-emu/fex`, registers binfmt handlers, and downloads the Ubuntu 24.04 rootfs into `/home/gameserver/.fex-emu`. The `.fex-emu` path is exposed as a persistent volume so the download is skipped on subsequent restarts.
 
  ## 🧱 ARM64 + FEX workflow

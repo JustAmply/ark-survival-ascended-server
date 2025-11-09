@@ -22,6 +22,7 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_BASENAME: ${{ github.repository_owner }}/asa-linux-server
+      BUILD_PLATFORMS: linux/amd64,linux/arm64
     outputs:
       image-tags: ${{ steps.metadata.outputs.tags }}
       version: ${{ steps.version.outputs.version }}
@@ -96,6 +97,11 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Generated tags: ${TAGS//$'\n'/, }"
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: ${{ env.BUILD_PLATFORMS }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -113,6 +119,7 @@ jobs:
           context: .
           push: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
           tags: ${{ steps.metadata.outputs.tags }}
+          platforms: ${{ env.BUILD_PLATFORMS }}
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
             GIT_COMMIT=${{ github.sha }}
