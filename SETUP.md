@@ -120,6 +120,7 @@ The container now bundles the cross-platform [DepotDownloader](https://github.co
 - `DEPOTDOWNLOADER_FORCE_WINDOWS=1` – always use the Proton-backed Windows build (skip the Linux attempt).
 - `DEPOTDOWNLOADER_DISABLE_WINDOWS_FALLBACK=1` – turn off the Windows fallback.
 - `ASA_SKIP_STEAM_UPDATE` – set to `1` only if you intend to handle updates outside the container (rare).
+- `PROTON_VERSION=10-23` – pin a specific GE-Proton release; otherwise the image auto-selects from its curated list.
 
 Leave these unset unless you know you need them—the defaults are ideal for public servers, and the Windows fallback will automatically kick in if QEMU has trouble executing the Linux binary on ARM hosts.
 

@@ -146,6 +146,10 @@ Customize behavior with environment variables:
 
 Most users can leave these at their defaults; the fallback engages automatically on ARM devices such as the Oracle free tier.
 
+### Proton Version Selection
+
+By default the container keeps a curated list of known-good [GE-Proton](https://github.com/GloriousEggroll/proton-ge-custom) releases (starting from `GE-Proton10-24`) and picks the newest one whose assets are still available on GitHub. If you want to pin a specific build, set `PROTON_VERSION=10-23` (or similar) in your environment; the script automatically strips any `GE-Proton` prefix. The archive is downloaded and verified inside the container, so no host tooling is required.
+
 ## 🏗️ Project History
 
 This project is a **complete rewrite** of the original ARK server management tools. Here's the story:

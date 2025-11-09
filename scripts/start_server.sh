@@ -90,6 +90,32 @@ configure_timezone() {
   fi
 }
 
+ensure_machine_id() {
+  local target="/etc/machine-id"
+  if [ -s "$target" ]; then
+    return 0
+  fi
+
+  if [ "$(id -u)" != "0" ]; then
+    log "Warning: /etc/machine-id missing but insufficient privileges to create it."
+    return 0
+  fi
+
+  log "Generating /etc/machine-id for Proton compatibility..."
+  if command -v dbus-uuidgen >/dev/null 2>&1; then
+    if dbus-uuidgen --ensure="$target" >/dev/null 2>&1; then
+      chmod 0444 "$target" 2>/dev/null || true
+      return 0
+    fi
+  fi
+
+  if cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' | tr '[:upper:]' '[:lower:]' | head -c32 >"$target"; then
+    chmod 0444 "$target" 2>/dev/null || true
+    return 0
+  fi
+
+  log "Failed to generate /etc/machine-id"
+}
 #############################
 # 1. Debug Hold
 #############################
@@ -313,63 +339,33 @@ find_latest_release_with_assets() {
 }
 
 resolve_proton_version() {
-  local detected=""
+  local candidates=(
+    "10-24" "10-23" "10-21" "10-18" "10-16" "10-13" "10-11" "10-9" "10-8" "10-6"
+    "10-2" "9-13" "9-10" "9-5" "9-2" "8-21" "8-16" "8-3" "8-2" "7-41" "7-37"
+    "6-9" "6-8" "6-6" "6-2" "6-1" "5-24" "5-21" "5-14"
+  )
+
+  if [ -n "${PROTON_VERSION:-}" ]; then
+    PROTON_VERSION="${PROTON_VERSION#GE-Proton}"
+    log "Using user-specified Proton version: $PROTON_VERSION"
+  fi
+
   if [ -z "${PROTON_VERSION:-}" ]; then
-    log "Detecting latest Proton GE version..."
-    if json=$(wget -qO- https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest 2>/dev/null || true); then
-      # Try jq first if present (most reliable)
-      if command -v jq >/dev/null 2>&1; then
-        ver=$(printf '%s' "$json" | jq -r '.tag_name' 2>/dev/null || true)
-      else
-        # Fallback to sed extraction of tag_name value
-        ver=$(printf '%s' "$json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(GE-Proton[^"]*\)".*/\1/p' | head -n1 || true)
+    log "Selecting Proton version from built-in list..."
+    for candidate in "${candidates[@]}"; do
+      if check_proton_release_assets "$candidate"; then
+        PROTON_VERSION="$candidate"
+        log "Selected GE-Proton$PROTON_VERSION"
+        break
       fi
-      # Sanitize / normalize: strip optional leading GE-Proton
-      if [ -n "${ver:-}" ]; then
-        ver=${ver#GE-Proton}
-        # Basic validation: must start with a digit and contain only allowed chars (digits, dots, dashes)
-        if [[ "$ver" =~ ^[0-9][0-9A-Za-z._-]*$ ]]; then
-          detected="$ver"
-          log "Using detected GE-Proton version: $detected"
-        else
-          log "Detected tag_name malformed ('$ver'); ignoring"
-        fi
-      else
-        log "Failed to parse latest release tag_name"
-      fi
-    else
-      log "Could not query GitHub API for Proton releases"
-    fi
-  else
-    detected="$PROTON_VERSION"
+    done
   fi
 
-  local resolved="${PROTON_VERSION:-}"
-  if [ -z "$resolved" ] && [ -n "$detected" ]; then
-    if check_proton_release_assets "$detected"; then
-      resolved="$detected"
-    else
-      log "Latest GE-Proton release GE-Proton$detected missing assets; searching previous releases..."
-    fi
+  if [ -z "${PROTON_VERSION:-}" ]; then
+    PROTON_VERSION="$FALLBACK_PROTON_VERSION"
+    log "No listed release available; falling back to GE-Proton$PROTON_VERSION"
   fi
 
-  if [ -z "$resolved" ] && [ -z "${PROTON_VERSION:-}" ]; then
-    if fallback_ver=$(find_latest_release_with_assets "$detected"); then
-      resolved="$fallback_ver"
-      log "Using fallback GE-Proton release: $resolved"
-    else
-      log "No suitable Proton release with assets found via GitHub API"
-    fi
-  fi
-
-  if [ -z "$resolved" ]; then
-    resolved="${PROTON_VERSION:-$FALLBACK_PROTON_VERSION}"
-    if [ "$resolved" = "$FALLBACK_PROTON_VERSION" ]; then
-      log "Falling back to default Proton version: $resolved"
-    fi
-  fi
-
-  PROTON_VERSION="$resolved"
   export PROTON_VERSION
   PROTON_DIR_NAME="GE-Proton$PROTON_VERSION"
   PROTON_ARCHIVE_NAME="$PROTON_DIR_NAME.tar.gz"
@@ -663,6 +659,7 @@ run_server() {
 #############################
 if [ "$(id -u)" = "0" ]; then
   configure_timezone
+  ensure_machine_id
 fi
 maybe_debug
 ensure_permissions
