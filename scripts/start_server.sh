@@ -180,6 +180,46 @@ EOF
   fi
 }
 
+binfmt_requirements_hint() {
+  log "Binfmt_misc registration requires write access to /proc/sys/fs/binfmt_misc."
+  log "Run the container with --privileged or use the README compose snippet (devices: /dev/fuse, cap_add: SYS_ADMIN,MKNOD, security_opt: apparmor:unconfined)."
+}
+
+ensure_binfmt_available() {
+  local binfmt_dir="/proc/sys/fs/binfmt_misc"
+  local register_file="$binfmt_dir/register"
+
+  if command -v modprobe >/dev/null 2>&1; then
+    modprobe binfmt_misc >/dev/null 2>&1 || true
+  fi
+
+  if [ ! -d "$binfmt_dir" ]; then
+    if ! mkdir -p "$binfmt_dir"; then
+      log "Unable to create $binfmt_dir (missing CAP_SYS_ADMIN?)."
+      return 1
+    fi
+  fi
+
+  if ! mountpoint -q "$binfmt_dir"; then
+    if ! mount -t binfmt_misc binfmt_misc "$binfmt_dir" >/dev/null 2>&1; then
+      log "Failed to mount binfmt_misc at $binfmt_dir"
+      return 1
+    fi
+  fi
+
+  if [ ! -e "$register_file" ]; then
+    log "binfmt_misc register file $register_file not present"
+    return 1
+  fi
+
+  if [ ! -w "$register_file" ]; then
+    log "binfmt_misc register file $register_file is not writable"
+    return 1
+  fi
+
+  return 0
+}
+
 register_fex_binfmt() {
   local fex_bin
   fex_bin="$(command -v FEX 2>/dev/null || true)"
@@ -187,22 +227,28 @@ register_fex_binfmt() {
     log "FEX binary missing, skipping binfmt registration"
     return 0
   fi
-  modprobe binfmt_misc >/dev/null 2>&1 || true
-  if [ ! -d /proc/sys/fs/binfmt_misc ]; then
-    mkdir -p /proc/sys/fs/binfmt_misc
+  local binfmt_dir="/proc/sys/fs/binfmt_misc"
+  local register_file="$binfmt_dir/register"
+
+  if ! ensure_binfmt_available; then
+    return 1
   fi
-  if ! mountpoint -q /proc/sys/fs/binfmt_misc; then
-    mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc >/dev/null 2>&1 || true
-  fi
+
   for name in FEX-x86 FEX-x86_64; do
-    if [ -e "/proc/sys/fs/binfmt_misc/$name" ]; then
-      echo -1 >"/proc/sys/fs/binfmt_misc/$name" 2>/dev/null || true
+    if [ -e "$binfmt_dir/$name" ]; then
+      echo -1 >"$binfmt_dir/$name" 2>/dev/null || true
     fi
   done
   local entry32=':FEX-x86:M:0:\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x03\x00:\xff\xff\xff\xff\xff\xfe\xfe\x00\x00\x00\x00\xff\xff\xff\xff\xff\xfe\xff\xff\xff:%s:POCF'
   local entry64=':FEX-x86_64:M:0:\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00:\xff\xff\xff\xff\xff\xfe\xfe\x00\x00\x00\x00\xff\xff\xff\xff\xff\xfe\xff\xff\xff:%s:POCF'
-  printf '%b' "$entry32" "$fex_bin" > /proc/sys/fs/binfmt_misc/register
-  printf '%b' "$entry64" "$fex_bin" > /proc/sys/fs/binfmt_misc/register
+  if ! printf '%b' "$entry32" "$fex_bin" >"$register_file"; then
+    log "Failed to register 32-bit FEX binfmt handler"
+    return 1
+  fi
+  if ! printf '%b' "$entry64" "$fex_bin" >"$register_file"; then
+    log "Failed to register 64-bit FEX binfmt handler"
+    return 1
+  fi
   log "Registered FEX binfmt_misc handlers"
 }
 
@@ -262,6 +308,10 @@ ensure_fex_emulation() {
     return 0
   fi
   log "Configuring FEX emulator support for ARM hosts"
+  if ! ensure_binfmt_available; then
+    binfmt_requirements_hint
+    exit 70
+  fi
   mkdir -p "$FEX_DATA_DIR"
   DEBIAN_FRONTEND=noninteractive apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gnupg ca-certificates apt-transport-https lsb-release xxhash
@@ -271,7 +321,10 @@ ensure_fex_emulation() {
   variant="$(detect_fex_variant)"
   log "Detected CPU variant ${variant} → installing fex-emu-${variant}"
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "fex-emu-${variant}"
-  register_fex_binfmt
+  if ! register_fex_binfmt; then
+    binfmt_requirements_hint
+    exit 70
+  fi
   ensure_fex_rootfs
   write_fex_config
   chown -R ${TARGET_UID}:${TARGET_GID} "$FEX_DATA_DIR"
