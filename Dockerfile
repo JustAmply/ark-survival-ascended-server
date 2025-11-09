@@ -17,19 +17,15 @@ LABEL org.opencontainers.image.version="${VERSION}" \
 ENV TZ=UTC
 ARG DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    locales \
-    tzdata \
-    wget \
-    unzip \
-    libc6-dev \
-    lib32stdc++6 \
-    lib32z1 \
-    lib32gcc-s1 \
-    libfreetype6 \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/* && \
-    echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen && \
+RUN set -eux; \
+    apt-get update; \
+    packages="locales tzdata wget unzip libc6-dev libfreetype6 ca-certificates"; \
+    if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+        packages="$packages lib32stdc++6 lib32z1 lib32gcc-s1"; \
+    fi; \
+    apt-get install -y --no-install-recommends $packages; \
+    rm -rf /var/lib/apt/lists/*; \
+    echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen; \
     locale-gen
 
 # Set locale-related environment variables early (inherit to runtime)
