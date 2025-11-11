@@ -8,6 +8,7 @@ services:
         -WinLiveMaxPlayers=50 
         -clusterid=default 
         -ClusterDirOverride="/home/gameserver/cluster-shared"
+        -nosteam
       ENABLE_DEBUG: "0"
       SERVER_RESTART_CRON: "0 4 * * *"
       TZ: "Europe/Berlin"
