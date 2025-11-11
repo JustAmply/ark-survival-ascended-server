@@ -301,6 +301,23 @@ inject_mods_param() {
 }
 
 #############################
+# 5a. Ensure -nosteam
+#############################
+ensure_nosteam_flag() {
+  local params="${ASA_START_PARAMS:-}"
+  if printf '%s\n' "$params" | grep -q -- '-nosteam'; then
+    return 0
+  fi
+  if [ -n "$params" ]; then
+    params="$params -nosteam"
+  else
+    params="-nosteam"
+  fi
+  ASA_START_PARAMS="$params"
+  export ASA_START_PARAMS
+}
+
+#############################
 # 6. Runtime Environment (XDG)
 #############################
 prepare_runtime_env() {
@@ -525,6 +542,7 @@ run_server() {
   install_proton_if_needed
   ensure_proton_compat_data
   inject_mods_param
+  ensure_nosteam_flag
   prepare_runtime_env
   handle_plugin_loader
   start_log_streamer
