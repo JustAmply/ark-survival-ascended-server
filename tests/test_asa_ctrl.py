@@ -7,12 +7,15 @@ Run with: `py -m tests.test_asa_ctrl` or `py tests/test_asa_ctrl.py`.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
 from pathlib import Path
 from types import MethodType
 from unittest.mock import patch
+
+import pytest
 
 # Ensure project root is on sys.path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,6 +34,7 @@ from asa_ctrl.errors import (  # noqa: E402
     RconPacketError,
     RconTimeoutError,
     RconAuthenticationError,
+    CorruptedModsDatabaseError,
 )
 from asa_ctrl.constants import RconPacketTypes  # noqa: E402
 
@@ -226,6 +230,44 @@ def test_mod_database_get_instance_respects_env():
             os.environ.pop('ASA_MOD_DATABASE_PATH', None)
 
     print("✓ ModDatabase.get_instance() environment override tests passed")
+
+
+def test_mod_database_load_rejects_non_list_json(tmp_path):
+    """Ensure malformed mods.json without a list triggers a helpful error."""
+
+    db_path = tmp_path / "mods.json"
+    db_path.write_text(json.dumps({"mod_id": 1}), encoding="utf-8")
+
+    with pytest.raises(CorruptedModsDatabaseError) as exc:
+        ModDatabase(str(db_path))
+
+    assert "JSON array" in str(exc.value)
+
+
+def test_mod_database_load_rejects_non_mapping_entries(tmp_path):
+    """Ensure mods.json entries must be objects with required keys."""
+
+    db_path = tmp_path / "mods.json"
+    db_path.write_text(json.dumps(["invalid"]), encoding="utf-8")
+
+    with pytest.raises(CorruptedModsDatabaseError) as exc:
+        ModDatabase(str(db_path))
+
+    assert "index 0" in str(exc.value)
+
+
+def test_mod_database_load_reports_missing_keys(tmp_path):
+    """Ensure missing required keys produce a descriptive corruption error."""
+
+    db_path = tmp_path / "mods.json"
+    db_path.write_text(json.dumps([{ "name": "No ID" }]), encoding="utf-8")
+
+    with pytest.raises(CorruptedModsDatabaseError) as exc:
+        ModDatabase(str(db_path))
+
+    message = str(exc.value)
+    assert "index 0" in message
+    assert "mod_id" in message
 
 
 def test_exit_codes():
