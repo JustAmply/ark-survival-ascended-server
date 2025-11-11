@@ -54,6 +54,23 @@ def test_start_params_helper():
     assert parsed.get('RCONPort') == '27020'
     assert parsed.get('WinLiveMaxPlayers') == '50'
 
+    quoted_params = (
+        'Fjordur?listen?SessionName="My Server Name"?AltName="First Value"?QueryPort=27015 '
+        '-SessionName="Override Name" -ServerAdminPassword="complex pass" -ServerPassword="Pa ss"'
+    )
+
+    assert StartParamsHelper.get_value(quoted_params, "SessionName") == "Override Name"
+    assert StartParamsHelper.get_value(quoted_params, "ServerAdminPassword") == "complex pass"
+    assert StartParamsHelper.get_value(quoted_params, "AltName") == "First Value"
+
+    parsed_quoted = parse_start_params(quoted_params)
+    assert parsed_quoted.get('_map') == 'Fjordur'
+    assert parsed_quoted.get('SessionName') == 'Override Name'
+    assert parsed_quoted.get('ServerPassword') == 'Pa ss'
+    assert parsed_quoted.get('ServerAdminPassword') == 'complex pass'
+    assert parsed_quoted.get('AltName') == 'First Value'
+    assert parsed_quoted.get('QueryPort') == '27015'
+
     print("✓ StartParamsHelper tests passed")
 
 

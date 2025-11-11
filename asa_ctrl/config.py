@@ -8,8 +8,9 @@ Enhancements in refactor:
 * Defensive parsing + minimal caching (can be expanded if needed)
 """
 
-import os
 import configparser
+import os
+import shlex
 from pathlib import Path
 from typing import Optional, Dict
 
@@ -37,22 +38,9 @@ class StartParamsHelper:
         """
         if not start_params:
             return None
-            
-        key_pattern = f"{key}="
-        offset = start_params.find(key_pattern)
-        
-        if offset == -1:
-            return None
-            
-        offset += len(key_pattern)
-        value = ""
-        
-        for char in start_params[offset:]:
-            if char in [' ', '?']:
-                break
-            value += char
-            
-        return value
+
+        parsed = parse_start_params(start_params)
+        return parsed.get(key)
 
 
 def parse_start_params(start_params: Optional[str]) -> Dict[str, str]:
@@ -68,27 +56,36 @@ def parse_start_params(start_params: Optional[str]) -> Dict[str, str]:
     if not start_params:
         return result
 
-    # Split on whitespace first to discard trailing flags (e.g. -WinLiveMaxPlayers=50)
-    # We'll keep full string; then split tokens by space to treat flags separately.
-    space_tokens = start_params.split()
-    if not space_tokens:
+    def _strip_matching_quotes(value: str) -> str:
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            return value[1:-1]
+        return value
+
+    try:
+        tokens = shlex.split(start_params, posix=True)
+    except ValueError:
+        # Fall back to simple split if shlex fails for some reason
+        tokens = start_params.split()
+
+    if not tokens:
         return result
 
     # First token often contains map plus ? delimited options
-    first = space_tokens[0]
+    first = tokens[0]
     parts = first.split('?')
     if parts:
         result['_map'] = parts[0]
         for seg in parts[1:]:
             if '=' in seg:
                 k, v = seg.split('=', 1)
-                result[k] = v
+                result[k] = _strip_matching_quotes(v)
 
     # Remaining tokens may include -Key=Value style args
-    for token in space_tokens[1:]:
-        if token.startswith('-') and '=' in token:
-            k, v = token[1:].split('=', 1)
-            result[k] = v.strip('"')
+    for token in tokens[1:]:
+        current = token[1:] if token.startswith('-') else token
+        if '=' in current:
+            k, v = current.split('=', 1)
+            result[k] = _strip_matching_quotes(v)
     return result
 
 
