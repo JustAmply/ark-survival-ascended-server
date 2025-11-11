@@ -27,6 +27,18 @@ ASA_COMPAT_DATA="$STEAM_COMPAT_DATA/2430930"
 STEAM_COMPAT_DIR="/home/gameserver/Steam/compatibilitytools.d"
 ASA_BINARY_NAME="ArkAscendedServer.exe"
 ASA_PLUGIN_BINARY_NAME="AsaApiLoader.exe"
+FEX_DATA_DIR="/home/gameserver/.fex-emu"
+FEX_ROOTFS_NAME="Ubuntu_24_04.sqsh"
+FEX_ROOTFS_URL="https://rootfs.fex-emu.gg/Ubuntu_24_04/2025-03-04/Ubuntu_24_04.sqsh"
+FEX_ROOTFS_HASH="6d469a5d2bb838ac"
+FEX_SETUP_MARKER="$FEX_DATA_DIR/.fex-setup"
+FEX_CONFIG_FILE="$FEX_DATA_DIR/Config.json"
+FEX_APT_DIST="${FEX_APT_DIST:-noble}"
+FEX_APT_BASE_URL="http://ppa.launchpad.net/fex-emu/fex/ubuntu"
+FEX_APT_KEY_URL="https://keyserver.ubuntu.com/pks/lookup?fingerprint=on&op=get&search=0xEDB98BFE8A2310DC9C4A376E76DBFEBEA206F5AC"
+FEX_APT_KEYRING="/etc/apt/keyrings/fex-emu.gpg"
+FEX_APT_LIST="/etc/apt/sources.list.d/fex-emu-fex.list"
+CPU_FEATURES=()
 FALLBACK_PROTON_VERSION="8-21"
 PID_FILE="/home/gameserver/.asa-server.pid"
 ASA_CTRL_BIN="/usr/local/bin/asa-ctrl"
@@ -96,6 +108,237 @@ maybe_debug() {
     sleep 999999999
     exit 0
   fi
+}
+
+# ARM/FEX helpers
+is_arm64_host() {
+  case "$(uname -m)" in
+    aarch64 | arm64) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+load_cpu_features() {
+  if [ "${#CPU_FEATURES[@]}" -ne 0 ]; then
+    return 0
+  fi
+  local raw
+  raw="$(awk -F: '/^Features/{print $2; exit}' /proc/cpuinfo 2>/dev/null || true)"
+  read -r -a CPU_FEATURES <<< "$raw"
+}
+
+has_cpu_features() {
+  load_cpu_features
+  local feature
+  for feature in "$@"; do
+    local found=0
+    local candidate
+    for candidate in "${CPU_FEATURES[@]}"; do
+      if [ "$candidate" = "$feature" ]; then
+        found=1
+        break
+      fi
+    done
+    if [ "$found" -eq 0 ]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+detect_fex_variant() {
+  local version="8.0"
+  if has_cpu_features atomics asimdrdm crc32 dcpop fcma jscvt lrcpc paca pacg asimddp flagm ilrcpc uscat; then
+    version="8.4"
+  elif has_cpu_features atomics asimdrdm crc32 dcpop fcma jscvt lrcpc paca pacg; then
+    version="8.3"
+  elif has_cpu_features atomics asimdrdm crc32 dcpop; then
+    version="8.2"
+  elif has_cpu_features atomics asimdrdm crc32; then
+    version="8.1"
+  fi
+  case "$version" in
+    8.4) printf 'armv8.4' ;;
+    8.3 | 8.2) printf 'armv8.2' ;;
+    *) printf 'armv8.0' ;;
+  esac
+}
+
+ensure_fex_repo() {
+  if [ ! -f "$FEX_APT_KEYRING" ]; then
+    log "Importing FEX APT signing key"
+    mkdir -p "$(dirname "$FEX_APT_KEYRING")"
+    wget -qO- "$FEX_APT_KEY_URL" | gpg --dearmor --yes -o "$FEX_APT_KEYRING"
+    chmod 644 "$FEX_APT_KEYRING"
+  fi
+
+  if [ ! -f "$FEX_APT_LIST" ]; then
+    log "Adding FEX APT repository (Ubuntu $FEX_APT_DIST)"
+    cat <<EOF >"$FEX_APT_LIST"
+deb [arch=arm64 signed-by=$FEX_APT_KEYRING] $FEX_APT_BASE_URL $FEX_APT_DIST main
+EOF
+  fi
+}
+
+binfmt_requirements_hint() {
+  log "Binfmt_misc registration requires write access to /proc/sys/fs/binfmt_misc."
+  log "Run the container with --privileged or use the README compose snippet (devices: /dev/fuse, cap_add: SYS_ADMIN,MKNOD, security_opt: apparmor:unconfined)."
+}
+
+ensure_binfmt_available() {
+  local binfmt_dir="/proc/sys/fs/binfmt_misc"
+  local register_file="$binfmt_dir/register"
+
+  if command -v modprobe >/dev/null 2>&1; then
+    modprobe binfmt_misc >/dev/null 2>&1 || true
+  fi
+
+  if [ ! -d "$binfmt_dir" ]; then
+    if ! mkdir -p "$binfmt_dir"; then
+      log "Unable to create $binfmt_dir (missing CAP_SYS_ADMIN?)."
+      return 1
+    fi
+  fi
+
+  if ! mountpoint -q "$binfmt_dir"; then
+    if ! mount -t binfmt_misc binfmt_misc "$binfmt_dir" >/dev/null 2>&1; then
+      log "Failed to mount binfmt_misc at $binfmt_dir"
+      return 1
+    fi
+  fi
+
+  if [ ! -e "$register_file" ]; then
+    log "binfmt_misc register file $register_file not present"
+    return 1
+  fi
+
+  if [ ! -w "$register_file" ]; then
+    log "binfmt_misc register file $register_file is not writable"
+    return 1
+  fi
+
+  return 0
+}
+
+register_fex_binfmt() {
+  local fex_bin
+  fex_bin="$(command -v FEX 2>/dev/null || true)"
+  if [ -z "$fex_bin" ]; then
+    log "FEX binary missing, skipping binfmt registration"
+    return 0
+  fi
+  local binfmt_dir="/proc/sys/fs/binfmt_misc"
+  local register_file="$binfmt_dir/register"
+
+  if ! ensure_binfmt_available; then
+    return 1
+  fi
+
+  for name in FEX-x86 FEX-x86_64; do
+    if [ -e "$binfmt_dir/$name" ]; then
+      echo -1 >"$binfmt_dir/$name" 2>/dev/null || true
+    fi
+  done
+  local entry32=':FEX-x86:M:0:\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x03\x00:\xff\xff\xff\xff\xff\xfe\xfe\x00\x00\x00\x00\xff\xff\xff\xff\xff\xfe\xff\xff\xff:%s:POCF'
+  local entry64=':FEX-x86_64:M:0:\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00:\xff\xff\xff\xff\xff\xfe\xfe\x00\x00\x00\x00\xff\xff\xff\xff\xff\xfe\xff\xff\xff:%s:POCF'
+  if ! printf '%b' "$entry32" "$fex_bin" >"$register_file"; then
+    log "Failed to register 32-bit FEX binfmt handler"
+    return 1
+  fi
+  if ! printf '%b' "$entry64" "$fex_bin" >"$register_file"; then
+    log "Failed to register 64-bit FEX binfmt handler"
+    return 1
+  fi
+  log "Registered FEX binfmt_misc handlers"
+}
+
+ensure_fex_rootfs() {
+  local target="$FEX_DATA_DIR/RootFS/$FEX_ROOTFS_NAME"
+  if [ -f "$target" ]; then
+    local existing
+    existing="$(xxhsum -a 64 "$target" | awk '{print $1}')"
+    if [ "$existing" = "$FEX_ROOTFS_HASH" ]; then
+      log "FEX rootfs already present"
+      return 0
+    fi
+    log "Rootfs checksum mismatch (found $existing), redownloading"
+    rm -f "$target"
+  fi
+  mkdir -p "$(dirname "$target")"
+  local tmp="/tmp/$FEX_ROOTFS_NAME"
+  rm -f "$tmp"
+  log "Downloading FEX Ubuntu 24.04 rootfs (~300MB)"
+  wget -q -O "$tmp" "$FEX_ROOTFS_URL"
+  local checksum
+  checksum="$(xxhsum -a 64 "$tmp" | awk '{print $1}')"
+  if [ "$checksum" != "$FEX_ROOTFS_HASH" ]; then
+    log "FEX rootfs checksum mismatch ($checksum)"
+    rm -f "$tmp"
+    return 1
+  fi
+  mv "$tmp" "$target"
+  log "Rootfs saved to $target"
+}
+
+write_fex_config() {
+  if [ -f "$FEX_CONFIG_FILE" ]; then
+    return 0
+  fi
+  mkdir -p "$(dirname "$FEX_CONFIG_FILE")"
+  cat <<EOF >"$FEX_CONFIG_FILE"
+{
+  "Options": {
+    "Emulation": {
+      "RootFS": "$FEX_ROOTFS_NAME"
+    }
+  }
+}
+EOF
+}
+
+ensure_fex_emulation() {
+  if ! is_arm64_host; then
+    return 0
+  fi
+  if [ "$(id -u)" != "0" ]; then
+    return 0
+  fi
+  if [ -f "$FEX_SETUP_MARKER" ] && command -v FEX >/dev/null 2>&1; then
+    log "FEX already configured for this container"
+    return 0
+  fi
+  log "Configuring FEX emulator support for ARM hosts"
+  if ! ensure_binfmt_available; then
+    binfmt_requirements_hint
+    exit 70
+  fi
+  mkdir -p "$FEX_DATA_DIR"
+  DEBIAN_FRONTEND=noninteractive apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gnupg ca-certificates apt-transport-https lsb-release xxhash
+  ensure_fex_repo
+  DEBIAN_FRONTEND=noninteractive apt-get update
+  local variant
+  variant="$(detect_fex_variant)"
+  log "Detected CPU variant ${variant} → installing fex-emu-${variant}"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "fex-emu-${variant}"
+  if ! register_fex_binfmt; then
+    binfmt_requirements_hint
+    exit 70
+  fi
+  ensure_fex_rootfs
+  write_fex_config
+  chown -R ${TARGET_UID}:${TARGET_GID} "$FEX_DATA_DIR"
+  touch "$FEX_SETUP_MARKER"
+}
+
+prepare_fex_runtime_env() {
+  if ! is_arm64_host; then
+    return 0
+  fi
+  export FEX_APP_DATA_LOCATION="$FEX_DATA_DIR"
+  export FEX_APP_CONFIG_LOCATION="$FEX_DATA_DIR"
+  export XDG_DATA_HOME="$FEX_DATA_DIR"
+  export XDG_CONFIG_HOME="$FEX_DATA_DIR"
 }
 
 #############################
@@ -322,6 +565,7 @@ prepare_runtime_env() {
   export XDG_RUNTIME_DIR
   export STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/gameserver/Steam"
   export STEAM_COMPAT_DATA_PATH="$ASA_COMPAT_DATA"
+  prepare_fex_runtime_env
   mkdir -p "$XDG_RUNTIME_DIR" || true
   chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true
 }
@@ -543,6 +787,7 @@ if [ "$(id -u)" = "0" ]; then
   configure_timezone
 fi
 maybe_debug
+ensure_fex_emulation
 ensure_permissions
 register_supervisor_pid
 start_restart_scheduler
