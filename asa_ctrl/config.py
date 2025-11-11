@@ -62,7 +62,11 @@ def parse_start_params(start_params: Optional[str]) -> Dict[str, str]:
         return value
 
     try:
-        tokens = shlex.split(start_params, posix=True)
+        lexer = shlex.shlex(start_params, posix=True)
+        lexer.whitespace_split = True
+        # Disable escape characters so Windows-style paths with backslashes are preserved.
+        lexer.escape = ''
+        tokens = list(lexer)
     except ValueError:
         # Fall back to simple split if shlex fails for some reason
         tokens = start_params.split()

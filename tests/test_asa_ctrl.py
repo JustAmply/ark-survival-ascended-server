@@ -71,6 +71,15 @@ def test_start_params_helper():
     assert parsed_quoted.get('AltName') == 'First Value'
     assert parsed_quoted.get('QueryPort') == '27015'
 
+    windows_path_params = (
+        'TheCenter?listen?MapPlayerLocation=True '
+        '-ProfileDir=C:\\Ark\\Config -ClusterDirOverride="C:\\Ark Cluster\\Data"'
+    )
+
+    parsed_windows = parse_start_params(windows_path_params)
+    assert parsed_windows.get('ProfileDir') == 'C:\\Ark\\Config'
+    assert parsed_windows.get('ClusterDirOverride') == 'C:\\Ark Cluster\\Data'
+
     print("✓ StartParamsHelper tests passed")
 
 
