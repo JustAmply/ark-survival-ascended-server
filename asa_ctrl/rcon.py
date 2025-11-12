@@ -300,9 +300,10 @@ class RconClient:
             combined_body = bytearray()
             response_count = 0
             response_type = None
+            deadline = time.monotonic() + self.read_timeout
 
             while True:
-                if response_count > 0 and not self._await_additional_packet():
+                if response_count > 0 and not self._await_additional_packet(deadline):
                     break
 
                 response_data = self._receive_full_packet()
@@ -360,23 +361,34 @@ class RconClient:
             self._connected = False
             raise RconConnectionError(f"Socket error during packet operation: {e}") from e
 
-    def _await_additional_packet(self) -> bool:
-        """Wait briefly to determine if another response packet is queued."""
+    def _await_additional_packet(self, deadline: float) -> bool:
+        """Wait for another response packet until the overall timeout expires."""
         if not self.socket:
             return False
 
-        linger = min(self.read_timeout, self.MULTI_PACKET_LINGER)
-        if linger <= 0:
+        if deadline <= time.monotonic():
             return False
 
-        try:
-            ready, _, _ = select.select([self.socket], [], [], linger)
-        except TypeError:
-            # Test doubles may not expose a fileno(); assume data is ready so mocks can provide it.
-            return True
-        except (ValueError, OSError):
-            return False
-        return bool(ready)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+
+            wait_time = min(remaining, self.MULTI_PACKET_LINGER)
+            if wait_time <= 0:
+                return False
+
+            try:
+                ready, _, _ = select.select([self.socket], [], [], wait_time)
+            except TypeError:
+                # Test doubles may not expose a fileno(); assume data is ready so mocks can provide it.
+                return True
+            except (ValueError, OSError):
+                return False
+
+            if ready:
+                return True
+
 
     def _extract_body_bytes(self, body_data: bytes) -> bytes:
         """Extract body payload from raw packet data, removing terminators."""
