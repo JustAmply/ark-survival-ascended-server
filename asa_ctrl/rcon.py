@@ -34,13 +34,14 @@ class RconPacket(NamedTuple):
 
 class RconClient:
     """RCON client for communicating with ARK server."""
-    
+
     # Configuration constants
     MAX_PACKET_SIZE = 4096  # Maximum RCON packet size
     MIN_PACKET_SIZE = 12    # Minimum packet size (header only)
     MAX_COMMAND_LENGTH = 1000  # Maximum command length
     DEFAULT_RETRY_COUNT = 3
     DEFAULT_RETRY_DELAY = 1.0
+    MULTI_PACKET_LINGER = 0.5  # Grace period when checking for additional packets
     
     def __init__(self, server_ip: str = '127.0.0.1', port: Optional[int] = None, password: Optional[str] = None,
                  connect_timeout: float = 30.0, read_timeout: float = 10.0, 
@@ -299,6 +300,7 @@ class RconClient:
             combined_body = bytearray()
             response_count = 0
             response_type = None
+            deadline = time.monotonic() + self.read_timeout
 
             while True:
                 try:
@@ -365,6 +367,35 @@ class RconClient:
         except socket.error as e:
             self._connected = False
             raise RconConnectionError(f"Socket error during packet operation: {e}") from e
+
+    def _await_additional_packet(self, deadline: float) -> bool:
+        """Wait for another response packet until the overall timeout expires."""
+        if not self.socket:
+            return False
+
+        if deadline <= time.monotonic():
+            return False
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+
+            wait_time = min(remaining, self.MULTI_PACKET_LINGER)
+            if wait_time <= 0:
+                return False
+
+            try:
+                ready, _, _ = select.select([self.socket], [], [], wait_time)
+            except TypeError:
+                # Test doubles may not expose a fileno(); assume data is ready so mocks can provide it.
+                return True
+            except (ValueError, OSError):
+                return False
+
+            if ready:
+                return True
+
 
     def _extract_body_bytes(self, body_data: bytes) -> bytes:
         """Extract body payload from raw packet data, removing terminators."""
