@@ -8,6 +8,7 @@ Run with: `py -m tests.test_asa_ctrl` or `py tests/test_asa_ctrl.py`.
 from __future__ import annotations
 
 import os
+import struct
 import sys
 import tempfile
 from pathlib import Path
@@ -276,6 +277,108 @@ def test_rcon_validation():
         pass  # Expected
 
     print("✓ RCON validation tests passed")
+
+
+def test_rcon_send_packet_combines_multi_packet_responses():
+    """Ensure multi-packet responses are concatenated and socket drained."""
+
+    class DummySocket:
+        def __init__(self):
+            self.timeout = None
+            self.sent = []
+
+        def settimeout(self, value):  # pragma: no cover - simple setter
+            self.timeout = value
+
+        def sendall(self, data):  # pragma: no cover - capture send data
+            self.sent.append(data)
+
+    client = RconClient.__new__(RconClient)
+    client.socket = DummySocket()
+    client._connected = True
+    client.read_timeout = 5.0
+
+    packet_id = 1234567890
+
+    def build_packet(body: str) -> bytes:
+        body_bytes = body.encode('utf-8')
+        size = 8 + len(body_bytes) + 2  # id + type + body + two null terminators
+        payload = struct.pack('<Iii', size, packet_id, RconPacketTypes.RESPONSE_VALUE)
+        return payload + body_bytes + b'\x00\x00'
+
+    responses = [
+        build_packet('Hello '),
+        build_packet('World'),
+        build_packet(''),
+    ]
+
+    def fake_receive_full_packet(self):
+        assert responses, "No more packets to return"
+        return responses.pop(0)
+
+    drain_calls = {'count': 0}
+
+    def fake_drain(self):
+        drain_calls['count'] += 1
+
+    client._receive_full_packet = MethodType(fake_receive_full_packet, client)
+    client._drain_socket = MethodType(fake_drain, client)
+
+    with patch('time.time', return_value=packet_id):
+        response = client._send_packet('broadcast Hello World', RconPacketTypes.EXEC_COMMAND)
+
+    assert response.id == packet_id
+    assert response.body == 'Hello World'
+    assert drain_calls['count'] == 1
+    assert responses == []
+
+
+def test_rcon_send_packet_raises_on_unexpected_id():
+    """Ensure unexpected response IDs raise packet errors and drain the socket."""
+
+    class DummySocket:
+        def __init__(self):
+            self.timeout = None
+            self.sent = []
+
+        def settimeout(self, value):  # pragma: no cover - simple setter
+            self.timeout = value
+
+        def sendall(self, data):  # pragma: no cover - capture send data
+            self.sent.append(data)
+
+    client = RconClient.__new__(RconClient)
+    client.socket = DummySocket()
+    client._connected = True
+    client.read_timeout = 5.0
+
+    packet_id = 42
+
+    size = 8 + 0 + 2
+    unexpected_packet = struct.pack('<Iii', size, packet_id + 1, RconPacketTypes.RESPONSE_VALUE) + b'\x00\x00'
+
+    responses = [unexpected_packet]
+
+    def fake_receive_full_packet(self):
+        assert responses, "No more packets to return"
+        return responses.pop(0)
+
+    drained = {'count': 0}
+
+    def fake_drain(self):
+        drained['count'] += 1
+
+    client._receive_full_packet = MethodType(fake_receive_full_packet, client)
+    client._drain_socket = MethodType(fake_drain, client)
+
+    with patch('time.time', return_value=packet_id):
+        try:
+            client._send_packet('saveworld', RconPacketTypes.EXEC_COMMAND)
+            assert False, "Expected RconPacketError for mismatched response ID"
+        except RconPacketError:
+            pass
+
+    assert drained['count'] == 1
 
 
 def test_rcon_authenticate_failure_propagates_error():

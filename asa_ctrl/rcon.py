@@ -294,48 +294,110 @@ class RconClient:
             # Send with timeout
             self.socket.settimeout(self.read_timeout)
             self.socket.sendall(packet_data)
-            
-            # Receive response with proper buffer management
-            response_data = self._receive_full_packet()
-            
-            # Validate response
-            self._validate_packet_data(response_data)
-            
-            # Unpack response: size, id, type, then body
-            if len(response_data) < 12:
-                raise RconPacketError(f"Response too short: {len(response_data)} bytes")
-            
-            # IDs and types are signed because the server returns -1 on auth failure.
-            size, response_id, response_type = struct.unpack('<Iii', response_data[:12])
-            
-            # Validate response packet structure
-            if size < 10:
-                raise RconPacketError(f"Invalid response size: {size}")
-            if size != len(response_data) - 4:  # Size field doesn't include itself
-                raise RconPacketError(f"Size mismatch: declared {size}, actual {len(response_data) - 4}")
-            
-            # Extract body
-            body_data = response_data[12:]
-            if body_data and body_data[-1:] == b'\x00':
-                body_data = body_data[:-1]  # Remove trailing null
-            
-            # Find first null terminator for body
-            null_pos = body_data.find(b'\x00')
-            if null_pos >= 0:
-                body_data = body_data[:null_pos]
-            
-            try:
-                body = body_data.decode('utf-8', errors='replace')
-            except UnicodeDecodeError:
-                body = body_data.decode('utf-8', errors='ignore')
-            
-            return RconPacket(size, response_id, response_type, body)
-            
+
+            combined_body = bytearray()
+            response_count = 0
+            response_type = None
+
+            while True:
+                response_data = self._receive_full_packet()
+
+                # Validate response
+                self._validate_packet_data(response_data)
+
+                # Unpack response: size, id, type, then body
+                if len(response_data) < 12:
+                    raise RconPacketError(f"Response too short: {len(response_data)} bytes")
+
+                # IDs and types are signed because the server returns -1 on auth failure.
+                declared_size, response_id, current_type = struct.unpack('<Iii', response_data[:12])
+
+                # Validate response packet structure
+                if declared_size < 10:
+                    raise RconPacketError(f"Invalid response size: {declared_size}")
+                if declared_size != len(response_data) - 4:  # Size field doesn't include itself
+                    raise RconPacketError(
+                        f"Size mismatch: declared {declared_size}, actual {len(response_data) - 4}"
+                    )
+
+                # Handle authentication failure sentinel (-1 response ID)
+                if packet_type == RconPacketTypes.AUTH and response_id == -1:
+                    body = self._decode_packet_body(response_data[12:])
+                    self._drain_socket()
+                    return RconPacket(declared_size, response_id, current_type, body)
+
+                if response_id != packet_id:
+                    if response_count == 0:
+                        self._drain_socket()
+                        raise RconPacketError(
+                            f"Unexpected response ID {response_id} for request {packet_id}"
+                        )
+                    # Different ID after valid packets indicates termination; stop accumulating.
+                    break
+
+                response_count += 1
+                if response_type is None:
+                    response_type = current_type
+
+                body_bytes = self._extract_body_bytes(response_data[12:])
+                if not body_bytes:
+                    # Empty body marks termination for multi-packet responses.
+                    break
+                combined_body.extend(body_bytes)
+
+            body = combined_body.decode('utf-8', errors='replace')
+            self._drain_socket()
+            return RconPacket(10 + len(combined_body), packet_id, response_type or packet_type, body)
+
         except socket.timeout as e:
             raise RconTimeoutError(f"Packet operation timed out after {self.read_timeout}s") from e
         except socket.error as e:
             self._connected = False
             raise RconConnectionError(f"Socket error during packet operation: {e}") from e
+
+    def _extract_body_bytes(self, body_data: bytes) -> bytes:
+        """Extract body payload from raw packet data, removing terminators."""
+        if body_data and body_data[-1:] == b'\x00':
+            body_data = body_data[:-1]
+
+        null_pos = body_data.find(b'\x00')
+        if null_pos >= 0:
+            body_data = body_data[:null_pos]
+
+        return body_data
+
+    def _decode_packet_body(self, body_data: bytes) -> str:
+        """Decode packet body bytes into a UTF-8 string."""
+        cleaned = self._extract_body_bytes(body_data)
+        try:
+            return cleaned.decode('utf-8', errors='replace')
+        except UnicodeDecodeError:
+            return cleaned.decode('utf-8', errors='ignore')
+
+    def _drain_socket(self) -> None:
+        """Drain any leftover data from the socket to avoid contaminating future reads."""
+        if not self.socket:
+            return
+
+        try:
+            # Switch to non-blocking mode to drain without waiting for new data.
+            self.socket.setblocking(False)
+            while True:
+                try:
+                    data = self.socket.recv(self.MAX_PACKET_SIZE)
+                except BlockingIOError:
+                    break
+                if not data:
+                    break
+        except (socket.error, AttributeError):
+            # Ignore errors while draining; the main operation has already succeeded.
+            pass
+        finally:
+            try:
+                self.socket.setblocking(True)
+                self.socket.settimeout(self.read_timeout)
+            except (socket.error, AttributeError):
+                pass
     
     def _receive_full_packet(self) -> bytes:
         """
