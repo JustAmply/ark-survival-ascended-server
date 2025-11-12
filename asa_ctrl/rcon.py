@@ -353,9 +353,10 @@ class RconClient:
                     break
                 combined_body.extend(body_bytes)
 
-                # For single-packet responses without an empty terminator, avoid blocking for
-                # the full read timeout by checking if more data is immediately available.
-                if not self._wait_for_additional_packet():
+                # Continue waiting for additional packets until we either hit the read timeout
+                # or receive the explicit terminator packet (an empty body). This prevents us from
+                # truncating multi-packet responses that arrive with noticeable gaps.
+                if not self._await_additional_packet(deadline):
                     break
 
             body = combined_body.decode('utf-8', errors='replace')
@@ -441,27 +442,6 @@ class RconClient:
             except (socket.error, AttributeError):
                 pass
 
-    def _wait_for_additional_packet(self) -> bool:
-        """Return True if another packet appears to be available shortly."""
-        wait_time = min(0.2, self.read_timeout / 5)
-        return self._socket_has_data(wait_time)
-
-    def _socket_has_data(self, timeout: float) -> bool:
-        """Check if the socket has data ready within the specified timeout."""
-        if not self.socket:
-            return False
-        fileno = getattr(self.socket, 'fileno', None)
-        if fileno is None or not callable(fileno):
-            # Test doubles may not provide fileno(); assume data is ready to avoid hanging.
-            return True
-        try:
-            ready, _, _ = select.select([self.socket], [], [], timeout)
-            return bool(ready)
-        except (OSError, ValueError):
-            return False
-        except TypeError:
-            return True
-    
     def _receive_full_packet(self) -> bytes:
         """
         Receive a complete RCON packet, handling partial reads.
