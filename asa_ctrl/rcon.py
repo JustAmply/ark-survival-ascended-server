@@ -5,6 +5,7 @@ Handles communication with the ARK server via RCON protocol.
 """
 
 import os
+import select
 import socket
 import struct
 import time
@@ -33,13 +34,14 @@ class RconPacket(NamedTuple):
 
 class RconClient:
     """RCON client for communicating with ARK server."""
-    
+
     # Configuration constants
     MAX_PACKET_SIZE = 4096  # Maximum RCON packet size
     MIN_PACKET_SIZE = 12    # Minimum packet size (header only)
     MAX_COMMAND_LENGTH = 1000  # Maximum command length
     DEFAULT_RETRY_COUNT = 3
     DEFAULT_RETRY_DELAY = 1.0
+    MULTI_PACKET_LINGER = 0.5  # Grace period when checking for additional packets
     
     def __init__(self, server_ip: str = '127.0.0.1', port: Optional[int] = None, password: Optional[str] = None,
                  connect_timeout: float = 30.0, read_timeout: float = 10.0, 
@@ -300,6 +302,9 @@ class RconClient:
             response_type = None
 
             while True:
+                if response_count > 0 and not self._await_additional_packet():
+                    break
+
                 response_data = self._receive_full_packet()
 
                 # Validate response
@@ -354,6 +359,24 @@ class RconClient:
         except socket.error as e:
             self._connected = False
             raise RconConnectionError(f"Socket error during packet operation: {e}") from e
+
+    def _await_additional_packet(self) -> bool:
+        """Wait briefly to determine if another response packet is queued."""
+        if not self.socket:
+            return False
+
+        linger = min(self.read_timeout, self.MULTI_PACKET_LINGER)
+        if linger <= 0:
+            return False
+
+        try:
+            ready, _, _ = select.select([self.socket], [], [], linger)
+        except TypeError:
+            # Test doubles may not expose a fileno(); assume data is ready so mocks can provide it.
+            return True
+        except (ValueError, OSError):
+            return False
+        return bool(ready)
 
     def _extract_body_bytes(self, body_data: bytes) -> bytes:
         """Extract body payload from raw packet data, removing terminators."""
