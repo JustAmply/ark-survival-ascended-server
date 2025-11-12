@@ -303,10 +303,12 @@ class RconClient:
             deadline = time.monotonic() + self.read_timeout
 
             while True:
-                if response_count > 0 and not self._await_additional_packet(deadline):
-                    break
-
-                response_data = self._receive_full_packet()
+                try:
+                    response_data = self._receive_full_packet()
+                except RconTimeoutError:
+                    if response_count:
+                        break
+                    raise
 
                 # Validate response
                 self._validate_packet_data(response_data)
@@ -350,6 +352,11 @@ class RconClient:
                     # Empty body marks termination for multi-packet responses.
                     break
                 combined_body.extend(body_bytes)
+
+                # For single-packet responses without an empty terminator, avoid blocking for
+                # the full read timeout by checking if more data is immediately available.
+                if not self._wait_for_additional_packet():
+                    break
 
             body = combined_body.decode('utf-8', errors='replace')
             self._drain_socket()
@@ -433,6 +440,27 @@ class RconClient:
                 self.socket.settimeout(self.read_timeout)
             except (socket.error, AttributeError):
                 pass
+
+    def _wait_for_additional_packet(self) -> bool:
+        """Return True if another packet appears to be available shortly."""
+        wait_time = min(0.2, self.read_timeout / 5)
+        return self._socket_has_data(wait_time)
+
+    def _socket_has_data(self, timeout: float) -> bool:
+        """Check if the socket has data ready within the specified timeout."""
+        if not self.socket:
+            return False
+        fileno = getattr(self.socket, 'fileno', None)
+        if fileno is None or not callable(fileno):
+            # Test doubles may not provide fileno(); assume data is ready to avoid hanging.
+            return True
+        try:
+            ready, _, _ = select.select([self.socket], [], [], timeout)
+            return bool(ready)
+        except (OSError, ValueError):
+            return False
+        except TypeError:
+            return True
     
     def _receive_full_packet(self) -> bytes:
         """
