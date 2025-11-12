@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+from collections.abc import Mapping
 from dataclasses import dataclass, asdict
 from threading import RLock
 
@@ -86,7 +87,23 @@ class ModDatabase:
         try:
             with open(self.database_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            self.mods = [ModRecord.from_dict(mod_data) for mod_data in data]
+            if not isinstance(data, list):
+                raise CorruptedModsDatabaseError(
+                    "mods.json must contain a JSON array of mod objects."
+                )
+            mods: List[ModRecord] = []
+            for index, mod_data in enumerate(data):
+                if not isinstance(mod_data, Mapping):
+                    raise CorruptedModsDatabaseError(
+                        f"mods.json entry at index {index} must be a JSON object."
+                    )
+                try:
+                    mods.append(ModRecord.from_dict(dict(mod_data)))
+                except (TypeError, KeyError) as e:
+                    raise CorruptedModsDatabaseError(
+                        f"mods.json entry at index {index} is invalid: {e}."
+                    ) from e
+            self.mods = mods
         except json.JSONDecodeError as e:
             raise CorruptedModsDatabaseError(
                 "mods.json file is corrupted and cannot be parsed: %s. Please delete this file manually. It can be found in the server files root directory." % e
