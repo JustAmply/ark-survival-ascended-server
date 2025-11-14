@@ -35,6 +35,8 @@ SUPERVISOR_EXIT_REQUESTED=0
 RESTART_REQUESTED=0
 SUPERVISOR_PID_FILE="/home/gameserver/.asa-supervisor.pid"
 RESTART_SCHEDULER_PID=""
+GAME_USER_SETTINGS_PATH="$SERVER_FILES_DIR/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini"
+DEFAULT_START_PARAMS="TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?ServerAdminPassword=changeme"
 
 log() { echo "[asa-start] $*"; }
 
@@ -96,6 +98,35 @@ maybe_debug() {
     sleep 999999999
     exit 0
   fi
+}
+
+has_server_admin_password_in_params() {
+  local params="${ASA_START_PARAMS:-}"
+  [[ -n "$params" && "$params" == *ServerAdminPassword=* ]]
+}
+
+server_admin_password_in_ini() {
+  if [ ! -f "$GAME_USER_SETTINGS_PATH" ]; then
+    return 1
+  fi
+  grep -Eq '^[[:space:]]*ServerAdminPassword[[:space:]]*=' "$GAME_USER_SETTINGS_PATH"
+}
+
+ensure_server_admin_password() {
+  if has_server_admin_password_in_params || server_admin_password_in_ini; then
+    return 0
+  fi
+
+  if [ -n "${ASA_START_PARAMS:-}" ]; then
+    log "ServerAdminPassword missing from start params; appending default fallback"
+    log "WARNING: Default ServerAdminPassword=changeme in use; change it via ASA_START_PARAMS or GameUserSettings.ini"
+    ASA_START_PARAMS="${ASA_START_PARAMS} -ServerAdminPassword=changeme"
+  else
+    log "No start params provided; using default map payload with ServerAdminPassword"
+    log "WARNING: Default ServerAdminPassword=changeme in use; change it via ASA_START_PARAMS or GameUserSettings.ini"
+    ASA_START_PARAMS="$DEFAULT_START_PARAMS"
+  fi
+  export ASA_START_PARAMS
 }
 
 #############################
@@ -297,6 +328,23 @@ inject_mods_param() {
   if [ -n "$mods" ]; then
     ASA_START_PARAMS="${ASA_START_PARAMS:-} $mods"
   fi
+  export ASA_START_PARAMS
+}
+
+#############################
+# 5a. Ensure -nosteam
+#############################
+ensure_nosteam_flag() {
+  local params="${ASA_START_PARAMS:-}"
+  if printf '%s\n' "$params" | grep -q -- '-nosteam'; then
+    return 0
+  fi
+  if [ -n "$params" ]; then
+    params="$params -nosteam"
+  else
+    params="-nosteam"
+  fi
+  ASA_START_PARAMS="$params"
   export ASA_START_PARAMS
 }
 
@@ -521,10 +569,12 @@ run_server() {
   trap cleanup EXIT
 
   update_server_files
+  ensure_server_admin_password
   resolve_proton_version
   install_proton_if_needed
   ensure_proton_compat_data
   inject_mods_param
+  ensure_nosteam_flag
   prepare_runtime_env
   handle_plugin_loader
   start_log_streamer

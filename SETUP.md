@@ -32,6 +32,8 @@ Your complete guide to getting an amazing ARK server up and running! This covers
    docker compose up -d
    ```
 
+   **Tip:** The container already passes `-nosteam` in `ASA_START_PARAMS` (also required if you roll your own launch line) to avoid the startup `Error 3` where Steam refuses to fire up inside the container.
+
 3. **Watch it come to life:**
    ```bash
    docker logs -f asa-server-1
