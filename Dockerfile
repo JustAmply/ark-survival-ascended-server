@@ -51,6 +51,9 @@ RUN mkdir -p \
 # Copy Python application
 COPY asa_ctrl /usr/share/asa_ctrl
 
+# Install runtime Python dependencies for asa_ctrl (no editable install needed)
+RUN python -m pip install --no-cache-dir "croniter>=2.0,<7.0"
+
 # Create launcher script for Python application (avoid pip install to prevent PEP 668 issues)
 WORKDIR /usr/share
 RUN echo '#!/bin/bash' > /usr/local/bin/asa-ctrl && \
