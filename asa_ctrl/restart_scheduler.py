@@ -7,8 +7,10 @@ import signal
 import subprocess
 import time
 from datetime import datetime, timedelta
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from typing import List, Optional, Tuple
+
+from croniter import croniter
+from croniter.croniter import CroniterBadCronError
 
 from .logging_config import configure_logging, get_logger
 
@@ -18,158 +20,33 @@ MAX_SLEEP_INTERVAL_SECONDS = 30
 POST_RESTART_DELAY_SECONDS = 10
 
 
-_MONTH_NAMES: Dict[str, int] = {
-    "jan": 1,
-    "feb": 2,
-    "mar": 3,
-    "apr": 4,
-    "may": 5,
-    "jun": 6,
-    "jul": 7,
-    "aug": 8,
-    "sep": 9,
-    "oct": 10,
-    "nov": 11,
-    "dec": 12,
-}
-
-_WEEKDAY_NAMES: Dict[str, int] = {
-    "sun": 0,
-    "mon": 1,
-    "tue": 2,
-    "wed": 3,
-    "thu": 4,
-    "fri": 5,
-    "sat": 6,
-}
-
-
-@dataclass(frozen=True)
-class FieldSpec:
-    name: str
-    minimum: int
-    maximum: int
-    allow_question: bool
-    names: Dict[str, int]
-    wrap_seven_to_zero: bool = False
-
-
 class CronSchedule:
-    """Lightweight cron evaluator supporting the subset we rely on."""
-
-    _FIELD_SPECS: Tuple[FieldSpec, ...] = (
-        FieldSpec("minute", 0, 59, False, {}),
-        FieldSpec("hour", 0, 23, False, {}),
-        FieldSpec("day", 1, 31, True, {}),
-        FieldSpec("month", 1, 12, False, _MONTH_NAMES),
-        FieldSpec("weekday", 0, 6, True, _WEEKDAY_NAMES, wrap_seven_to_zero=True),
-    )
+    """Cron schedule helper backed by :mod:`croniter`."""
 
     def __init__(self, expression: str) -> None:
-        parts = [part.strip() for part in expression.split() if part.strip()]
-        if len(parts) != 5:
-            raise ValueError(
-                "Cron expression must have exactly 5 fields (minute hour day month weekday)"
-            )
+        self._expression = expression
+        self._validate_expression()
 
-        self._fields: List[Optional[Tuple[int, ...]]] = []
-        for value, spec in zip(parts, self._FIELD_SPECS):
-            self._fields.append(self._parse_field(value, spec))
+    def _validate_expression(self) -> None:
+        """Eagerly validate cron syntax so we fail fast on start-up."""
 
-    @staticmethod
-    def _parse_field(
-        raw: str,
-        spec: FieldSpec,
-    ) -> Optional[Tuple[int, ...]]:
-        label = spec.name
-        if spec.allow_question and raw == "?":
-            raw = "*"
-        if raw == "*":
-            return None
-
-        def resolve(token: str) -> int:
-            token = token.strip()
-            token_key = token.lower()
-            if token_key in spec.names:
-                return spec.names[token_key]
-            try:
-                return int(token)
-            except ValueError as exc:  # pragma: no cover - defensive
-                raise ValueError(f"Invalid value '{token}' in cron field '{label}'") from exc
-
-        values: Set[int] = set()
-        for chunk in raw.split(","):
-            chunk = chunk.strip()
-            if not chunk:
-                raise ValueError(f"Empty value in cron field '{label}'")
-
-            step = 1
-            if "/" in chunk:
-                base, step_text = chunk.split("/", 1)
-                if not step_text:
-                    raise ValueError(f"Missing step in cron field '{label}' segment '{chunk}'")
-                try:
-                    step = int(step_text)
-                except ValueError as exc:
-                    raise ValueError(
-                        f"Invalid step '{step_text}' in cron field '{label}' segment '{chunk}'"
-                    ) from exc
-                if step <= 0:
-                    raise ValueError(f"Step must be positive in cron field '{label}' segment '{chunk}'")
-            else:
-                base = chunk
-
-            if base in {"*", ""}:
-                start, end = spec.minimum, spec.maximum
-            elif "-" in base:
-                start_text, end_text = base.split("-", 1)
-                start, end = resolve(start_text), resolve(end_text)
-            else:
-                start = end = resolve(base)
-
-            if end < start:
-                raise ValueError(f"Invalid range '{chunk}' in cron field '{label}'")
-
-            for candidate in range(start, end + 1, step):
-                normalized = 0 if spec.wrap_seven_to_zero and candidate == 7 else candidate
-                if not (spec.minimum <= normalized <= spec.maximum):
-                    raise ValueError(
-                        f"Value {candidate} out of bounds for cron field '{label}'"
-                    )
-                values.add(normalized)
-
-        if not values:
-            raise ValueError(f"No values resolved for cron field '{label}'")
-        return tuple(sorted(values))
+        try:
+            croniter(self._expression, datetime.now())
+        except CroniterBadCronError as exc:
+            raise ValueError(str(exc)) from exc
 
     def next_run(self, reference: datetime) -> datetime:
         """Return the next scheduled time strictly after ``reference``."""
 
-        current = reference.replace(second=0, microsecond=0) + timedelta(minutes=1)
-        limit = 366 * 24 * 60  # One year of minutes safety limit
-        for _ in range(limit):
-            if self._matches(current):
-                return current
-            current += timedelta(minutes=1)
-        raise ValueError("Unable to resolve next cron run within one year")
-
-    def _matches(self, candidate: datetime) -> bool:
-        minute_values, hour_values, day_values, month_values, weekday_values = self._fields
-
-        if minute_values is not None and candidate.minute not in minute_values:
-            return False
-        if hour_values is not None and candidate.hour not in hour_values:
-            return False
-        if month_values is not None and candidate.month not in month_values:
-            return False
-
-        day_match = day_values is None or candidate.day in day_values
-        cron_weekday = (candidate.weekday() + 1) % 7
-        weekday_match = weekday_values is None or cron_weekday in weekday_values
-
-        if day_values is not None and weekday_values is not None:
-            return (candidate.day in day_values) or (cron_weekday in weekday_values)
-        return day_match and weekday_match
+        try:
+            iterator = croniter(
+                self._expression,
+                reference,
+                ret_type=datetime,
+            )
+            return iterator.get_next(datetime)
+        except CroniterBadCronError as exc:  # pragma: no cover - defensive
+            raise ValueError(str(exc)) from exc
 
 
 def parse_warning_offsets(raw: str) -> List[int]:
