@@ -55,6 +55,9 @@ COPY pyproject.toml README.md /usr/share/asa_ctrl/
 # Install asa_ctrl and its dependencies directly from the copied sources
 RUN pip install --no-cache-dir --break-system-packages /usr/share/asa_ctrl
 
+# Install asa_ctrl and its dependencies directly from the copied sources
+RUN pip install --no-cache-dir --break-system-packages /usr/share/asa_ctrl
+
 # Create launcher script for Python application (avoid pip install to prevent PEP 668 issues)
 WORKDIR /usr/share
 RUN echo '#!/bin/bash' > /usr/local/bin/asa-ctrl && \
