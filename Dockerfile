@@ -51,8 +51,20 @@ RUN mkdir -p \
 # Copy Python application
 COPY asa_ctrl /usr/share/asa_ctrl
 
-# Install runtime Python dependencies for asa_ctrl (no editable install needed)
-RUN python -m pip install --no-cache-dir "croniter>=2.0,<7.0"
+# Copy dependency metadata and install everything declared in pyproject.toml
+COPY pyproject.toml /tmp/pyproject.toml
+RUN python - <<'PY'
+import subprocess
+import sys
+from pathlib import Path
+import tomllib
+
+pyproject = Path('/tmp/pyproject.toml')
+deps = tomllib.loads(pyproject.read_text()).get('project', {}).get('dependencies', [])
+if deps:
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--no-cache-dir', *deps])
+pyproject.unlink(missing_ok=True)
+PY
 
 # Create launcher script for Python application (avoid pip install to prevent PEP 668 issues)
 WORKDIR /usr/share
