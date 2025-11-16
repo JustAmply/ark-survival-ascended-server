@@ -51,20 +51,8 @@ RUN mkdir -p \
 # Copy Python application
 COPY asa_ctrl /usr/share/asa_ctrl
 
-# Copy dependency metadata and install everything declared in pyproject.toml
-COPY pyproject.toml /tmp/pyproject.toml
-RUN python - <<'PY'
-import subprocess
-import sys
-from pathlib import Path
-import tomllib
-
-pyproject = Path('/tmp/pyproject.toml')
-deps = tomllib.loads(pyproject.read_text()).get('project', {}).get('dependencies', [])
-if deps:
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--no-cache-dir', *deps])
-pyproject.unlink(missing_ok=True)
-PY
+# Install asa_ctrl and its dependencies directly from the copied sources
+RUN pip install --no-cache-dir --break-system-packages /usr/share/asa_ctrl
 
 # Create launcher script for Python application (avoid pip install to prevent PEP 668 issues)
 WORKDIR /usr/share
