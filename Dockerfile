@@ -50,10 +50,7 @@ RUN mkdir -p \
 
 # Copy Python application and packaging metadata
 COPY asa_ctrl /usr/share/asa_ctrl
-COPY pyproject.toml README.md /usr/share/asa_ctrl/
-
-# Install asa_ctrl and its dependencies directly from the copied sources
-RUN pip install --no-cache-dir --break-system-packages /usr/share/asa_ctrl
+COPY pyproject.toml /usr/share/asa_ctrl/
 
 # Install asa_ctrl and its dependencies directly from the copied sources
 RUN pip install --no-cache-dir --break-system-packages /usr/share/asa_ctrl
