@@ -50,7 +50,9 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
       echo "Detected ARM64 build. Installing FEX-Emu..." && \
       add-apt-repository -y ppa:fex-emu/fex && \
       apt-get update && \
-      apt-get install -y --no-install-recommends fex-emu-armv8.2 fex-emu-binfmt32 fex-emu-binfmt64 squashfs-tools && \
+      # Skip binfmt packages as they fail to install in Docker (systemd issue)
+      # We use explicit FEXBash in scripts, so we don't strictly need them.
+      apt-get install -y --no-install-recommends fex-emu-armv8.2 squashfs-tools && \
       rm -rf /var/lib/apt/lists/* && \
       # Setup RootFS directory
       mkdir -p /home/gameserver/.fex-emu/RootFS && \
@@ -115,7 +117,6 @@ RUN python3 -m venv /opt/asa_env && \
     /opt/asa_env/bin/pip install --no-cache-dir --upgrade pip
 
 COPY pyproject.toml /usr/share/
-COPY README.md /usr/share/
 RUN /opt/asa_env/bin/pip install /usr/share/
 
 # Create launcher script
