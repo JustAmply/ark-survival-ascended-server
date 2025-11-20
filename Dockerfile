@@ -115,6 +115,7 @@ RUN python3 -m venv /opt/asa_env && \
     /opt/asa_env/bin/pip install --no-cache-dir --upgrade pip
 
 COPY pyproject.toml /usr/share/
+COPY README.md /usr/share/
 RUN /opt/asa_env/bin/pip install /usr/share/
 
 # Create launcher script
