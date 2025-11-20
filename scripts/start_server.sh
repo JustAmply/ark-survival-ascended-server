@@ -4,12 +4,12 @@
 #   1. Ensure permissions & drop privileges
 #   2. Optional debug hold
 #   3. Install / update steamcmd + server files
-#   4. Resolve Proton version & install if missing
+#   4. Resolve Proton version & install if missing (AMD64) OR FEX/Wine setup (ARM64)
 #   5. Prepare dynamic mods parameter
 #   6. Prepare runtime environment (XDG, compat data)
 #   7. Handle plugin loader (AsaApi)
 #   8. Stream logs
-#   9. Launch server via Proton
+#   9. Launch server via Proton (AMD64) or FEX+Wine (ARM64)
 
 set -Ee -o pipefail
 
@@ -37,6 +37,9 @@ SUPERVISOR_PID_FILE="/home/gameserver/.asa-supervisor.pid"
 RESTART_SCHEDULER_PID=""
 GAME_USER_SETTINGS_PATH="$SERVER_FILES_DIR/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini"
 DEFAULT_START_PARAMS="TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?ServerAdminPassword=changeme"
+
+# Detect Architecture
+ARCH=$(uname -m)
 
 log() { echo "[asa-start] $*"; }
 
@@ -137,6 +140,15 @@ ensure_permissions() {
     return 0
   fi
   set -e
+  # Check if .fex-emu exists and needs ownership (only if root owns it)
+  if [ -d "/home/gameserver/.fex-emu" ]; then
+     # Only change if not already correct to avoid massive delay on startup
+     if [ "$(stat -c '%u' /home/gameserver/.fex-emu)" != "$TARGET_UID" ]; then
+         log "Fixing FEX RootFS ownership (this might take a while)..."
+         chown -R ${TARGET_UID}:${TARGET_GID} "/home/gameserver/.fex-emu" || true
+     fi
+  fi
+
   local dirs=(
     "/home/gameserver/Steam"
     "/home/gameserver/steamcmd"
@@ -175,12 +187,23 @@ ensure_steamcmd() {
 
 update_server_files() {
   log "Updating / validating ASA server files..."
-  (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+
+  # On ARM64, we must ensure SteamCMD (x86) runs via FEX.
+  if [ "$ARCH" = "aarch64" ]; then
+    log "ARM64: Running SteamCMD under FEX..."
+    # Wrap execution in FEXBash
+    local cmd="cd \"$STEAMCMD_DIR\" && ./steamcmd.sh +force_install_dir \"$SERVER_FILES_DIR\" +login anonymous +app_update 2430930 validate +quit"
+    FEXBash -c "$cmd"
+  else
+    (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+  fi
 }
 
 #############################
-# 4. Proton Handling
+# 4. Proton Handling (AMD64) / FEX Setup (ARM64)
 #############################
+
+# --- AMD64 Proton Logic ---
 check_proton_release_assets() {
   local version="$1"
   if [ -z "$version" ]; then return 1; fi
@@ -224,6 +247,8 @@ find_latest_release_with_assets() {
 }
 
 resolve_proton_version() {
+  if [ "$ARCH" = "aarch64" ]; then return 0; fi # Skip on ARM
+
   local detected=""
   if [ -z "${PROTON_VERSION:-}" ]; then
     log "Detecting latest Proton GE version..."
@@ -287,6 +312,8 @@ resolve_proton_version() {
 }
 
 install_proton_if_needed() {
+  if [ "$ARCH" = "aarch64" ]; then return 0; fi # Skip on ARM
+
   if [ -d "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME" ]; then return 0; fi
   log "Downloading Proton $PROTON_DIR_NAME..."
   mkdir -p "$STEAM_COMPAT_DIR"
@@ -312,10 +339,28 @@ install_proton_if_needed() {
 }
 
 ensure_proton_compat_data() {
+  if [ "$ARCH" = "aarch64" ]; then return 0; fi # Skip on ARM
+
   if [ ! -d "$ASA_COMPAT_DATA" ]; then
     log "Setting up Proton compat data..."
     mkdir -p "$STEAM_COMPAT_DATA"
     cp -r "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx" "$ASA_COMPAT_DATA"
+  fi
+}
+
+# --- ARM64 FEX Logic ---
+ensure_fex_setup() {
+  if [ "$ARCH" != "aarch64" ]; then return 0; fi
+
+  log "ARM64: Validating FEX environment..."
+
+  # RootFS is baked in. We just verify.
+  if [ ! -d "$HOME/.fex-emu/RootFS/Ubuntu_24_04" ]; then
+    log "WARNING: FEX RootFS not found at expected location. Was the image built correctly?"
+    # Attempt fallback fetch (likely to fail interactively, but logs error)
+    if command -v FEXRootFSFetcher >/dev/null; then
+         echo "y" | FEXRootFSFetcher || true
+    fi
   fi
 }
 
@@ -368,6 +413,8 @@ prepare_runtime_env() {
     fi
   fi
   export XDG_RUNTIME_DIR
+
+  # Proton needs these, FEX/Wine might use them too
   export STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/gameserver/Steam"
   export STEAM_COMPAT_DATA_PATH="$ASA_COMPAT_DATA"
   mkdir -p "$XDG_RUNTIME_DIR" || true
@@ -416,12 +463,25 @@ launch_server() {
   log "Starting ASA dedicated server..."
   log "Start parameters: $ASA_START_PARAMS"
   cd "$ASA_BINARY_DIR"
+
   local runner
-  if command -v stdbuf >/dev/null 2>&1; then
-    runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+
+  if [ "$ARCH" = "aarch64" ]; then
+     # ARM64 Launch Strategy: FEX + Wine
+
+     log "Launching via FEX-Emu + Wine..."
+     # Run via FEXBash using wine.
+     runner=(FEXBash wine "$LAUNCH_BINARY_NAME")
+
   else
-    runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    # AMD64 Launch Strategy: Proton
+    if command -v stdbuf >/dev/null 2>&1; then
+      runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    else
+      runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    fi
   fi
+
   "${runner[@]}" $ASA_START_PARAMS &
   SERVER_PID=$!
   echo "$SERVER_PID" > "$PID_FILE"
@@ -570,9 +630,14 @@ run_server() {
 
   update_server_files
   ensure_server_admin_password
+
+  # Branch here for setup
   resolve_proton_version
   install_proton_if_needed
   ensure_proton_compat_data
+
+  ensure_fex_setup
+
   inject_mods_param
   ensure_nosteam_flag
   prepare_runtime_env
