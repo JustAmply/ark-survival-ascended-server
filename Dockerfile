@@ -70,6 +70,8 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
       # Install Wine and 32-bit support inside FEX RootFS
       # Note: SteamCMD needs 32-bit support
       echo "Installing Wine and 32-bit support in FEX RootFS..." && \
+      # Explicitly set FEX_ROOTFS so FEXBash finds it immediately without guessing
+      export FEX_ROOTFS=/home/gameserver/.fex-emu/RootFS/Ubuntu_24_04 && \
       FEXBash -c "dpkg --add-architecture i386 && apt-get update && apt-get install -y wine wine32 wine64 libwine:i386" && \
       # Clean up apt cache in RootFS to save space
       FEXBash -c "apt-get clean && rm -rf /var/lib/apt/lists/*" && \
