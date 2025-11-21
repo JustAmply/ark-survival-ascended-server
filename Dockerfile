@@ -50,29 +50,20 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
       echo "Detected ARM64 build. Installing FEX-Emu..." && \
       add-apt-repository -y ppa:fex-emu/fex && \
       apt-get update && \
-      # Skip binfmt packages as they fail to install in Docker (systemd issue) \
       apt-get install -y --no-install-recommends fex-emu-armv8.2 squashfs-tools && \
       rm -rf /var/lib/apt/lists/* && \
-      # Setup RootFS directory \
       mkdir -p /home/gameserver/.fex-emu/RootFS && \
-      # Download Ubuntu 24.04 SquashFS RootFS directly \
       wget -q -O /home/gameserver/.fex-emu/RootFS/Ubuntu_24_04.sqsh https://rootfs.fex-emu.gg/Ubuntu_24_04/2025-03-04/Ubuntu_24_04.sqsh && \
-      # Extracting SquashFS to allow modification \
       cd /home/gameserver/.fex-emu/RootFS && \
       unsquashfs -f -d Ubuntu_24_04_Extracted Ubuntu_24_04.sqsh && \
       rm Ubuntu_24_04.sqsh && \
       mv Ubuntu_24_04_Extracted Ubuntu_24_04 && \
-      # Setup FEX config for build-time usage \
       mkdir -p /root/.fex-emu/RootFS && \
       ln -s /home/gameserver/.fex-emu/RootFS/Ubuntu_24_04 /root/.fex-emu/RootFS/Ubuntu_24_04 && \
-      # Install Wine and 32-bit support inside FEX RootFS \
       echo "Installing Wine and 32-bit support in FEX RootFS..." && \
-      # Explicitly set FEX_ROOTFS so FEXBash finds it immediately without guessing \
       export FEX_ROOTFS=/home/gameserver/.fex-emu/RootFS/Ubuntu_24_04 && \
       FEXBash -c "dpkg --add-architecture i386 && apt-get update && apt-get install -y wine wine32 wine64 libwine:i386" && \
-      # Clean up apt cache in RootFS to save space \
       FEXBash -c "apt-get clean && rm -rf /var/lib/apt/lists/*" && \
-      # Remove root link \
       rm -rf /root/.fex-emu; \
     fi
 
