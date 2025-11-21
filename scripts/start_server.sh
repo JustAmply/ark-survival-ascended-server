@@ -192,7 +192,8 @@ update_server_files() {
   if [ "$ARCH" = "aarch64" ]; then
     log "ARM64: Running SteamCMD under FEX..."
     # Wrap execution in FEXBash
-    local cmd="cd \"$STEAMCMD_DIR\" && ./steamcmd.sh +force_install_dir \"$SERVER_FILES_DIR\" +login anonymous +app_update 2430930 validate +quit"
+    # Note: export FEX_ROOTFS inside the subshell/context
+    local cmd="export FEX_ROOTFS=/home/gameserver/.fex-emu/RootFS/Ubuntu_24_04 && cd \"$STEAMCMD_DIR\" && ./steamcmd.sh +force_install_dir \"$SERVER_FILES_DIR\" +login anonymous +app_update 2430930 validate +quit"
     FEXBash -c "$cmd"
   else
     (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
@@ -364,6 +365,32 @@ ensure_fex_setup() {
   fi
 }
 
+# --- NEW: Run FEX setup logic as ROOT if needed ---
+ensure_fex_wine_setup() {
+  if [ "$ARCH" != "aarch64" ]; then return 0; fi
+  # This function is called while we are still root (before dropping privileges)
+
+  local rootfs_path="/home/gameserver/.fex-emu/RootFS/Ubuntu_24_04"
+  export FEX_ROOTFS="$rootfs_path"
+
+  # Check if wine is installed inside the FEX rootfs
+  # We can check for the binary existence
+  if [ ! -f "$rootfs_path/usr/bin/wine" ]; then
+      log "ARM64: Wine not found in FEX RootFS. Performing first-run setup (installing Wine)..."
+      log "This may take a few minutes."
+
+      # We need to ensure we can write to the directory (we are root, so yes)
+      # We run FEXBash to execute apt-get inside the emulator
+
+      FEXBash -c "dpkg --add-architecture i386 && apt-get update && apt-get install -y wine wine32 wine64 libwine:i386"
+      FEXBash -c "apt-get clean && rm -rf /var/lib/apt/lists/*"
+
+      # Fix permissions after we messed with them as root
+      chown -R ${TARGET_UID}:${TARGET_GID} "/home/gameserver/.fex-emu"
+      log "ARM64: Wine setup complete."
+  fi
+}
+
 #############################
 # 5. Mods parameter
 #############################
@@ -470,6 +497,8 @@ launch_server() {
      # ARM64 Launch Strategy: FEX + Wine
 
      log "Launching via FEX-Emu + Wine..."
+
+     export FEX_ROOTFS="/home/gameserver/.fex-emu/RootFS/Ubuntu_24_04"
      # Run via FEXBash using wine.
      runner=(FEXBash wine "$LAUNCH_BINARY_NAME")
 
@@ -628,6 +657,18 @@ run_server() {
   trap 'handle_restart_signal USR1' USR1
   trap cleanup EXIT
 
+  # Run FEX setup if needed (as root)
+  ensure_fex_wine_setup
+
+  ensure_permissions
+
+  # Drop privileges happens inside ensure_permissions via re-exec
+  # But wait, if we re-exec, the script starts over.
+  # ensure_permissions does: exec runuser ... -- /usr/bin/start_server.sh
+  # So we need to call ensure_fex_wine_setup *before* ensure_permissions.
+
+  # After re-exec (as user), we continue here (but as user, ensure_permissions returns 0)
+
   update_server_files
   ensure_server_admin_password
 
@@ -656,6 +697,7 @@ run_server() {
 #############################
 if [ "$(id -u)" = "0" ]; then
   configure_timezone
+  ensure_fex_wine_setup
 fi
 maybe_debug
 ensure_permissions

@@ -45,7 +45,10 @@ ENV LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8
 
 # --- ARM64 SPECIFIC SETUP (FEX-Emu) ---
-# We install Wine INSIDE the FEX RootFS during build to avoid runtime permission issues.
+# We install FEX and the RootFS here.
+# NOTE: We DO NOT run FEXBash here to install Wine, because running FEX inside QEMU (during Docker build)
+# causes 'Illegal instruction' crashes due to nested emulation issues.
+# Wine installation is deferred to runtime in start_server.sh.
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
       echo "Detected ARM64 build. Installing FEX-Emu..." && \
       add-apt-repository -y ppa:fex-emu/fex && \
@@ -60,10 +63,6 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
       mv Ubuntu_24_04_Extracted Ubuntu_24_04 && \
       mkdir -p /root/.fex-emu/RootFS && \
       ln -s /home/gameserver/.fex-emu/RootFS/Ubuntu_24_04 /root/.fex-emu/RootFS/Ubuntu_24_04 && \
-      echo "Installing Wine and 32-bit support in FEX RootFS..." && \
-      export FEX_ROOTFS=/home/gameserver/.fex-emu/RootFS/Ubuntu_24_04 && \
-      FEXBash -c "dpkg --add-architecture i386 && apt-get update && apt-get install -y wine wine32 wine64 libwine:i386" && \
-      FEXBash -c "apt-get clean && rm -rf /var/lib/apt/lists/*" && \
       rm -rf /root/.fex-emu; \
     fi
 
