@@ -19,7 +19,9 @@ RUN dpkg --add-architecture i386 && \
         wine64 \
         libwine:i386 \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    # Strip documentation and locales to save space (~500MB)
+    && rm -rf /usr/share/doc /usr/share/man /usr/share/locale /var/cache/apt
 
 # --- Stage 2: Final Image ---
 FROM ubuntu:24.04
@@ -74,13 +76,13 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
       apt-get update && \
       apt-get install -y --no-install-recommends fex-emu-armv8.2 && \
       rm -rf /var/lib/apt/lists/* && \
-      mkdir -p /home/gameserver/.fex-emu/RootFS; \
+      mkdir -p /home/gameserver/.fex-emu/RootFS && \
+      # Create Config.json to point FEX to the correct RootFS automatically
+      echo '{"Config": {"RootFS": "Ubuntu_22_04"}}' > /home/gameserver/.fex-emu/Config.json; \
     fi
 
 # Copy pre-built RootFS from the builder stage (AMD64 Ubuntu 22.04 with Wine)
 # We copy the ENTIRE filesystem of the fex-rootfs stage into the directory.
-# This works because 'COPY --from' supports copying the root of a stage.
-# Docker handles the file copying without needing manual extraction/permissions hacks.
 COPY --from=fex-rootfs / /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04
 
 # Fix permissions for the copied RootFS (It's owned by root by default)
