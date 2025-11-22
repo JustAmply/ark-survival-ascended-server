@@ -83,10 +83,10 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
 
 # Copy pre-built RootFS from the builder stage (AMD64 Ubuntu 22.04 with Wine)
 # We copy the ENTIRE filesystem of the fex-rootfs stage into the directory.
-COPY --from=fex-rootfs / /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04
-
-# Fix permissions for the copied RootFS (It's owned by root by default)
-RUN chown -R 25000:25000 /home/gameserver/.fex-emu
+# This works because 'COPY --from' supports copying the root of a stage.
+# Docker handles the file copying without needing manual extraction/permissions hacks.
+# Use --chown to avoid creating a separate layer for permission changes (saves ~2.7GB!)
+COPY --from=fex-rootfs --chown=25000:25000 / /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04
 
 # --- AMD64 SPECIFIC SETUP ---
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
