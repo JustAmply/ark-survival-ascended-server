@@ -192,8 +192,7 @@ update_server_files() {
   if [ "$ARCH" = "aarch64" ]; then
     log "ARM64: Running SteamCMD under FEX..."
     # Wrap execution in FEXBash
-    # Note: export FEX_ROOTFS inside the subshell/context.
-    # RootFS is baked in at this location.
+    # Note: export FEX_ROOTFS inside the subshell/context
     local cmd="export FEX_ROOTFS=/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04 && cd \"$STEAMCMD_DIR\" && ./steamcmd.sh +force_install_dir \"$SERVER_FILES_DIR\" +login anonymous +app_update 2430930 validate +quit"
     FEXBash -c "$cmd"
   else
