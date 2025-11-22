@@ -56,13 +56,14 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
       apt-get install -y --no-install-recommends fex-emu-armv8.2 squashfs-tools && \
       rm -rf /var/lib/apt/lists/* && \
       mkdir -p /home/gameserver/.fex-emu/RootFS && \
-      wget -q -O /home/gameserver/.fex-emu/RootFS/Ubuntu_24_04.sqsh https://rootfs.fex-emu.gg/Ubuntu_24_04/2025-03-04/Ubuntu_24_04.sqsh && \
+      # Switch to Ubuntu 22.04 RootFS for better stability
+      wget -q -O /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04.sqsh https://rootfs.fex-emu.gg/Ubuntu_22_04/2025-01-08/Ubuntu_22_04.sqsh && \
       cd /home/gameserver/.fex-emu/RootFS && \
-      unsquashfs -f -d Ubuntu_24_04_Extracted Ubuntu_24_04.sqsh && \
-      rm Ubuntu_24_04.sqsh && \
-      mv Ubuntu_24_04_Extracted Ubuntu_24_04 && \
+      unsquashfs -f -d Ubuntu_22_04_Extracted Ubuntu_22_04.sqsh && \
+      rm Ubuntu_22_04.sqsh && \
+      mv Ubuntu_22_04_Extracted Ubuntu_22_04 && \
       mkdir -p /root/.fex-emu/RootFS && \
-      ln -s /home/gameserver/.fex-emu/RootFS/Ubuntu_24_04 /root/.fex-emu/RootFS/Ubuntu_24_04 && \
+      ln -s /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04 /root/.fex-emu/RootFS/Ubuntu_22_04 && \
       rm -rf /root/.fex-emu; \
     fi
 

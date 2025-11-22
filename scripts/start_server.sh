@@ -193,7 +193,7 @@ update_server_files() {
     log "ARM64: Running SteamCMD under FEX..."
     # Wrap execution in FEXBash
     # Note: export FEX_ROOTFS inside the subshell/context
-    local cmd="export FEX_ROOTFS=/home/gameserver/.fex-emu/RootFS/Ubuntu_24_04 && cd \"$STEAMCMD_DIR\" && ./steamcmd.sh +force_install_dir \"$SERVER_FILES_DIR\" +login anonymous +app_update 2430930 validate +quit"
+    local cmd="export FEX_ROOTFS=/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04 && cd \"$STEAMCMD_DIR\" && ./steamcmd.sh +force_install_dir \"$SERVER_FILES_DIR\" +login anonymous +app_update 2430930 validate +quit"
     FEXBash -c "$cmd"
   else
     (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
@@ -356,7 +356,7 @@ ensure_fex_setup() {
   log "ARM64: Validating FEX environment..."
 
   # RootFS is baked in. We just verify.
-  if [ ! -d "$HOME/.fex-emu/RootFS/Ubuntu_24_04" ]; then
+  if [ ! -d "$HOME/.fex-emu/RootFS/Ubuntu_22_04" ]; then
     log "WARNING: FEX RootFS not found at expected location. Was the image built correctly?"
     # Attempt fallback fetch (likely to fail interactively, but logs error)
     if command -v FEXRootFSFetcher >/dev/null; then
@@ -370,7 +370,7 @@ ensure_fex_wine_setup() {
   if [ "$ARCH" != "aarch64" ]; then return 0; fi
   # This function is called while we are still root (before dropping privileges)
 
-  local rootfs_path="/home/gameserver/.fex-emu/RootFS/Ubuntu_24_04"
+  local rootfs_path="/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04"
   export FEX_ROOTFS="$rootfs_path"
 
   # Check if wine is installed inside the FEX rootfs
@@ -503,7 +503,7 @@ launch_server() {
 
      log "Launching via FEX-Emu + Wine..."
 
-     export FEX_ROOTFS="/home/gameserver/.fex-emu/RootFS/Ubuntu_24_04"
+     export FEX_ROOTFS="/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04"
      # Run via FEXBash using wine.
      runner=(FEXBash wine "$LAUNCH_BINARY_NAME")
 
