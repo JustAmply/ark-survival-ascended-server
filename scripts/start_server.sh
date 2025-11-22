@@ -192,7 +192,8 @@ update_server_files() {
   if [ "$ARCH" = "aarch64" ]; then
     log "ARM64: Running SteamCMD under FEX..."
     # Wrap execution in FEXBash
-    # Note: export FEX_ROOTFS inside the subshell/context
+    # Note: export FEX_ROOTFS inside the subshell/context.
+    # RootFS is baked in at this location.
     local cmd="export FEX_ROOTFS=/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04 && cd \"$STEAMCMD_DIR\" && ./steamcmd.sh +force_install_dir \"$SERVER_FILES_DIR\" +login anonymous +app_update 2430930 validate +quit"
     FEXBash -c "$cmd"
   else
@@ -363,6 +364,12 @@ ensure_fex_setup() {
          echo "y" | FEXRootFSFetcher || true
     fi
   fi
+
+  # Sync DNS and Hosts from container to FEX RootFS
+  # FEX intercepts filesystem calls, hiding the container's /etc/resolv.conf from the emulated process
+  log "ARM64: Syncing network configuration to FEX RootFS..."
+  cp /etc/resolv.conf "$HOME/.fex-emu/RootFS/Ubuntu_22_04/etc/resolv.conf" || true
+  cp /etc/hosts "$HOME/.fex-emu/RootFS/Ubuntu_22_04/etc/hosts" || true
 }
 
 #############################
