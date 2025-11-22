@@ -382,6 +382,11 @@ ensure_fex_wine_setup() {
       # We need to ensure we can write to the directory (we are root, so yes)
       # We run FEXBash to execute apt-get inside the emulator
 
+      # FIX: Allow insecure repositories first to bypass missing keys issue in minimal RootFS
+      FEXBash -c "apt-get update -o Acquire::AllowInsecureRepositories=true -o Acquire::AllowDowngradeToInsecureRepositories=true || true"
+      FEXBash -c "apt-get install -y --allow-unauthenticated gnupg ca-certificates"
+
+      # Now proceed with full setup
       FEXBash -c "dpkg --add-architecture i386 && apt-get update && apt-get install -y wine wine32 wine64 libwine:i386"
       FEXBash -c "apt-get clean && rm -rf /var/lib/apt/lists/*"
 
