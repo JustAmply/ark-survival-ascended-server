@@ -1,5 +1,42 @@
 # Multi-arch Dockerfile for ARK: Survival Ascended
 # Supports amd64 (Intel/AMD) and arm64 (Apple Silicon / Ampere) via FEX-Emu
+
+# --- Stage 1: RootFS Builder (AMD64) ---
+# We use a native AMD64 builder to prepare the FEX RootFS.
+# This allows us to install Wine and dependencies into the RootFS using native 'chroot' and 'apt',
+# avoiding the "nested emulation" crashes (QEMU -> FEX) and filesystem instability (FEX -> OverlayFS)
+# that occur when trying to do this during an ARM64 build or at runtime.
+FROM --platform=linux/amd64 ubuntu:24.04 AS rootfs-builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    wget \
+    squashfs-tools \
+    ca-certificates \
+    # wine dependencies for verification?
+    && rm -rf /var/lib/apt/lists/*
+
+# Setup work directory
+WORKDIR /build
+
+# Download Ubuntu 22.04 RootFS (Stable for FEX)
+RUN wget -q -O Ubuntu_22_04.sqsh https://rootfs.fex-emu.gg/Ubuntu_22_04/2025-01-08/Ubuntu_22_04.sqsh
+
+# Extract RootFS
+RUN unsquashfs -f -d rootfs Ubuntu_22_04.sqsh
+
+# Prepare for chroot (copy DNS settings)
+RUN cp /etc/resolv.conf rootfs/etc/resolv.conf
+
+# Install Wine and 32-bit support inside the RootFS via chroot
+# We enable multiarch, update, and install wine.
+# Note: We treat the rootfs as a directory.
+RUN chroot rootfs /bin/bash -c "dpkg --add-architecture i386 && apt-get update && apt-get install -y wine wine32 wine64 libwine:i386 && apt-get clean && rm -rf /var/lib/apt/lists/*"
+
+# Remove resolv.conf copy to be clean
+RUN rm rootfs/etc/resolv.conf
+
+# --- Stage 2: Final Image ---
 FROM ubuntu:24.04
 
 # Build arguments
@@ -45,27 +82,26 @@ ENV LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8
 
 # --- ARM64 SPECIFIC SETUP (FEX-Emu) ---
-# We install FEX and the RootFS here.
-# NOTE: We DO NOT run FEXBash here to install Wine, because running FEX inside QEMU (during Docker build)
-# causes 'Illegal instruction' crashes due to nested emulation issues.
-# Wine installation is deferred to runtime in start_server.sh.
+# We install FEX.
+# The RootFS (with Wine pre-installed) is copied from the builder stage.
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
       echo "Detected ARM64 build. Installing FEX-Emu..." && \
       add-apt-repository -y ppa:fex-emu/fex && \
       apt-get update && \
       apt-get install -y --no-install-recommends fex-emu-armv8.2 squashfs-tools && \
       rm -rf /var/lib/apt/lists/* && \
-      mkdir -p /home/gameserver/.fex-emu/RootFS && \
-      # Switch to Ubuntu 22.04 RootFS for better stability
-      wget -q -O /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04.sqsh https://rootfs.fex-emu.gg/Ubuntu_22_04/2025-01-08/Ubuntu_22_04.sqsh && \
-      cd /home/gameserver/.fex-emu/RootFS && \
-      unsquashfs -f -d Ubuntu_22_04_Extracted Ubuntu_22_04.sqsh && \
-      rm Ubuntu_22_04.sqsh && \
-      mv Ubuntu_22_04_Extracted Ubuntu_22_04 && \
-      mkdir -p /root/.fex-emu/RootFS && \
-      ln -s /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04 /root/.fex-emu/RootFS/Ubuntu_22_04 && \
-      rm -rf /root/.fex-emu; \
+      mkdir -p /home/gameserver/.fex-emu/RootFS; \
     fi
+
+# Copy pre-built RootFS from the builder stage
+# This adds ~500MB-1GB to the image layer.
+# We put it in a temporary location first to allow conditional move/delete if desired,
+# or just copy it directly. For simplicity and robustness, we copy it.
+# If we are on AMD64, this is technically wasted space, but ensures the layer logic is simple.
+COPY --from=rootfs-builder /build/rootfs /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04
+
+# Fix permissions for the copied RootFS (Builder created it as root)
+RUN chown -R 25000:25000 /home/gameserver/.fex-emu
 
 # --- AMD64 SPECIFIC SETUP ---
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
@@ -78,18 +114,15 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
         lib32z1 \
         libgcc-s1:i386 \
         libfreetype6:i386 \
-      && rm -rf /var/lib/apt/lists/*; \
+      && rm -rf /var/lib/apt/lists/* && \
+      # Clean up the FEX rootfs on AMD64 to save space in the final flattened image (if users use --squash or similar)
+      # Note: Standard Docker layers will still persist the size, but runtime disk usage will be lower.
+      rm -rf /home/gameserver/.fex-emu; \
     fi
 
 # Create gameserver user
 RUN groupadd -g 25000 gameserver && \
     useradd -u 25000 -g gameserver -m -d /home/gameserver gameserver
-
-# Ensure FEX RootFS permissions
-# This is done once at build time to avoid slow startup
-RUN if [ -d "/home/gameserver/.fex-emu" ]; then \
-      chown -R gameserver:gameserver /home/gameserver/.fex-emu; \
-    fi
 
 # Create necessary directories
 RUN mkdir -p \

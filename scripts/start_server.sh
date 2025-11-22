@@ -192,7 +192,8 @@ update_server_files() {
   if [ "$ARCH" = "aarch64" ]; then
     log "ARM64: Running SteamCMD under FEX..."
     # Wrap execution in FEXBash
-    # Note: export FEX_ROOTFS inside the subshell/context
+    # Note: export FEX_ROOTFS inside the subshell/context.
+    # RootFS is baked in at this location.
     local cmd="export FEX_ROOTFS=/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04 && cd \"$STEAMCMD_DIR\" && ./steamcmd.sh +force_install_dir \"$SERVER_FILES_DIR\" +login anonymous +app_update 2430930 validate +quit"
     FEXBash -c "$cmd"
   else
@@ -362,37 +363,6 @@ ensure_fex_setup() {
     if command -v FEXRootFSFetcher >/dev/null; then
          echo "y" | FEXRootFSFetcher || true
     fi
-  fi
-}
-
-# --- NEW: Run FEX setup logic as ROOT if needed ---
-ensure_fex_wine_setup() {
-  if [ "$ARCH" != "aarch64" ]; then return 0; fi
-  # This function is called while we are still root (before dropping privileges)
-
-  local rootfs_path="/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04"
-  export FEX_ROOTFS="$rootfs_path"
-
-  # Check if wine is installed inside the FEX rootfs
-  # We can check for the binary existence
-  if [ ! -f "$rootfs_path/usr/bin/wine" ]; then
-      log "ARM64: Wine not found in FEX RootFS. Performing first-run setup (installing Wine)..."
-      log "This may take a few minutes."
-
-      # We need to ensure we can write to the directory (we are root, so yes)
-      # We run FEXBash to execute apt-get inside the emulator
-
-      # FIX: Allow insecure repositories first to bypass missing keys issue in minimal RootFS
-      FEXBash -c "apt-get update -o Acquire::AllowInsecureRepositories=true -o Acquire::AllowDowngradeToInsecureRepositories=true || true"
-      FEXBash -c "apt-get install -y --allow-unauthenticated gnupg ca-certificates"
-
-      # Now proceed with full setup
-      FEXBash -c "dpkg --add-architecture i386 && apt-get update && apt-get install -y wine wine32 wine64 libwine:i386"
-      FEXBash -c "apt-get clean && rm -rf /var/lib/apt/lists/*"
-
-      # Fix permissions after we messed with them as root
-      chown -R ${TARGET_UID}:${TARGET_GID} "/home/gameserver/.fex-emu"
-      log "ARM64: Wine setup complete."
   fi
 }
 
@@ -663,7 +633,7 @@ run_server() {
   trap cleanup EXIT
 
   # Run FEX setup if needed (as root)
-  ensure_fex_wine_setup
+  # ensure_fex_wine_setup # REMOVED: Wine is now baked into the RootFS
 
   ensure_permissions
 
@@ -702,7 +672,7 @@ run_server() {
 #############################
 if [ "$(id -u)" = "0" ]; then
   configure_timezone
-  ensure_fex_wine_setup
+  # ensure_fex_wine_setup # REMOVED
 fi
 maybe_debug
 ensure_permissions
