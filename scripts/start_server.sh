@@ -368,8 +368,10 @@ ensure_fex_setup() {
   # Sync DNS and Hosts from container to FEX RootFS
   # FEX intercepts filesystem calls, hiding the container's /etc/resolv.conf from the emulated process
   log "ARM64: Syncing network configuration to FEX RootFS..."
-  cp /etc/resolv.conf "$HOME/.fex-emu/RootFS/Ubuntu_22_04/etc/resolv.conf" || true
-  cp /etc/hosts "$HOME/.fex-emu/RootFS/Ubuntu_22_04/etc/hosts" || true
+  # Use absolute path to avoid relying on HOME which might be /root during initialization
+  local fex_rootfs_path="/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04"
+  cp /etc/resolv.conf "$fex_rootfs_path/etc/resolv.conf" || true
+  cp /etc/hosts "$fex_rootfs_path/etc/hosts" || true
 }
 
 #############################
@@ -639,7 +641,7 @@ run_server() {
   trap cleanup EXIT
 
   # Run FEX setup if needed (as root)
-  # ensure_fex_wine_setup # REMOVED: Wine is now baked into the RootFS
+  ensure_fex_setup
 
   ensure_permissions
 
@@ -678,7 +680,7 @@ run_server() {
 #############################
 if [ "$(id -u)" = "0" ]; then
   configure_timezone
-  # ensure_fex_wine_setup # REMOVED
+  ensure_fex_setup
 fi
 maybe_debug
 ensure_permissions
