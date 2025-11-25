@@ -474,7 +474,8 @@ launch_server() {
   log "Start parameters: $ASA_START_PARAMS"
   cd "$ASA_BINARY_DIR"
 
-  local runner
+  local runner pass_start_params
+  pass_start_params=1
 
   if [ "$ARCH" = "aarch64" ]; then
      # ARM64 Launch Strategy: FEX + Wine
@@ -482,8 +483,20 @@ launch_server() {
      log "Launching via FEX-Emu + Wine..."
 
      export FEX_ROOTFS="/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04"
-     # Run via FEXBash using wine64 to match the 64-bit game binary
-     runner=(FEXBash wine64 "$LAUNCH_BINARY_NAME")
+     local fex_rootfs="$FEX_ROOTFS"
+     local wine_cmd
+     wine_cmd="wine64 \"$LAUNCH_BINARY_NAME\" $ASA_START_PARAMS"
+
+     if command -v FEXInterpreter >/dev/null 2>&1; then
+       runner=(FEXInterpreter --rootfs "$fex_rootfs" -- env FEX_ROOTFS="$fex_rootfs" wine64 "$LAUNCH_BINARY_NAME")
+     elif command -v FEXBash >/dev/null 2>&1; then
+       # FEXBash needs a full command string to execute wine64 with parameters inside the emulated environment
+       runner=(FEXBash -lc "export FEX_ROOTFS=\"$fex_rootfs\"; $wine_cmd")
+       pass_start_params=0
+     else
+       log "FEX not available on ARM64; cannot launch server"
+       return 1
+     fi
 
   else
     # AMD64 Launch Strategy: Proton
@@ -494,8 +507,27 @@ launch_server() {
     fi
   fi
 
-  "${runner[@]}" $ASA_START_PARAMS &
-  SERVER_PID=$!
+  if [ "$pass_start_params" = "1" ]; then
+    "${runner[@]}" $ASA_START_PARAMS &
+  else
+    "${runner[@]}" &
+  fi
+
+  local launch_status=$?
+  local launch_pid=$!
+
+  if [ "$launch_status" -ne 0 ]; then
+    log "Server failed to launch (exit $launch_status)"
+    return "$launch_status"
+  fi
+
+  SERVER_PID="$launch_pid"
+
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    log "Server process failed to start correctly"
+    return 1
+  fi
+
   echo "$SERVER_PID" > "$PID_FILE"
   wait "$SERVER_PID"
   local exit_code=$?
