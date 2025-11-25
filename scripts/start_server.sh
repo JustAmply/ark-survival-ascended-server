@@ -489,10 +489,10 @@ launch_server() {
     local fex_rootfs="$FEX_ROOTFS"
 
     if command -v FEX >/dev/null 2>&1; then
-      runner=(FEX wine64 "$LAUNCH_BINARY_NAME")
+      runner=(FEX wine "$LAUNCH_BINARY_NAME")
     elif command -v FEXBash >/dev/null 2>&1; then
       # FEXBash needs a full command string to execute wine64 within the emulated environment
-      runner=(FEXBash -lc 'export FEX_ROOTFS="$1"; shift; wine64 "$@"' -- "$fex_rootfs" "$LAUNCH_BINARY_NAME")
+      runner=(FEXBash -lc 'export FEX_ROOTFS="$1"; shift; wine "$@"' -- "$fex_rootfs" "$LAUNCH_BINARY_NAME")
     else
       log "FEX not available on ARM64; cannot launch server"
       return 1
