@@ -18,10 +18,15 @@ RUN dpkg --add-architecture i386 && \
         wine32 \
         wine64 \
         libwine:i386 \
+        libwine:amd64 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     # Strip documentation and locales to save space (~500MB)
-    && rm -rf /usr/share/doc /usr/share/man /usr/share/locale /var/cache/apt
+    && rm -rf /usr/share/doc /usr/share/man /usr/share/locale /var/cache/apt \
+    # Create symlinks to fix Wine library path resolution under FEX
+    # Wine's loader sometimes fails to find ntdll.so under emulation, looking in /x86_64-linux-gnu instead of /usr/lib/...
+    && ln -s /usr/lib/x86_64-linux-gnu /x86_64-linux-gnu \
+    && ln -s /usr/lib/i386-linux-gnu /i386-linux-gnu
 
 # --- Stage 2: Final Image ---
 FROM ubuntu:24.04
@@ -83,9 +88,6 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
 
 # Copy pre-built RootFS from the builder stage (AMD64 Ubuntu 22.04 with Wine)
 # We copy the ENTIRE filesystem of the fex-rootfs stage into the directory.
-# This works because 'COPY --from' supports copying the root of a stage.
-# Docker handles the file copying without needing manual extraction/permissions hacks.
-# Use --chown to avoid creating a separate layer for permission changes (saves ~2.7GB!)
 COPY --from=fex-rootfs --chown=25000:25000 / /home/gameserver/.fex-emu/RootFS/Ubuntu_22_04
 
 # --- AMD64 SPECIFIC SETUP ---
