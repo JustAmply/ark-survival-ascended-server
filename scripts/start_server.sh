@@ -145,7 +145,7 @@ ensure_permissions() {
      # Only change if not already correct to avoid massive delay on startup
      if [ "$(stat -c '%u' /home/gameserver/.fex-emu)" != "$TARGET_UID" ]; then
          log "Fixing FEX RootFS ownership (this might take a while)..."
-         chown -R ${TARGET_UID}:${TARGET_GID} "/home/gameserver/.fex-emu" || true
+         chown -R "${TARGET_UID}:${TARGET_GID}" "/home/gameserver/.fex-emu" || true
      fi
   fi
 
@@ -160,10 +160,10 @@ ensure_permissions() {
     local marker="$d/.permissions_set"
     if [ ! -e "$marker" ]; then
       log "Setting ownership for $d to ${TARGET_UID}:${TARGET_GID} (first run)"
-      chown -R ${TARGET_UID}:${TARGET_GID} "$d" || true
-      touch "$marker" && chown ${TARGET_UID}:${TARGET_GID} "$marker" || true
+      chown -R "${TARGET_UID}:${TARGET_GID}" "$d" || true
+      touch "$marker" && chown "${TARGET_UID}:${TARGET_GID}" "$marker" || true
     else
-      chown ${TARGET_UID}:${TARGET_GID} "$d" || true
+      chown "${TARGET_UID}:${TARGET_GID}" "$d" || true
     fi
   done
   export START_SERVER_PRIVS_DROPPED=1
@@ -195,7 +195,10 @@ update_server_files() {
     # Note: export FEX_ROOTFS inside the subshell/context.
     # RootFS is baked in at this location.
     local cmd="export FEX_ROOTFS=/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04 && cd \"$STEAMCMD_DIR\" && ./steamcmd.sh +force_install_dir \"$SERVER_FILES_DIR\" +login anonymous +app_update 2430930 +@sSteamCmdForcePlatformType windows validate +quit"
-    FEXBash -c "$cmd"
+    if ! FEXBash -c "$cmd"; then
+      log "Failed to update server files via FEX"
+      exit 1
+    fi
   else
     (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
   fi
@@ -357,7 +360,7 @@ ensure_fex_setup() {
   log "ARM64: Validating FEX environment..."
 
   # RootFS is baked in. We just verify.
-  if [ ! -d "$HOME/.fex-emu/RootFS/Ubuntu_22_04" ]; then
+  if [ ! -d "/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04" ]; then
     log "WARNING: FEX RootFS not found at expected location. Was the image built correctly?"
     # Attempt fallback fetch (likely to fail interactively, but logs error)
     if command -v FEXRootFSFetcher >/dev/null; then
@@ -510,13 +513,7 @@ launch_server() {
     "${runner[@]}" &
   fi
 
-  local launch_status=$?
   local launch_pid=$!
-
-  if [ "$launch_status" -ne 0 ]; then
-    log "Server failed to launch (exit $launch_status)"
-    return "$launch_status"
-  fi
 
   SERVER_PID="$launch_pid"
 
@@ -669,15 +666,12 @@ run_server() {
   trap 'handle_restart_signal USR1' USR1
   trap cleanup EXIT
 
-  # Run FEX setup if needed (as root)
-  ensure_fex_setup
-
   ensure_permissions
 
   # Drop privileges happens inside ensure_permissions via re-exec
   # But wait, if we re-exec, the script starts over.
   # ensure_permissions does: exec runuser ... -- /usr/bin/start_server.sh
-  # So we need to call ensure_fex_wine_setup *before* ensure_permissions.
+  # So we need to call ensure_fex_setup *before* ensure_permissions.
 
   # After re-exec (as user), we continue here (but as user, ensure_permissions returns 0)
 
