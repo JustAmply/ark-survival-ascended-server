@@ -488,8 +488,8 @@ launch_server() {
      export FEX_ROOTFS="/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04"
     local fex_rootfs="$FEX_ROOTFS"
 
-    if command -v FEXInterpreter >/dev/null 2>&1; then
-      runner=(FEXInterpreter --rootfs "$fex_rootfs" -- env FEX_ROOTFS="$fex_rootfs" wine64 "$LAUNCH_BINARY_NAME")
+    if command -v FEX >/dev/null 2>&1; then
+      runner=(FEX wine64 "$LAUNCH_BINARY_NAME")
     elif command -v FEXBash >/dev/null 2>&1; then
       # FEXBash needs a full command string to execute wine64 within the emulated environment
       runner=(FEXBash -lc 'export FEX_ROOTFS="$1"; shift; wine64 "$@"' -- "$fex_rootfs" "$LAUNCH_BINARY_NAME")
