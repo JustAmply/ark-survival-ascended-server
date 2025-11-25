@@ -488,11 +488,12 @@ launch_server() {
      export FEX_ROOTFS="/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04"
     local fex_rootfs="$FEX_ROOTFS"
 
-    if command -v FEX >/dev/null 2>&1; then
+    if command -v FEXBash >/dev/null 2>&1; then
+      # FEXBash needs a full command string to execute wine within the emulated environment
+      # We use 'wine' directly, assuming it's in the PATH of the emulated environment
+      runner=(FEXBash -lc 'export FEX_ROOTFS="$1"; shift; wine "$@"' -- "$fex_rootfs" "$LAUNCH_BINARY_NAME")
+    elif command -v FEX >/dev/null 2>&1; then
       runner=(FEX "$FEX_ROOTFS/usr/bin/wine" "$LAUNCH_BINARY_NAME")
-    elif command -v FEXBash >/dev/null 2>&1; then
-      # FEXBash needs a full command string to execute wine64 within the emulated environment
-      runner=(FEXBash -lc 'export FEX_ROOTFS="$1"; shift; "$1/usr/bin/wine" "$@"' -- "$fex_rootfs" "$LAUNCH_BINARY_NAME")
     else
       log "FEX not available on ARM64; cannot launch server"
       return 1
