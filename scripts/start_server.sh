@@ -483,7 +483,7 @@ launch_server() {
 
      export FEX_ROOTFS="/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04"
      # Run via FEX directly using wine64 (FEXBash swallows arguments for binaries)
-     runner=(FEX -- wine64 "$LAUNCH_BINARY_NAME")
+     runner=(FEXInterpreter wine64 "$LAUNCH_BINARY_NAME")
 
   else
     # AMD64 Launch Strategy: Proton
