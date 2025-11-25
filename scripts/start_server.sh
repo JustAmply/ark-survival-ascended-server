@@ -196,7 +196,7 @@ update_server_files() {
     # RootFS is baked in at this location.
     local cmd="export FEX_ROOTFS=/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04 && cd \"$STEAMCMD_DIR\" && ./steamcmd.sh +force_install_dir \"$SERVER_FILES_DIR\" +login anonymous +app_update 2430930 +@sSteamCmdForcePlatformType windows validate +quit"
     if ! FEXBash -c "$cmd"; then
-      log "Failed to update server files via FEX"
+      log "Failed to update server files via FEX. Check FEX installation and network connectivity."
       exit 1
     fi
   else
@@ -514,7 +514,6 @@ launch_server() {
   fi
 
   local launch_pid=$!
-
   SERVER_PID="$launch_pid"
 
   if ! kill -0 "$SERVER_PID" 2>/dev/null; then
