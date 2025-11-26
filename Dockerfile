@@ -13,8 +13,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install Wine and 32-bit support
 RUN dpkg --add-architecture i386 && \
     apt-get update && \
+    apt-get install -y --no-install-recommends \
     wget \
     gnupg \
+    ca-certificates \
     software-properties-common \
     && mkdir -p /etc/apt/keyrings \
     && wget -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key \
