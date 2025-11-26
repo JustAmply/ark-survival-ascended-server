@@ -497,8 +497,9 @@ launch_server() {
 
     if command -v FEXBash >/dev/null 2>&1; then
       # FEXBash needs a full command string to execute wine within the emulated environment
-      # We use 'wine' directly, assuming it's in the PATH of the emulated environment
-      runner=(FEXBash -lc 'export FEX_ROOTFS="$1"; export LANG=C.UTF-8; export LC_ALL=C.UTF-8; export WINEARCH=win64; shift; wine "$@"' -- "$fex_rootfs" "$LAUNCH_BINARY_NAME")
+      # We add /opt/wine-staging/bin to PATH to find the WineHQ binaries
+      # We also set LD_LIBRARY_PATH and WINEDLLPATH to ensure Wine finds its libraries (ntdll.so)
+      runner=(FEXBash -lc 'export FEX_ROOTFS="$1"; export PATH="/opt/wine-staging/bin:$PATH"; export LD_LIBRARY_PATH="/opt/wine-staging/lib:/opt/wine-staging/lib64:$LD_LIBRARY_PATH"; export WINEDLLPATH="/opt/wine-staging/lib/wine:/opt/wine-staging/lib64/wine"; export LANG=C.UTF-8; export LC_ALL=C.UTF-8; export WINEARCH=win64; shift; wine "$@"' -- "$fex_rootfs" "$LAUNCH_BINARY_NAME")
     elif command -v FEX >/dev/null 2>&1; then
       runner=(FEX "$FEX_ROOTFS/usr/bin/wine" "$LAUNCH_BINARY_NAME")
     else
