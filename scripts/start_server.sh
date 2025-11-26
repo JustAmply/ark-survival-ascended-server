@@ -389,15 +389,17 @@ ensure_fex_setup() {
     
     if wget -q -O "$tmp_dir/wine.tar.xz" "$url"; then
         log "Downloading Wine archive..."
-        # Extract only the NLS files
-        # Note: The structure inside the tarball is usually wine-<version>-amd64/share/wine/nls
-        # We use wildcards to find them.
-        if tar -xf "$tmp_dir/wine.tar.xz" -C "$tmp_dir" --wildcards "*/share/wine/nls/*.nls"; then
+        # Extract only the NLS files using Python 3 (since xz-utils might be missing)
+        # We filter for files ending in .nls inside share/wine/nls
+        if python3 -c "import tarfile; 
+with tarfile.open('$tmp_dir/wine.tar.xz') as t:
+    members = [m for m in t.getmembers() if m.name.endswith('.nls') and 'share/wine/nls' in m.name]
+    t.extractall('$tmp_dir', members=members)"; then
              log "Extracting NLS files..."
              find "$tmp_dir" -name "*.nls" -exec cp {} "$nls_dir/" \;
              log "ARM64: Successfully installed Wine NLS files."
         else
-             log "ARM64: Failed to extract NLS files from archive."
+             log "ARM64: Failed to extract NLS files from archive (Python extraction failed)."
         fi
         rm -rf "$tmp_dir"
     else

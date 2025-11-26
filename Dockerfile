@@ -19,8 +19,17 @@ RUN dpkg --add-architecture i386 && \
     wine64 \
     libwine:i386 \
     libwine:amd64 \
+    wget \
+    xz-utils \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
+    # Download and install Wine NLS files (fix for ARM64 FEX crash)
+    && mkdir -p /tmp/wine-nls \
+    && wget -q -O /tmp/wine-nls/wine.tar.xz https://github.com/Kron4ek/Wine-Builds/releases/download/10.17/wine-10.17-amd64.tar.xz \
+    && tar -xf /tmp/wine-nls/wine.tar.xz -C /tmp/wine-nls --wildcards "*/share/wine/nls/*.nls" \
+    && mkdir -p /usr/share/wine/nls \
+    && find /tmp/wine-nls -name "*.nls" -exec cp {} /usr/share/wine/nls/ \; \
+    && rm -rf /tmp/wine-nls \
     # Strip documentation and locales to save space (~500MB)
     && rm -rf /usr/share/doc /usr/share/man /usr/share/locale /var/cache/apt \
     # Create symlinks to fix Wine library path resolution under FEX
@@ -47,6 +56,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
     unzip \
+    xz-utils \
     python3 \
     python3-pip \
     python3-venv \
