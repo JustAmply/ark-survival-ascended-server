@@ -26,7 +26,21 @@ RUN dpkg --add-architecture i386 && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     # Create symlinks to fix Wine library path resolution under FEX
-    # Wine's loader sometimes fails to find ntdll.so under emulation, looking in /x86_64-linux-gnu instead of /usr/lib/...
+    # WineHQ Staging installs to /opt/wine-staging, but FEX/Wine often looks in /usr/lib/wine
+    && ln -s /opt/wine-staging/bin/wine /usr/bin/wine \
+    && ln -s /opt/wine-staging/bin/wine64 /usr/bin/wine64 \
+    && ln -s /opt/wine-staging/bin/wineboot /usr/bin/wineboot \
+    && ln -s /opt/wine-staging/bin/winecfg /usr/bin/winecfg \
+    && ln -s /opt/wine-staging/bin/wineserver /usr/bin/wineserver \
+    && mkdir -p /usr/lib/wine \
+    && ln -s /opt/wine-staging/lib/wine/x86_64-unix /usr/lib/wine/x86_64-unix \
+    && ln -s /opt/wine-staging/lib/wine/x86_64-windows /usr/lib/wine/x86_64-windows \
+    && ln -s /opt/wine-staging/lib/wine/i386-unix /usr/lib/wine/i386-unix \
+    && ln -s /opt/wine-staging/lib/wine/i386-windows /usr/lib/wine/i386-windows \
+    && mkdir -p /usr/share/wine \
+    && ln -s /opt/wine-staging/share/wine/nls /usr/share/wine/nls \
+    && ln -s /opt/wine-staging/share/wine/wine.inf /usr/share/wine/wine.inf \
+    # Legacy symlinks for FEX compatibility
     && ln -s /usr/lib/x86_64-linux-gnu /x86_64-linux-gnu \
     && ln -s /usr/lib/i386-linux-gnu /i386-linux-gnu
 

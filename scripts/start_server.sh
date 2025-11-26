@@ -503,29 +503,23 @@ launch_server() {
 
     if command -v FEXBash >/dev/null 2>&1; then
       # FEXBash needs a full command string to execute wine within the emulated environment
-      # We add /opt/wine-staging/bin to PATH to find the WineHQ binaries
-      # We set LD_LIBRARY_PATH to help the dynamic linker find ntdll.so (unix lib)
+      # We rely on standard paths now that Dockerfile creates symlinks from /opt/wine-staging to /usr
       runner=(FEXBash -lc '
         export FEX_ROOTFS="$1"
-        export PATH="/opt/wine-staging/bin:$PATH"
-        export LD_LIBRARY_PATH="/opt/wine-staging/lib:/opt/wine-staging/lib64:/opt/wine-staging/lib/wine/x86_64-unix:$LD_LIBRARY_PATH"
         export LANG=C.UTF-8
         export LC_ALL=C.UTF-8
         export WINEARCH=win64
         export WINEDEBUG=+loaddll
         
         # Debug: Verify environment inside FEX
-        echo "DEBUG: PATH=$PATH"
-        echo "DEBUG: LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
-        
         echo "DEBUG: Checking Wine version:"
-        wine --version
+        wine64 --version
         
         echo "DEBUG: Checking kernelbase.dll:"
-        ls -l /opt/wine-staging/lib/wine/x86_64-windows/kernelbase.dll || echo "kernelbase.dll not found"
+        ls -l /usr/lib/wine/x86_64-windows/kernelbase.dll || echo "kernelbase.dll not found in /usr/lib/wine"
 
         shift
-        wine "$@"
+        wine64 "$@"
       ' -- "$fex_rootfs" "$LAUNCH_BINARY_NAME")
     elif command -v FEX >/dev/null 2>&1; then
       runner=(FEX "$FEX_ROOTFS/usr/bin/wine" "$LAUNCH_BINARY_NAME")
