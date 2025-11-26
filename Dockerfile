@@ -26,10 +26,10 @@ RUN dpkg --add-architecture i386 && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     # Copy Wine files to /usr to avoid symlink resolution issues under FEX
-    # We copy bin, lib, and share directories from /opt/wine-staging to /usr
-    && cp -r /opt/wine-staging/bin/* /usr/bin/ \
-    && cp -r /opt/wine-staging/lib/* /usr/lib/ \
-    && cp -r /opt/wine-staging/share/* /usr/share/ \
+    # We use --remove-destination to overwrite any symlinks created by the package
+    && cp -r --remove-destination /opt/wine-staging/bin/* /usr/bin/ \
+    && cp -r --remove-destination /opt/wine-staging/lib/* /usr/lib/ \
+    && cp -r --remove-destination /opt/wine-staging/share/* /usr/share/ \
     # wine64 binary is missing in some packages, so we alias wine to wine64
     && ln -sf /usr/bin/wine /usr/bin/wine64 \
     # Legacy symlinks for FEX compatibility
