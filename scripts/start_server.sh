@@ -494,6 +494,12 @@ launch_server() {
 
      export FEX_ROOTFS="/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04"
     local fex_rootfs="$FEX_ROOTFS"
+    log "[asa-start] Launching via FEX-Emu + Wine..."
+    
+    # DEBUG: Find kernel32.dll to verify paths
+    log "DEBUG: Searching for kernel32.dll in FEX RootFS..."
+    find "$fex_rootfs/opt/wine-staging" -name "kernel32.dll" || log "DEBUG: kernel32.dll not found in /opt/wine-staging"
+    find "$fex_rootfs/usr/lib" -name "kernel32.dll" || true
 
     if command -v FEXBash >/dev/null 2>&1; then
       # FEXBash needs a full command string to execute wine within the emulated environment
