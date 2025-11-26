@@ -503,8 +503,7 @@ launch_server() {
 
     if command -v FEXBash >/dev/null 2>&1; then
       # FEXBash needs a full command string to execute wine within the emulated environment
-      # We rely on standard paths now that Dockerfile creates symlinks from /opt/wine-staging to /usr
-      # We also explicitly set paths to ensure Wine finds its builtins (kernel32.so)
+      # We rely on standard paths now that Dockerfile copies Wine files to /usr
       runner=(FEXBash -lc '
         export FEX_ROOTFS="$1"
         export LANG=C.UTF-8
@@ -512,17 +511,9 @@ launch_server() {
         export WINEARCH=win64
         export WINEDEBUG=+loaddll
         
-        # Explicitly set paths to help Wine loader
-        export LD_LIBRARY_PATH="/usr/lib/wine/x86_64-unix:$LD_LIBRARY_PATH"
-        export WINEDLLPATH="/usr/lib/wine/x86_64-unix:/usr/lib/wine/x86_64-windows"
-        
         # Debug: Verify environment inside FEX
         echo "DEBUG: Checking Wine binary:"
-        ls -l /usr/bin/wine || echo "wine not found in /usr/bin"
         wine --version
-        
-        echo "DEBUG: Checking kernel32.so (builtin):"
-        ls -l /usr/lib/wine/x86_64-unix/kernel32.so || echo "kernel32.so not found in /usr/lib/wine/x86_64-unix"
         
         echo "DEBUG: Checking kernel32.dll (PE):"
         ls -l /usr/lib/wine/x86_64-windows/kernel32.dll || echo "kernel32.dll not found in /usr/lib/wine/x86_64-windows"

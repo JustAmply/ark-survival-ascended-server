@@ -25,19 +25,13 @@ RUN dpkg --add-architecture i386 && \
     && apt-get install -y --install-recommends winehq-staging \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
-    # Create symlinks to fix Wine library path resolution under FEX
-    # WineHQ Staging installs to /opt/wine-staging, but FEX/Wine often looks in /usr/lib/wine
-    # We use -f to overwrite any existing links created by the package
-    && ln -sf /opt/wine-staging/bin/wine /usr/bin/wine \
+    # Copy Wine files to /usr to avoid symlink resolution issues under FEX
+    # We copy bin, lib, and share directories from /opt/wine-staging to /usr
+    && cp -r /opt/wine-staging/bin/* /usr/bin/ \
+    && cp -r /opt/wine-staging/lib/* /usr/lib/ \
+    && cp -r /opt/wine-staging/share/* /usr/share/ \
     # wine64 binary is missing in some packages, so we alias wine to wine64
-    && ln -sf /opt/wine-staging/bin/wine /usr/bin/wine64 \
-    && ln -sf /opt/wine-staging/bin/wineboot /usr/bin/wineboot \
-    && ln -sf /opt/wine-staging/bin/winecfg /usr/bin/winecfg \
-    && ln -sf /opt/wine-staging/bin/wineserver /usr/bin/wineserver \
-    && rm -rf /usr/lib/wine \
-    && ln -sf ../../opt/wine-staging/lib/wine /usr/lib/wine \
-    && rm -rf /usr/share/wine \
-    && ln -sf ../../opt/wine-staging/share/wine /usr/share/wine \
+    && ln -sf /usr/bin/wine /usr/bin/wine64 \
     # Legacy symlinks for FEX compatibility
     && ln -sf /usr/lib/x86_64-linux-gnu /x86_64-linux-gnu \
     && ln -sf /usr/lib/i386-linux-gnu /i386-linux-gnu
