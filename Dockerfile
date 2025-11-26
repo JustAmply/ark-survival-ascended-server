@@ -32,19 +32,8 @@ RUN dpkg --add-architecture i386 && \
 FROM ubuntu:24.04
 
 # Build arguments
-ARG VERSION="unknown"
-ARG GIT_COMMIT="unknown"
-ARG BUILD_DATE="unknown"
 ARG DEBIAN_FRONTEND=noninteractive
 ARG TARGETARCH
-
-# Add metadata labels
-LABEL org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${GIT_COMMIT}" \
-      org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.title="ARK: Survival Ascended Linux Server" \
-      org.opencontainers.image.description="Dockerized ARK: Survival Ascended server with asa_ctrl management tool (Multi-arch)" \
-      org.opencontainers.image.source="https://github.com/JustAmply/ark-survival-ascended-server"
 
 # Ensure timezone data is available and default to UTC inside the container
 ENV TZ=UTC
@@ -148,3 +137,16 @@ WORKDIR /home/gameserver
 
 # Entry point
 ENTRYPOINT ["/usr/bin/start_server.sh"]
+
+# Build arguments for metadata (placed at end to avoid cache invalidation)
+ARG VERSION="unknown"
+ARG GIT_COMMIT="unknown"
+ARG BUILD_DATE="unknown"
+
+# Add metadata labels
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.title="ARK: Survival Ascended Linux Server" \
+      org.opencontainers.image.description="Dockerized ARK: Survival Ascended server with asa_ctrl management tool (Multi-arch)" \
+      org.opencontainers.image.source="https://github.com/JustAmply/ark-survival-ascended-server"
