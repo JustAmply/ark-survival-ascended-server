@@ -512,12 +512,13 @@ launch_server() {
         export WINEARCH=win64
         export WINEDEBUG=+loaddll
         
-        # Explicitly set LD_LIBRARY_PATH but let Wine calculate WINEDLLPATH relative to binary
+        # Explicitly set LD_LIBRARY_PATH and WINEDLLPATH to ensure Wine finds everything
         export LD_LIBRARY_PATH="/usr/lib/wine/x86_64-unix:$LD_LIBRARY_PATH"
-        # export WINEDLLPATH="/usr/lib/wine/x86_64-unix:/usr/lib/wine/x86_64-windows"
+        export WINEDLLPATH="/usr/lib/wine/x86_64-unix:/usr/lib/wine/x86_64-windows:/usr/lib/wine/i386-unix:/usr/lib/wine/i386-windows"
         
         # Debug: Verify environment inside FEX
         echo "DEBUG: Checking Wine binary:"
+        ls -l /usr/bin/wine || echo "wine not found in /usr/bin"
         wine --version
         
         echo "DEBUG: Locating ntdll.so:"
