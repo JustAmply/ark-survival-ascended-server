@@ -13,12 +13,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install Wine and 32-bit support
 RUN dpkg --add-architecture i386 && \
     apt-get update && \
-    apt-get install -y \
-        wine \
-        wine32 \
-        wine64 \
-        libwine:i386 \
-        libwine:amd64 \
+    apt-get install -y --no-install-recommends \
+    wine \
+    wine32 \
+    wine64 \
+    libwine:i386 \
+    libwine:amd64 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     # Strip documentation and locales to save space (~500MB)
@@ -65,14 +65,14 @@ ENV LANG=en_US.UTF-8 \
 # --- ARM64 SPECIFIC SETUP (FEX-Emu) ---
 # We install FEX.
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
-      echo "Detected ARM64 build. Installing FEX-Emu..." && \
-      add-apt-repository -y ppa:fex-emu/fex && \
-      apt-get update && \
-      apt-get install -y --no-install-recommends fex-emu-armv8.2 && \
-      rm -rf /var/lib/apt/lists/* && \
-      mkdir -p /home/gameserver/.fex-emu/RootFS && \
-      # Create Config.json to point FEX to the correct RootFS automatically
-      echo '{"Config": {"RootFS": "Ubuntu_22_04"}}' > /home/gameserver/.fex-emu/Config.json; \
+    echo "Detected ARM64 build. Installing FEX-Emu..." && \
+    add-apt-repository -y ppa:fex-emu/fex && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends fex-emu-armv8.2 && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir -p /home/gameserver/.fex-emu/RootFS && \
+    # Create Config.json to point FEX to the correct RootFS automatically
+    echo '{"Config": {"RootFS": "Ubuntu_22_04"}}' > /home/gameserver/.fex-emu/Config.json; \
     fi
 
 # Copy pre-built RootFS from the builder stage (AMD64 Ubuntu 22.04 with Wine)
@@ -81,18 +81,18 @@ COPY --from=fex-rootfs --chown=25000:25000 / /home/gameserver/.fex-emu/RootFS/Ub
 
 # --- AMD64 SPECIFIC SETUP ---
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
-      echo "Detected AMD64 build. Installing 32-bit libs..." && \
-      dpkg --add-architecture i386 && \
-      apt-get update && \
-      apt-get install -y --no-install-recommends \
-        libc6-dev \
-        libstdc++6:i386 \
-        lib32z1 \
-        libgcc-s1:i386 \
-        libfreetype6:i386 \
-      && rm -rf /var/lib/apt/lists/* && \
-      # Clean up the FEX rootfs on AMD64 to save runtime disk usage
-      rm -rf /home/gameserver/.fex-emu; \
+    echo "Detected AMD64 build. Installing 32-bit libs..." && \
+    dpkg --add-architecture i386 && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    libc6-dev \
+    libstdc++6:i386 \
+    lib32z1 \
+    libgcc-s1:i386 \
+    libfreetype6:i386 \
+    && rm -rf /var/lib/apt/lists/* && \
+    # Clean up the FEX rootfs on AMD64 to save runtime disk usage
+    rm -rf /home/gameserver/.fex-emu; \
     fi
 
 # Create gameserver user
@@ -128,9 +128,9 @@ RUN chmod +x /usr/bin/start_server.sh
 
 # Declare persistent data volumes
 VOLUME ["/home/gameserver/Steam", \
-        "/home/gameserver/steamcmd", \
-        "/home/gameserver/server-files", \
-        "/home/gameserver/cluster-shared"]
+    "/home/gameserver/steamcmd", \
+    "/home/gameserver/server-files", \
+    "/home/gameserver/cluster-shared"]
 
 # Set working directory
 WORKDIR /home/gameserver
@@ -145,8 +145,8 @@ ARG BUILD_DATE="unknown"
 
 # Add metadata labels
 LABEL org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${GIT_COMMIT}" \
-      org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.title="ARK: Survival Ascended Linux Server" \
-      org.opencontainers.image.description="Dockerized ARK: Survival Ascended server with asa_ctrl management tool (Multi-arch)" \
-      org.opencontainers.image.source="https://github.com/JustAmply/ark-survival-ascended-server"
+    org.opencontainers.image.revision="${GIT_COMMIT}" \
+    org.opencontainers.image.created="${BUILD_DATE}" \
+    org.opencontainers.image.title="ARK: Survival Ascended Linux Server" \
+    org.opencontainers.image.description="Dockerized ARK: Survival Ascended server with asa_ctrl management tool (Multi-arch)" \
+    org.opencontainers.image.source="https://github.com/JustAmply/ark-survival-ascended-server"
