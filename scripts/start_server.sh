@@ -512,22 +512,22 @@ launch_server() {
         export WINEARCH=win64
         export WINEDEBUG=+loaddll
         
-        # Explicitly set paths to help Wine loader find builtins and PEs
+        # Explicitly set LD_LIBRARY_PATH but let Wine calculate WINEDLLPATH relative to binary
         export LD_LIBRARY_PATH="/usr/lib/wine/x86_64-unix:$LD_LIBRARY_PATH"
-        export WINEDLLPATH="/usr/lib/wine/x86_64-unix:/usr/lib/wine/x86_64-windows"
+        # export WINEDLLPATH="/usr/lib/wine/x86_64-unix:/usr/lib/wine/x86_64-windows"
         
         # Debug: Verify environment inside FEX
         echo "DEBUG: Checking Wine binary:"
         wine --version
         
-        echo "DEBUG: Checking kernel32.so (builtin):"
-        ls -l /usr/lib/wine/x86_64-unix/kernel32.so || echo "kernel32.so not found in /usr/lib/wine/x86_64-unix"
+        echo "DEBUG: Locating ntdll.so:"
+        find /usr/lib/wine -name "ntdll.so"
         
-        echo "DEBUG: Checking kernel32.dll (PE):"
-        ls -l /usr/lib/wine/x86_64-windows/kernel32.dll || echo "kernel32.dll not found in /usr/lib/wine/x86_64-windows"
+        echo "DEBUG: Locating kernel32 files:"
+        find /usr/lib/wine -name "kernel32*"
         
-        echo "DEBUG: Checking kernelbase.dll (PE):"
-        ls -l /usr/lib/wine/x86_64-windows/kernelbase.dll || echo "kernelbase.dll not found in /usr/lib/wine/x86_64-windows"
+        echo "DEBUG: Locating kernelbase files:"
+        find /usr/lib/wine -name "kernelbase*"
 
         shift
         wine "$@"
