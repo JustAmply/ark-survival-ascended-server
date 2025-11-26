@@ -512,14 +512,18 @@ launch_server() {
         export WINEDEBUG=+loaddll
         
         # Debug: Verify environment inside FEX
-        echo "DEBUG: Checking Wine version:"
-        wine64 --version
+        echo "DEBUG: Checking Wine binary:"
+        ls -l /usr/bin/wine || echo "wine not found in /usr/bin"
+        wine --version
         
-        echo "DEBUG: Checking kernelbase.dll:"
+        echo "DEBUG: Checking kernelbase.dll symlink:"
         ls -l /usr/lib/wine/x86_64-windows/kernelbase.dll || echo "kernelbase.dll not found in /usr/lib/wine"
+        
+        # Debug: Check if the target exists
+        ls -l /opt/wine-staging/lib/wine/x86_64-windows/kernelbase.dll || echo "Target kernelbase.dll not found"
 
         shift
-        wine64 "$@"
+        wine "$@"
       ' -- "$fex_rootfs" "$LAUNCH_BINARY_NAME")
     elif command -v FEX >/dev/null 2>&1; then
       runner=(FEX "$FEX_ROOTFS/usr/bin/wine" "$LAUNCH_BINARY_NAME")

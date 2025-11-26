@@ -29,7 +29,8 @@ RUN dpkg --add-architecture i386 && \
     # WineHQ Staging installs to /opt/wine-staging, but FEX/Wine often looks in /usr/lib/wine
     # We use -f to overwrite any existing links created by the package
     && ln -sf /opt/wine-staging/bin/wine /usr/bin/wine \
-    && ln -sf /opt/wine-staging/bin/wine64 /usr/bin/wine64 \
+    # wine64 binary is missing in some packages, so we alias wine to wine64
+    && ln -sf /opt/wine-staging/bin/wine /usr/bin/wine64 \
     && ln -sf /opt/wine-staging/bin/wineboot /usr/bin/wineboot \
     && ln -sf /opt/wine-staging/bin/winecfg /usr/bin/winecfg \
     && ln -sf /opt/wine-staging/bin/wineserver /usr/bin/wineserver \
