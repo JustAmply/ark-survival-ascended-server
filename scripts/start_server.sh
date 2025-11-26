@@ -519,13 +519,18 @@ launch_server() {
         # Debug: Verify Wine binaries
         echo "DEBUG: Checking /usr/bin/wine type:"
         file /usr/bin/wine || echo "file command not found"
-        ls -l /usr/bin/wine
         
-        echo "DEBUG: Checking /opt/wine-staging/bin/wine64:"
-        ls -l /opt/wine-staging/bin/wine64 || echo "Original wine64 not found in /opt"
+        echo "DEBUG: Listing /opt/wine-staging/bin content (looking for wine64):"
+        ls -F /opt/wine-staging/bin/
         
-        echo "DEBUG: Checking /usr/bin/wine64:"
-        ls -l /usr/bin/wine64
+        echo "DEBUG: Checking for wineboot.so (builtin backing):"
+        find /usr/lib/wine -name "wineboot.exe.so"
+        
+        echo "DEBUG: Checking for kernel32.so (builtin backing):"
+        find /usr/lib/wine -name "kernel32.so"
+        
+        echo "DEBUG: Checking for kernelbase.so (builtin backing):"
+        find /usr/lib/wine -name "kernelbase.so"
         
         shift
         wine "$@"

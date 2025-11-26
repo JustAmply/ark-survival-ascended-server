@@ -16,6 +16,7 @@ RUN dpkg --add-architecture i386 && \
     apt-get install -y --no-install-recommends \
     wget \
     gnupg \
+    file \
     ca-certificates \
     software-properties-common \
     && mkdir -p /etc/apt/keyrings \
