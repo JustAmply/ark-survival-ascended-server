@@ -378,13 +378,30 @@ ensure_fex_setup() {
 
   # Check for Wine NLS files and install if missing
   if [ ! -d "$fex_rootfs_path/usr/share/wine/nls" ]; then
-    log "ARM64: Wine NLS files missing in FEX RootFS. Attempting to install 'wine' package..."
-    # We need to run apt-get inside the FEX environment
-    # We use FEXBash to execute the commands in the emulated environment
-    if FEXBash -c "apt-get update && apt-get install -y --no-install-recommends wine"; then
-        log "ARM64: Successfully installed 'wine' package."
+    log "ARM64: Wine NLS files missing in FEX RootFS. Attempting to download..."
+    
+    local nls_dir="$fex_rootfs_path/usr/share/wine/nls"
+    local url="https://github.com/Kron4ek/Wine-Builds/releases/download/10.17/wine-10.17-amd64.tar.xz"
+    local tmp_dir="/tmp/wine_nls_extract"
+    
+    mkdir -p "$tmp_dir"
+    mkdir -p "$nls_dir"
+    
+    if wget -q -O "$tmp_dir/wine.tar.xz" "$url"; then
+        log "Downloading Wine archive..."
+        # Extract only the NLS files
+        # Note: The structure inside the tarball is usually wine-<version>-amd64/share/wine/nls
+        # We use wildcards to find them.
+        if tar -xf "$tmp_dir/wine.tar.xz" -C "$tmp_dir" --wildcards "*/share/wine/nls/*.nls"; then
+             log "Extracting NLS files..."
+             find "$tmp_dir" -name "*.nls" -exec cp {} "$nls_dir/" \;
+             log "ARM64: Successfully installed Wine NLS files."
+        else
+             log "ARM64: Failed to extract NLS files from archive."
+        fi
+        rm -rf "$tmp_dir"
     else
-        log "ARM64: Failed to install 'wine' package. Server may crash."
+        log "ARM64: Failed to download Wine archive from $url. Server may crash."
     fi
   fi
 }
