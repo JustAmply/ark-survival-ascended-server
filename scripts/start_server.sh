@@ -504,7 +504,6 @@ launch_server() {
     if command -v FEXBash >/dev/null 2>&1; then
       # FEXBash needs a full command string to execute wine within the emulated environment
       # We add /opt/wine-staging/bin to PATH to find the WineHQ binaries
-      # We use 'wine64' explicitly for 64-bit ASA, which helps avoid 32/64-bit confusion
       # We restore WINEDLLPATH to ensure kernel32.dll is found
       runner=(FEXBash -lc '
         export FEX_ROOTFS="$1"
@@ -519,11 +518,18 @@ launch_server() {
         echo "DEBUG: PATH=$PATH"
         echo "DEBUG: LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
         echo "DEBUG: WINEDLLPATH=$WINEDLLPATH"
-        ls -l /opt/wine-staging/bin/wine64 || echo "DEBUG: wine64 not found"
-        ls -l /opt/wine-staging/lib/wine/x86_64-unix/ntdll.so || echo "DEBUG: ntdll.so not found"
         
+        echo "DEBUG: Listing /opt/wine-staging/bin:"
+        ls -l /opt/wine-staging/bin/
+        
+        echo "DEBUG: Checking wine binary:"
+        file /opt/wine-staging/bin/wine || echo "file command not found"
+        
+        echo "DEBUG: Checking ntdll.dll (PE):"
+        ls -l /opt/wine-staging/lib/wine/x86_64-windows/ntdll.dll || echo "ntdll.dll not found"
+
         shift
-        wine64 "$@"
+        wine "$@"
       ' -- "$fex_rootfs" "$LAUNCH_BINARY_NAME")
     elif command -v FEX >/dev/null 2>&1; then
       runner=(FEX "$FEX_ROOTFS/usr/bin/wine" "$LAUNCH_BINARY_NAME")
