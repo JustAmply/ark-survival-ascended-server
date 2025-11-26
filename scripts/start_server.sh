@@ -376,35 +376,11 @@ ensure_fex_setup() {
   cp /etc/resolv.conf "$fex_rootfs_path/etc/resolv.conf" || true
   cp /etc/hosts "$fex_rootfs_path/etc/hosts" || true
 
-  # Check for Wine NLS files and install if missing
-  if [ ! -d "$fex_rootfs_path/usr/share/wine/nls" ]; then
-    log "ARM64: Wine NLS files missing in FEX RootFS. Attempting to download..."
-    
-    local nls_dir="$fex_rootfs_path/usr/share/wine/nls"
-    local url="https://github.com/Kron4ek/Wine-Builds/releases/download/10.17/wine-10.17-amd64.tar.xz"
-    local tmp_dir="/tmp/wine_nls_extract"
-    
-    mkdir -p "$tmp_dir"
-    mkdir -p "$nls_dir"
-    
-    if wget -q -O "$tmp_dir/wine.tar.xz" "$url"; then
-        log "Downloading Wine archive..."
-        # Extract only the NLS files using Python 3 (since xz-utils might be missing)
-        # We filter for files ending in .nls inside share/wine/nls
-        if python3 -c "import tarfile; 
-with tarfile.open('$tmp_dir/wine.tar.xz') as t:
-    members = [m for m in t.getmembers() if m.name.endswith('.nls') and 'share/wine/nls' in m.name]
-    t.extractall('$tmp_dir', members=members)"; then
-             log "Extracting NLS files..."
-             find "$tmp_dir" -name "*.nls" -exec cp {} "$nls_dir/" \;
-             log "ARM64: Successfully installed Wine NLS files."
-        else
-             log "ARM64: Failed to extract NLS files from archive (Python extraction failed)."
-        fi
-        rm -rf "$tmp_dir"
-    else
-        log "ARM64: Failed to download Wine archive from $url. Server may crash."
-    fi
+  # Check for Wine NLS files (WineHQ Staging usually puts them in /opt/wine-staging/share/wine/nls)
+  # We check both standard and opt locations
+  if [ ! -d "$fex_rootfs_path/opt/wine-staging/share/wine/nls" ] && [ ! -d "$fex_rootfs_path/usr/share/wine/nls" ]; then
+    log "ARM64: Wine NLS files missing in FEX RootFS. This suggests a broken image build."
+    # Fallback download logic removed as we now bake WineHQ Staging in.
   fi
 }
 

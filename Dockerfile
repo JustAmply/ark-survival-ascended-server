@@ -13,32 +13,20 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install Wine and 32-bit support
 RUN dpkg --add-architecture i386 && \
     apt-get update && \
-    apt-get install -y --no-install-recommends \
-    wine \
-    wine32 \
-    wine64 \
-    libwine:i386 \
-    libwine:amd64 \
     wget \
-    xz-utils \
-    ca-certificates \
+    gnupg \
+    software-properties-common \
+    && mkdir -p /etc/apt/keyrings \
+    && wget -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key \
+    && wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/jammy/winehq-jammy.sources \
+    && apt-get update \
+    && apt-get install -y --install-recommends winehq-staging \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
-    # Strip documentation and locales to save space (~500MB)
-    && rm -rf /usr/share/doc /usr/share/man /usr/share/locale /var/cache/apt \
     # Create symlinks to fix Wine library path resolution under FEX
     # Wine's loader sometimes fails to find ntdll.so under emulation, looking in /x86_64-linux-gnu instead of /usr/lib/...
     && ln -s /usr/lib/x86_64-linux-gnu /x86_64-linux-gnu \
     && ln -s /usr/lib/i386-linux-gnu /i386-linux-gnu
-
-# Download and install Wine NLS files (fix for ARM64 FEX crash)
-# Split into separate layer for better caching and debugging
-RUN mkdir -p /tmp/wine-nls \
-    && wget -O /tmp/wine-nls/wine.tar.xz https://github.com/Kron4ek/Wine-Builds/releases/download/10.17/wine-10.17-amd64.tar.xz \
-    && tar -xf /tmp/wine-nls/wine.tar.xz -C /tmp/wine-nls --wildcards "*/share/wine/nls/*.nls" \
-    && mkdir -p /usr/share/wine/nls \
-    && find /tmp/wine-nls -name "*.nls" -exec cp -t /usr/share/wine/nls/ {} + \
-    && rm -rf /tmp/wine-nls
 
 # --- Stage 2: Final Image ---
 FROM ubuntu:24.04
