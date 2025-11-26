@@ -25,6 +25,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       tags: ${{ steps.metadata.outputs.tags }}
+      image_base: ${{ steps.metadata.outputs.image_base }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -78,6 +79,8 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
 
           TAGS="${IMAGE_BASE}:${VERSION}"
+          
+          echo "image_base=${IMAGE_BASE}" >> "$GITHUB_OUTPUT"
 
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             PR_NUMBER="${{ github.event.pull_request.number }}"
@@ -132,7 +135,7 @@ jobs:
           context: .
           platforms: linux/${{ matrix.platform }}
           # Push to a temporary tag unique to this commit and arch
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_BASENAME }}:sha-${{ github.sha }}-${{ matrix.platform }}
+          tags: ${{ needs.test-and-prepare.outputs.image_base }}:sha-${{ github.sha }}-${{ matrix.platform }}
           push: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
           build-args: |
             VERSION=${{ needs.test-and-prepare.outputs.version }}
@@ -161,7 +164,7 @@ jobs:
 
       - name: Create manifest list and push
         run: |
-          IMAGE_BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
+          IMAGE_BASE="${{ needs.test-and-prepare.outputs.image_base }}"
           
           # Source images from the build job
           AMD64_IMAGE="${IMAGE_BASE}:sha-${{ github.sha }}-amd64"
