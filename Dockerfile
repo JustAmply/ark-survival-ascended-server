@@ -34,14 +34,10 @@ RUN dpkg --add-architecture i386 && \
     && ln -sf /opt/wine-staging/bin/wineboot /usr/bin/wineboot \
     && ln -sf /opt/wine-staging/bin/winecfg /usr/bin/winecfg \
     && ln -sf /opt/wine-staging/bin/wineserver /usr/bin/wineserver \
-    && mkdir -p /usr/lib/wine \
-    && ln -sf /opt/wine-staging/lib/wine/x86_64-unix /usr/lib/wine/x86_64-unix \
-    && ln -sf /opt/wine-staging/lib/wine/x86_64-windows /usr/lib/wine/x86_64-windows \
-    && ln -sf /opt/wine-staging/lib/wine/i386-unix /usr/lib/wine/i386-unix \
-    && ln -sf /opt/wine-staging/lib/wine/i386-windows /usr/lib/wine/i386-windows \
-    && mkdir -p /usr/share/wine \
-    && ln -sf /opt/wine-staging/share/wine/nls /usr/share/wine/nls \
-    && ln -sf /opt/wine-staging/share/wine/wine.inf /usr/share/wine/wine.inf \
+    && rm -rf /usr/lib/wine \
+    && ln -sf /opt/wine-staging/lib/wine /usr/lib/wine \
+    && rm -rf /usr/share/wine \
+    && ln -sf /opt/wine-staging/share/wine /usr/share/wine \
     # Legacy symlinks for FEX compatibility
     && ln -sf /usr/lib/x86_64-linux-gnu /x86_64-linux-gnu \
     && ln -sf /usr/lib/i386-linux-gnu /i386-linux-gnu
