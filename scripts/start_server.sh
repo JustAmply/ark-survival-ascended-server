@@ -504,29 +504,25 @@ launch_server() {
     if command -v FEXBash >/dev/null 2>&1; then
       # FEXBash needs a full command string to execute wine within the emulated environment
       # We add /opt/wine-staging/bin to PATH to find the WineHQ binaries
-      # We restore WINEDLLPATH to ensure kernel32.dll is found
+      # We set LD_LIBRARY_PATH to help the dynamic linker find ntdll.so (unix lib)
       runner=(FEXBash -lc '
         export FEX_ROOTFS="$1"
         export PATH="/opt/wine-staging/bin:$PATH"
         export LD_LIBRARY_PATH="/opt/wine-staging/lib:/opt/wine-staging/lib64:/opt/wine-staging/lib/wine/x86_64-unix:$LD_LIBRARY_PATH"
-        export WINEDLLPATH="/opt/wine-staging/lib/wine:/opt/wine-staging/lib/wine/x86_64-windows:/opt/wine-staging/lib/wine/x86_64-unix"
         export LANG=C.UTF-8
         export LC_ALL=C.UTF-8
         export WINEARCH=win64
+        export WINEDEBUG=+loaddll
         
         # Debug: Verify environment inside FEX
         echo "DEBUG: PATH=$PATH"
         echo "DEBUG: LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
-        echo "DEBUG: WINEDLLPATH=$WINEDLLPATH"
         
-        echo "DEBUG: Listing /opt/wine-staging/bin:"
-        ls -l /opt/wine-staging/bin/
+        echo "DEBUG: Checking Wine version:"
+        wine --version
         
-        echo "DEBUG: Checking wine binary:"
-        file /opt/wine-staging/bin/wine || echo "file command not found"
-        
-        echo "DEBUG: Checking ntdll.dll (PE):"
-        ls -l /opt/wine-staging/lib/wine/x86_64-windows/ntdll.dll || echo "ntdll.dll not found"
+        echo "DEBUG: Checking kernelbase.dll:"
+        ls -l /opt/wine-staging/lib/wine/x86_64-windows/kernelbase.dll || echo "kernelbase.dll not found"
 
         shift
         wine "$@"
