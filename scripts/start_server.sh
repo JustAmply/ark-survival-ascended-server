@@ -516,20 +516,17 @@ launch_server() {
         export LD_LIBRARY_PATH="/usr/lib/wine/x86_64-unix:$LD_LIBRARY_PATH"
         export WINEDLLPATH="/usr/lib/wine/x86_64-unix:/usr/lib/wine/x86_64-windows:/usr/lib/wine/i386-unix:/usr/lib/wine/i386-windows"
         
-        # Debug: Verify environment inside FEX
-        echo "DEBUG: Checking Wine binary:"
-        ls -l /usr/bin/wine || echo "wine not found in /usr/bin"
-        wine --version
+        # Debug: Verify Wine binaries
+        echo "DEBUG: Checking /usr/bin/wine type:"
+        file /usr/bin/wine || echo "file command not found"
+        ls -l /usr/bin/wine
         
-        echo "DEBUG: Locating ntdll.so:"
-        find /usr/lib/wine -name "ntdll.so"
+        echo "DEBUG: Checking /opt/wine-staging/bin/wine64:"
+        ls -l /opt/wine-staging/bin/wine64 || echo "Original wine64 not found in /opt"
         
-        echo "DEBUG: Locating kernel32 files:"
-        find /usr/lib/wine -name "kernel32*"
+        echo "DEBUG: Checking /usr/bin/wine64:"
+        ls -l /usr/bin/wine64
         
-        echo "DEBUG: Locating kernelbase files:"
-        find /usr/lib/wine -name "kernelbase*"
-
         shift
         wine "$@"
       ' -- "$fex_rootfs" "$LAUNCH_BINARY_NAME")
