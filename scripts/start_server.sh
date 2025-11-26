@@ -516,6 +516,10 @@ launch_server() {
         ls -l /usr/bin/wine || echo "wine not found in /usr/bin"
         wine --version
         
+        echo "DEBUG: Checking /usr/lib/wine symlink:"
+        ls -ld /usr/lib/wine || echo "/usr/lib/wine not found"
+        ls -F /usr/lib/wine/ || echo "Cannot list /usr/lib/wine/"
+        
         echo "DEBUG: Checking kernelbase.dll symlink:"
         ls -l /usr/lib/wine/x86_64-windows/kernelbase.dll || echo "kernelbase.dll not found in /usr/lib/wine"
         
