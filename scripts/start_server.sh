@@ -375,6 +375,21 @@ ensure_fex_setup() {
   local fex_rootfs_path="/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04"
   cp /etc/resolv.conf "$fex_rootfs_path/etc/resolv.conf" || true
   cp /etc/hosts "$fex_rootfs_path/etc/hosts" || true
+
+  # Debug: Check for Wine NLS files
+  log "DEBUG: Checking for Wine NLS files in FEX RootFS..."
+  if [ -d "$fex_rootfs_path/usr/share/wine/nls" ]; then
+    log "Found /usr/share/wine/nls in RootFS. Listing first 5 files:"
+    ls -1 "$fex_rootfs_path/usr/share/wine/nls" | head -n 5 | while read -r line; do log "  $line"; done
+  else
+    log "ERROR: /usr/share/wine/nls NOT found in FEX RootFS at $fex_rootfs_path/usr/share/wine/nls"
+    log "Listing /usr/share/wine if it exists:"
+    if [ -d "$fex_rootfs_path/usr/share/wine" ]; then
+        ls -1 "$fex_rootfs_path/usr/share/wine" | while read -r line; do log "  $line"; done
+    else
+        log "ERROR: /usr/share/wine does not exist in RootFS."
+    fi
+  fi
 }
 
 #############################
