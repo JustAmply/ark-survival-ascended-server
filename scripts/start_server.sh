@@ -504,13 +504,12 @@ launch_server() {
     if command -v FEXBash >/dev/null 2>&1; then
       # FEXBash needs a full command string to execute wine within the emulated environment
       # We add /opt/wine-staging/bin to PATH to find the WineHQ binaries
-      # We explicitly set LD_LIBRARY_PATH and WINEDLLPATH to include architecture-specific directories
-      # This fixes 'ntdll.so not found' and 'kernel32.dll not found' errors
+      # We set LD_LIBRARY_PATH to help the dynamic linker find ntdll.so (unix lib)
+      # We REMOVE WINEDLLPATH to let Wine use its default relative path logic for finding PE files (kernel32.dll)
       runner=(FEXBash -lc '
         export FEX_ROOTFS="$1"
         export PATH="/opt/wine-staging/bin:$PATH"
         export LD_LIBRARY_PATH="/opt/wine-staging/lib:/opt/wine-staging/lib64:/opt/wine-staging/lib/wine/x86_64-unix:$LD_LIBRARY_PATH"
-        export WINEDLLPATH="/opt/wine-staging/lib/wine:/opt/wine-staging/lib/wine/x86_64-windows:/opt/wine-staging/lib/wine/x86_64-unix"
         export LANG=C.UTF-8
         export LC_ALL=C.UTF-8
         export WINEARCH=win64
