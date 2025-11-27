@@ -31,8 +31,6 @@ RUN dpkg --add-architecture i386 && \
     && cp -r --remove-destination /opt/wine-stable/bin/* /usr/bin/ \
     && cp -r --remove-destination /opt/wine-stable/lib/* /usr/lib/ \
     && cp -r --remove-destination /opt/wine-stable/share/* /usr/share/ \
-    # wine64 binary is missing in some packages, so we alias wine to wine64
-    && ln -sf /usr/bin/wine /usr/bin/wine64 \
     # Legacy symlinks for FEX compatibility
     && ln -sf /usr/lib/x86_64-linux-gnu /x86_64-linux-gnu \
     && ln -sf /usr/lib/i386-linux-gnu /i386-linux-gnu

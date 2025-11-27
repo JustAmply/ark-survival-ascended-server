@@ -498,7 +498,7 @@ launch_server() {
     
     # DEBUG: Find kernel32.dll to verify paths
     log "DEBUG: Searching for kernel32.dll in FEX RootFS..."
-    find "$fex_rootfs/opt/wine-staging" -name "kernel32.dll" || log "DEBUG: kernel32.dll not found in /opt/wine-staging"
+    find "$fex_rootfs/opt/wine-stable" -name "kernel32.dll" || log "DEBUG: kernel32.dll not found in /opt/wine-stable"
     find "$fex_rootfs/usr/lib" -name "kernel32.dll" || true
 
     if command -v FEXBash >/dev/null 2>&1; then
@@ -521,7 +521,7 @@ launch_server() {
         wine --version
         
         shift
-        wine "$@"
+        wine64 "$@"
       ' -- "$fex_rootfs" "$LAUNCH_BINARY_NAME")
     elif command -v FEX >/dev/null 2>&1; then
       runner=(FEX "$FEX_ROOTFS/usr/bin/wine" "$LAUNCH_BINARY_NAME")
