@@ -496,6 +496,62 @@ launch_server() {
     local fex_rootfs="$FEX_ROOTFS"
     log "[asa-start] Launching via FEX-Emu + Wine..."
     
+    # Build Wine search paths from the FEX RootFS so we can pass them into the emulated shell.
+    local wine_dll_path="" wine_ld_path=""
+    local dll_candidates=(
+      "/usr/lib/wine/x86_64-unix"
+      "/usr/lib/wine/x86_64-windows"
+      "/usr/lib/wine/i386-unix"
+      "/usr/lib/wine/i386-windows"
+      "/opt/wine-stable/lib64/wine/x86_64-unix"
+      "/opt/wine-stable/lib64/wine/x86_64-windows"
+      "/opt/wine-stable/lib/wine/i386-unix"
+      "/opt/wine-stable/lib/wine/i386-windows"
+    )
+    for path in "${dll_candidates[@]}"; do
+      if [ -d "$fex_rootfs$path" ]; then
+        if [ -z "$wine_dll_path" ]; then
+          wine_dll_path="$path"
+        else
+          wine_dll_path="$wine_dll_path:$path"
+        fi
+      fi
+    done
+    local ld_candidates=(
+      "/usr/lib/wine/x86_64-unix"
+      "/usr/lib/wine/i386-unix"
+      "/opt/wine-stable/lib64/wine/x86_64-unix"
+      "/opt/wine-stable/lib/wine/i386-unix"
+    )
+    for path in "${ld_candidates[@]}"; do
+      if [ -d "$fex_rootfs$path" ]; then
+        if [ -z "$wine_ld_path" ]; then
+          wine_ld_path="$path"
+        else
+          wine_ld_path="$wine_ld_path:$path"
+        fi
+      fi
+    done
+    export FEX_WINE_DLLPATH="$wine_dll_path"
+    export FEX_WINE_LDPATH="$wine_ld_path"
+
+    # Wine 10 ships ntdll.dll in the *-windows dirs; add .so aliases so the loader can find them under FEX.
+    local ntdll_pairs=(
+      "/usr/lib/wine:i386"
+      "/usr/lib/wine:x86_64"
+      "/opt/wine-stable/lib/wine:i386"
+      "/opt/wine-stable/lib64/wine:x86_64"
+    )
+    local pair base arch unix_path win_dir
+    for pair in "${ntdll_pairs[@]}"; do
+      IFS=: read -r base arch <<<"$pair"
+      unix_path="$fex_rootfs${base}/${arch}-unix/ntdll.so"
+      win_dir="$fex_rootfs${base}/${arch}-windows"
+      if [ -f "$unix_path" ] && [ -d "$win_dir" ] && [ ! -e "$win_dir/ntdll.so" ]; then
+        ln -s "../${arch}-unix/ntdll.so" "$win_dir/ntdll.so" 2>/dev/null || true
+      fi
+    done
+
     # DEBUG: Find kernel32.dll to verify paths
     log "DEBUG: Searching for kernel32.dll in FEX RootFS..."
     find "$fex_rootfs/opt/wine-stable" -name "kernel32.dll" || log "DEBUG: kernel32.dll not found in /opt/wine-stable"
@@ -513,8 +569,12 @@ launch_server() {
         export WINEDEBUG=+loaddll
         
         # Explicitly set LD_LIBRARY_PATH and WINEDLLPATH to ensure Wine finds everything
-        export LD_LIBRARY_PATH="/usr/lib/wine/x86_64-unix:$LD_LIBRARY_PATH"
-        export WINEDLLPATH="/usr/lib/wine/x86_64-unix:/usr/lib/wine/x86_64-windows:/usr/lib/wine/i386-unix:/usr/lib/wine/i386-windows"
+        if [ -n "${FEX_WINE_LDPATH:-}" ]; then
+          export LD_LIBRARY_PATH="${FEX_WINE_LDPATH}:${LD_LIBRARY_PATH:-}"
+        fi
+        if [ -n "${FEX_WINE_DLLPATH:-}" ]; then
+          export WINEDLLPATH="$FEX_WINE_DLLPATH"
+        fi
         
         # Debug: Verify Wine version
         echo "DEBUG: Checking Wine version:"
