@@ -23,14 +23,14 @@ RUN dpkg --add-architecture i386 && \
     && wget -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key \
     && wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/jammy/winehq-jammy.sources \
     && apt-get update \
-    && apt-get install -y --install-recommends winehq-staging \
+    && apt-get install -y --install-recommends winehq-stable \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     # Copy Wine files to /usr to avoid symlink resolution issues under FEX
     # We use --remove-destination to overwrite any symlinks created by the package
-    && cp -r --remove-destination /opt/wine-staging/bin/* /usr/bin/ \
-    && cp -r --remove-destination /opt/wine-staging/lib/* /usr/lib/ \
-    && cp -r --remove-destination /opt/wine-staging/share/* /usr/share/ \
+    && cp -r --remove-destination /opt/wine-stable/bin/* /usr/bin/ \
+    && cp -r --remove-destination /opt/wine-stable/lib/* /usr/lib/ \
+    && cp -r --remove-destination /opt/wine-stable/share/* /usr/share/ \
     # wine64 binary is missing in some packages, so we alias wine to wine64
     && ln -sf /usr/bin/wine /usr/bin/wine64 \
     # Legacy symlinks for FEX compatibility

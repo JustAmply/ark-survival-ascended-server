@@ -516,21 +516,9 @@ launch_server() {
         export LD_LIBRARY_PATH="/usr/lib/wine/x86_64-unix:$LD_LIBRARY_PATH"
         export WINEDLLPATH="/usr/lib/wine/x86_64-unix:/usr/lib/wine/x86_64-windows:/usr/lib/wine/i386-unix:/usr/lib/wine/i386-windows"
         
-        # Debug: Verify Wine binaries
-        echo "DEBUG: Checking /usr/bin/wine type:"
-        file /usr/bin/wine || echo "file command not found"
-        
-        echo "DEBUG: Listing /opt/wine-staging/bin content (looking for wine64):"
-        ls -F /opt/wine-staging/bin/
-        
-        echo "DEBUG: Checking for wineboot.so (builtin backing):"
-        find /usr/lib/wine -name "wineboot.exe.so"
-        
-        echo "DEBUG: Checking for kernel32.so (builtin backing):"
-        find /usr/lib/wine -name "kernel32.so"
-        
-        echo "DEBUG: Checking for kernelbase.so (builtin backing):"
-        find /usr/lib/wine -name "kernelbase.so"
+        # Debug: Verify Wine version
+        echo "DEBUG: Checking Wine version:"
+        wine --version
         
         shift
         wine "$@"
