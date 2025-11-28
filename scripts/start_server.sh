@@ -387,7 +387,7 @@ ensure_fex_setup() {
   # We must force Wine to run as a standard executable.
   log "ARM64: Disabling Wine preloader for FEX compatibility..."
   local preloader
-  for preloader in "$fex_rootfs/opt/wine-stable/bin/wine64-preloader" "$fex_rootfs/opt/wine-stable/bin/wine-preloader"; do
+  for preloader in "$fex_rootfs_path/opt/wine-stable/bin/wine64-preloader" "$fex_rootfs_path/opt/wine-stable/bin/wine-preloader"; do
     if [ -f "$preloader" ]; then
       log "Disabling $preloader"
       mv "$preloader" "${preloader}.disabled"
