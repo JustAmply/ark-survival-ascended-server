@@ -579,6 +579,7 @@ launch_server() {
         export WINEARCH=win64
         export WINEDEBUG=+loaddll
         export PATH="/opt/wine-stable/bin:$PATH"
+        export WINELOADER="/opt/wine-stable/bin/wine64"
         
         # Explicitly set LD_LIBRARY_PATH and WINEDLLPATH to ensure Wine finds everything
         if [ -n "${FEX_WINE_LDPATH:-}" ]; then
@@ -588,12 +589,16 @@ launch_server() {
           export WINEDLLPATH="$FEX_WINE_DLLPATH"
         fi
         
+        # Debug: List wine binaries to verify layout
+        echo "DEBUG: Listing /opt/wine-stable/bin:"
+        ls -la "$FEX_ROOTFS/opt/wine-stable/bin" || true
+        
         # Debug: Verify Wine version
         echo "DEBUG: Checking Wine version:"
-        wine64 --version
+        "$WINELOADER" --version
         
         shift
-        wine64 "$@"
+        "$WINELOADER" "$@"
       ' -- "$fex_rootfs" "$LAUNCH_BINARY_NAME")
     elif command -v FEX >/dev/null 2>&1; then
       runner=(FEX "$FEX_ROOTFS/usr/bin/wine" "$LAUNCH_BINARY_NAME")
