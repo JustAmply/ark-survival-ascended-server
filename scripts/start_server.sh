@@ -4,12 +4,12 @@
 #   1. Ensure permissions & drop privileges
 #   2. Optional debug hold
 #   3. Install / update steamcmd + server files
-#   4. Resolve Proton version & install if missing
+#   4. Resolve Proton version & install if missing (AMD64) OR FEX/Wine setup (ARM64)
 #   5. Prepare dynamic mods parameter
 #   6. Prepare runtime environment (XDG, compat data)
 #   7. Handle plugin loader (AsaApi)
 #   8. Stream logs
-#   9. Launch server via Proton
+#   9. Launch server via Proton (AMD64) or FEX+Wine (ARM64)
 
 set -Ee -o pipefail
 
@@ -37,6 +37,9 @@ SUPERVISOR_PID_FILE="/home/gameserver/.asa-supervisor.pid"
 RESTART_SCHEDULER_PID=""
 GAME_USER_SETTINGS_PATH="$SERVER_FILES_DIR/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini"
 DEFAULT_START_PARAMS="TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?ServerAdminPassword=changeme"
+
+# Detect Architecture
+ARCH=$(uname -m)
 
 log() { echo "[asa-start] $*"; }
 
@@ -137,6 +140,15 @@ ensure_permissions() {
     return 0
   fi
   set -e
+  # Check if .fex-emu exists and needs ownership (only if root owns it)
+  if [ -d "/home/gameserver/.fex-emu" ]; then
+     # Only change if not already correct to avoid massive delay on startup
+     if [ "$(stat -c '%u' /home/gameserver/.fex-emu)" != "$TARGET_UID" ]; then
+         log "Fixing FEX RootFS ownership (this might take a while)..."
+         chown -R "${TARGET_UID}:${TARGET_GID}" "/home/gameserver/.fex-emu" || true
+     fi
+  fi
+
   local dirs=(
     "/home/gameserver/Steam"
     "/home/gameserver/steamcmd"
@@ -148,10 +160,10 @@ ensure_permissions() {
     local marker="$d/.permissions_set"
     if [ ! -e "$marker" ]; then
       log "Setting ownership for $d to ${TARGET_UID}:${TARGET_GID} (first run)"
-      chown -R ${TARGET_UID}:${TARGET_GID} "$d" || true
-      touch "$marker" && chown ${TARGET_UID}:${TARGET_GID} "$marker" || true
+      chown -R "${TARGET_UID}:${TARGET_GID}" "$d" || true
+      touch "$marker" && chown "${TARGET_UID}:${TARGET_GID}" "$marker" || true
     else
-      chown ${TARGET_UID}:${TARGET_GID} "$d" || true
+      chown "${TARGET_UID}:${TARGET_GID}" "$d" || true
     fi
   done
   export START_SERVER_PRIVS_DROPPED=1
@@ -175,12 +187,28 @@ ensure_steamcmd() {
 
 update_server_files() {
   log "Updating / validating ASA server files..."
-  (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+
+  # On ARM64, we must ensure SteamCMD (x86) runs via FEX.
+  if [ "$ARCH" = "aarch64" ]; then
+    log "ARM64: Running SteamCMD under FEX..."
+    # Wrap execution in FEXBash
+    # Note: export FEX_ROOTFS inside the subshell/context.
+    # RootFS is baked in at this location.
+    local cmd="export FEX_ROOTFS=/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04 && cd \"$STEAMCMD_DIR\" && ./steamcmd.sh +force_install_dir \"$SERVER_FILES_DIR\" +login anonymous +app_update 2430930 +@sSteamCmdForcePlatformType windows validate +quit"
+    if ! FEXBash -c "$cmd"; then
+      log "Failed to update server files via FEX. Check FEX installation and network connectivity."
+      exit 1
+    fi
+  else
+    (cd "$STEAMCMD_DIR" && ./steamcmd.sh +force_install_dir "$SERVER_FILES_DIR" +login anonymous +app_update 2430930 validate +quit)
+  fi
 }
 
 #############################
-# 4. Proton Handling
+# 4. Proton Handling (AMD64) / FEX Setup (ARM64)
 #############################
+
+# --- AMD64 Proton Logic ---
 check_proton_release_assets() {
   local version="$1"
   if [ -z "$version" ]; then return 1; fi
@@ -224,6 +252,8 @@ find_latest_release_with_assets() {
 }
 
 resolve_proton_version() {
+  if [ "$ARCH" = "aarch64" ]; then return 0; fi # Skip on ARM
+
   local detected=""
   if [ -z "${PROTON_VERSION:-}" ]; then
     log "Detecting latest Proton GE version..."
@@ -287,6 +317,8 @@ resolve_proton_version() {
 }
 
 install_proton_if_needed() {
+  if [ "$ARCH" = "aarch64" ]; then return 0; fi # Skip on ARM
+
   if [ -d "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME" ]; then return 0; fi
   log "Downloading Proton $PROTON_DIR_NAME..."
   mkdir -p "$STEAM_COMPAT_DIR"
@@ -312,11 +344,55 @@ install_proton_if_needed() {
 }
 
 ensure_proton_compat_data() {
+  if [ "$ARCH" = "aarch64" ]; then return 0; fi # Skip on ARM
+
   if [ ! -d "$ASA_COMPAT_DATA" ]; then
     log "Setting up Proton compat data..."
     mkdir -p "$STEAM_COMPAT_DATA"
     cp -r "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/files/share/default_pfx" "$ASA_COMPAT_DATA"
   fi
+}
+
+# --- ARM64 FEX Logic ---
+ensure_fex_setup() {
+  if [ "$ARCH" != "aarch64" ]; then return 0; fi
+
+  log "ARM64: Validating FEX environment..."
+
+  # RootFS is baked in. We just verify.
+  if [ ! -d "/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04" ]; then
+    log "WARNING: FEX RootFS not found at expected location. Was the image built correctly?"
+    # Attempt fallback fetch (likely to fail interactively, but logs error)
+    if command -v FEXRootFSFetcher >/dev/null; then
+         echo "y" | FEXRootFSFetcher || true
+    fi
+  fi
+
+  # Sync DNS and Hosts from container to FEX RootFS
+  # FEX intercepts filesystem calls, hiding the container's /etc/resolv.conf from the emulated process
+  log "ARM64: Syncing network configuration to FEX RootFS..."
+  # Use absolute path to avoid relying on HOME which might be /root during initialization
+  local fex_rootfs_path="/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04"
+  cp /etc/resolv.conf "$fex_rootfs_path/etc/resolv.conf" || true
+  cp /etc/hosts "$fex_rootfs_path/etc/hosts" || true
+
+  # Check for Wine NLS files (WineHQ Staging usually puts them in /opt/wine-staging/share/wine/nls)
+  # We check both standard and opt locations
+  if [ ! -d "$fex_rootfs_path/opt/wine-stable/share/wine/nls" ] && [ ! -d "$fex_rootfs_path/usr/share/wine/nls" ]; then
+    log "ARM64: Wine NLS files missing in FEX RootFS. This suggests a broken image build."
+  fi
+
+  # Disable Wine Preloader
+  # FEX-Emu is incompatible with the Wine preloader (it conflicts with FEX's memory layout management).
+  # We must force Wine to run as a standard executable.
+  log "ARM64: Disabling Wine preloader for FEX compatibility..."
+  local preloader
+  for preloader in "$fex_rootfs_path/opt/wine-stable/bin/wine64-preloader" "$fex_rootfs_path/opt/wine-stable/bin/wine-preloader"; do
+    if [ -f "$preloader" ]; then
+      log "Disabling $preloader"
+      mv "$preloader" "${preloader}.disabled"
+    fi
+  done
 }
 
 #############################
@@ -368,6 +444,8 @@ prepare_runtime_env() {
     fi
   fi
   export XDG_RUNTIME_DIR
+
+  # Proton needs these, FEX/Wine might use them too
   export STEAM_COMPAT_CLIENT_INSTALL_PATH="/home/gameserver/Steam"
   export STEAM_COMPAT_DATA_PATH="$ASA_COMPAT_DATA"
   mkdir -p "$XDG_RUNTIME_DIR" || true
@@ -416,14 +494,142 @@ launch_server() {
   log "Starting ASA dedicated server..."
   log "Start parameters: $ASA_START_PARAMS"
   cd "$ASA_BINARY_DIR"
-  local runner
-  if command -v stdbuf >/dev/null 2>&1; then
-    runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+
+  local runner pass_start_params
+  pass_start_params=1
+
+  if [ "$ARCH" = "aarch64" ]; then
+     # ARM64 Launch Strategy: FEX + Wine
+
+     log "Launching via FEX-Emu + Wine..."
+
+     export FEX_ROOTFS="/home/gameserver/.fex-emu/RootFS/Ubuntu_22_04"
+    local fex_rootfs="$FEX_ROOTFS"
+    log "[asa-start] Launching via FEX-Emu + Wine..."
+    
+    # Build Wine search paths from the FEX RootFS so we can pass them into the emulated shell.
+    local wine_dll_path="" wine_ld_path=""
+    local dll_candidates=(
+      "/usr/lib/wine/x86_64-unix"
+      "/usr/lib/wine/x86_64-windows"
+      "/usr/lib/wine/i386-unix"
+      "/usr/lib/wine/i386-windows"
+      "/opt/wine-stable/lib64/wine/x86_64-unix"
+      "/opt/wine-stable/lib64/wine/x86_64-windows"
+      "/opt/wine-stable/lib/wine/i386-unix"
+      "/opt/wine-stable/lib/wine/i386-windows"
+    )
+    for path in "${dll_candidates[@]}"; do
+      if [ -d "$fex_rootfs$path" ]; then
+        if [ -z "$wine_dll_path" ]; then
+          wine_dll_path="$path"
+        else
+          wine_dll_path="$wine_dll_path:$path"
+        fi
+      fi
+    done
+    local ld_candidates=(
+      "/usr/lib/wine/x86_64-unix"
+      "/usr/lib/wine/i386-unix"
+      "/opt/wine-stable/lib64/wine/x86_64-unix"
+      "/opt/wine-stable/lib/wine/i386-unix"
+    )
+    for path in "${ld_candidates[@]}"; do
+      if [ -d "$fex_rootfs$path" ]; then
+        if [ -z "$wine_ld_path" ]; then
+          wine_ld_path="$path"
+        else
+          wine_ld_path="$wine_ld_path:$path"
+        fi
+      fi
+    done
+    export FEX_WINE_DLLPATH="$wine_dll_path"
+    export FEX_WINE_LDPATH="$wine_ld_path"
+
+    # Wine 10 ships ntdll.dll in the *-windows dirs; add .so aliases so the loader can find them under FEX.
+    local ntdll_pairs=(
+      "/usr/lib/wine:i386"
+      "/usr/lib/wine:x86_64"
+      "/opt/wine-stable/lib/wine:i386"
+      "/opt/wine-stable/lib64/wine:x86_64"
+    )
+    local pair base arch unix_path win_dir
+    for pair in "${ntdll_pairs[@]}"; do
+      IFS=: read -r base arch <<<"$pair"
+      unix_path="$fex_rootfs${base}/${arch}-unix/ntdll.so"
+      win_dir="$fex_rootfs${base}/${arch}-windows"
+      if [ -f "$unix_path" ] && [ -d "$win_dir" ] && [ ! -e "$win_dir/ntdll.so" ]; then
+        ln -s "../${arch}-unix/ntdll.so" "$win_dir/ntdll.so" 2>/dev/null || true
+      fi
+    done
+
+    # DEBUG: Find kernel32.dll to verify paths
+    log "DEBUG: Searching for kernel32.dll in FEX RootFS..."
+    find "$fex_rootfs/opt/wine-stable" -name "kernel32.dll" || log "DEBUG: kernel32.dll not found in /opt/wine-stable"
+    find "$fex_rootfs/usr/lib" -name "kernel32.dll" || true
+
+    if command -v FEXBash >/dev/null 2>&1; then
+      # FEXBash needs a full command string to execute wine within the emulated environment
+      # We rely on standard paths now that Dockerfile copies Wine files to /usr
+      # We also explicitly set paths to ensure Wine finds its builtins (kernel32.so)
+      runner=(FEXBash -lc '
+        export FEX_ROOTFS="$1"
+        export LANG=C.UTF-8
+        export LC_ALL=C.UTF-8
+        export WINEARCH=win64
+        export WINEDEBUG=+loaddll
+        export PATH="/opt/wine-stable/bin:$PATH"
+        export WINELOADER="/opt/wine-stable/bin/wine64"
+        
+        # Explicitly set LD_LIBRARY_PATH and WINEDLLPATH to ensure Wine finds everything
+        if [ -n "${FEX_WINE_LDPATH:-}" ]; then
+          export LD_LIBRARY_PATH="${FEX_WINE_LDPATH}:${LD_LIBRARY_PATH:-}"
+        fi
+        if [ -n "${FEX_WINE_DLLPATH:-}" ]; then
+          export WINEDLLPATH="$FEX_WINE_DLLPATH"
+        fi
+        
+        # Debug: List wine binaries to verify layout
+        echo "DEBUG: Listing /opt/wine-stable/bin:"
+        ls -la "$FEX_ROOTFS/opt/wine-stable/bin" || true
+        
+        # Debug: Verify Wine version
+        echo "DEBUG: Checking Wine version:"
+        "$WINELOADER" --version
+        
+        shift
+        "$WINELOADER" "$@"
+      ' -- "$fex_rootfs" "$LAUNCH_BINARY_NAME")
+    elif command -v FEX >/dev/null 2>&1; then
+      runner=(FEX "$FEX_ROOTFS/usr/bin/wine" "$LAUNCH_BINARY_NAME")
+    else
+      log "FEX not available on ARM64; cannot launch server"
+      return 1
+     fi
+
   else
-    runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    # AMD64 Launch Strategy: Proton
+    if command -v stdbuf >/dev/null 2>&1; then
+      runner=(stdbuf -oL -eL "$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    else
+      runner=("$STEAM_COMPAT_DIR/$PROTON_DIR_NAME/proton" run "$LAUNCH_BINARY_NAME")
+    fi
   fi
-  "${runner[@]}" $ASA_START_PARAMS &
-  SERVER_PID=$!
+
+  if [ "$pass_start_params" = "1" ]; then
+    "${runner[@]}" $ASA_START_PARAMS &
+  else
+    "${runner[@]}" &
+  fi
+
+  local launch_pid=$!
+  SERVER_PID="$launch_pid"
+
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    log "Server process failed to start correctly"
+    return 1
+  fi
+
   echo "$SERVER_PID" > "$PID_FILE"
   wait "$SERVER_PID"
   local exit_code=$?
@@ -568,11 +774,25 @@ run_server() {
   trap 'handle_restart_signal USR1' USR1
   trap cleanup EXIT
 
+  ensure_permissions
+
+  # Drop privileges happens inside ensure_permissions via re-exec
+  # But wait, if we re-exec, the script starts over.
+  # ensure_permissions does: exec runuser ... -- /usr/bin/start_server.sh
+  # So we need to call ensure_fex_setup *before* ensure_permissions.
+
+  # After re-exec (as user), we continue here (but as user, ensure_permissions returns 0)
+
   update_server_files
   ensure_server_admin_password
+
+  # Branch here for setup
   resolve_proton_version
   install_proton_if_needed
   ensure_proton_compat_data
+
+  ensure_fex_setup
+
   inject_mods_param
   ensure_nosteam_flag
   prepare_runtime_env
@@ -591,6 +811,7 @@ run_server() {
 #############################
 if [ "$(id -u)" = "0" ]; then
   configure_timezone
+  ensure_fex_setup
 fi
 maybe_debug
 ensure_permissions
