@@ -26,20 +26,14 @@ RUN dpkg --add-architecture i386 && \
     && apt-get install -y --install-recommends winehq-stable \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
-    # Copy Wine files to /usr to avoid symlink resolution issues under FEX
-    # We use --remove-destination to overwrite any symlinks created by the package
-    && cp -r --remove-destination /opt/wine-stable/bin/* /usr/bin/ \
-    && cp -r --remove-destination /opt/wine-stable/lib/* /usr/lib/ \
-    && cp -r --remove-destination /opt/wine-stable/lib64/* /usr/lib/ \
-    && cp -r --remove-destination /opt/wine-stable/share/* /usr/share/ \
     # Wine 10.0 ships PE ntdll.dll in the *-windows directories; add unix loader symlinks for FEX/WoW64
-    && for base in /usr/lib/wine /opt/wine-stable/lib/wine /opt/wine-stable/lib64/wine; do \
-      if [ -d "$base/i386-windows" ] && [ -f "$base/i386-unix/ntdll.so" ] && [ ! -e "$base/i386-windows/ntdll.so" ]; then \
-        ln -s ../i386-unix/ntdll.so "$base/i386-windows/ntdll.so"; \
-      fi; \
-      if [ -d "$base/x86_64-windows" ] && [ -f "$base/x86_64-unix/ntdll.so" ] && [ ! -e "$base/x86_64-windows/ntdll.so" ]; then \
-        ln -s ../x86_64-unix/ntdll.so "$base/x86_64-windows/ntdll.so"; \
-      fi; \
+    && for base in /opt/wine-stable/lib/wine /opt/wine-stable/lib64/wine; do \
+    if [ -d "$base/i386-windows" ] && [ -f "$base/i386-unix/ntdll.so" ] && [ ! -e "$base/i386-windows/ntdll.so" ]; then \
+    ln -s ../i386-unix/ntdll.so "$base/i386-windows/ntdll.so"; \
+    fi; \
+    if [ -d "$base/x86_64-windows" ] && [ -f "$base/x86_64-unix/ntdll.so" ] && [ ! -e "$base/x86_64-windows/ntdll.so" ]; then \
+    ln -s ../x86_64-unix/ntdll.so "$base/x86_64-windows/ntdll.so"; \
+    fi; \
     done \
     # Legacy symlinks for FEX compatibility
     && ln -sf /usr/lib/x86_64-linux-gnu /x86_64-linux-gnu \

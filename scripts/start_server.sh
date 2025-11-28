@@ -567,6 +567,7 @@ launch_server() {
         export LC_ALL=C.UTF-8
         export WINEARCH=win64
         export WINEDEBUG=+loaddll
+        export PATH="/opt/wine-stable/bin:$PATH"
         
         # Explicitly set LD_LIBRARY_PATH and WINEDLLPATH to ensure Wine finds everything
         if [ -n "${FEX_WINE_LDPATH:-}" ]; then
@@ -578,7 +579,7 @@ launch_server() {
         
         # Debug: Verify Wine version
         echo "DEBUG: Checking Wine version:"
-        wine --version
+        wine64 --version
         
         shift
         wine64 "$@"
