@@ -378,8 +378,8 @@ ensure_fex_setup() {
 
   # Check for Wine NLS files (WineHQ Staging usually puts them in /opt/wine-staging/share/wine/nls)
   # We check both standard and opt locations
+  if [ ! -d "$fex_rootfs_path/opt/wine-stable/share/wine/nls" ] && [ ! -d "$fex_rootfs_path/usr/share/wine/nls" ]; then
     log "ARM64: Wine NLS files missing in FEX RootFS. This suggests a broken image build."
-    # Fallback download logic removed as we now bake WineHQ Staging in.
   fi
 
   # Disable Wine Preloader
