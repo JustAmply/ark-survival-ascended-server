@@ -378,10 +378,21 @@ ensure_fex_setup() {
 
   # Check for Wine NLS files (WineHQ Staging usually puts them in /opt/wine-staging/share/wine/nls)
   # We check both standard and opt locations
-  if [ ! -d "$fex_rootfs_path/opt/wine-staging/share/wine/nls" ] && [ ! -d "$fex_rootfs_path/usr/share/wine/nls" ]; then
     log "ARM64: Wine NLS files missing in FEX RootFS. This suggests a broken image build."
     # Fallback download logic removed as we now bake WineHQ Staging in.
   fi
+
+  # Disable Wine Preloader
+  # FEX-Emu is incompatible with the Wine preloader (it conflicts with FEX's memory layout management).
+  # We must force Wine to run as a standard executable.
+  log "ARM64: Disabling Wine preloader for FEX compatibility..."
+  local preloader
+  for preloader in "$fex_rootfs/opt/wine-stable/bin/wine64-preloader" "$fex_rootfs/opt/wine-stable/bin/wine-preloader"; do
+    if [ -f "$preloader" ]; then
+      log "Disabling $preloader"
+      mv "$preloader" "${preloader}.disabled"
+    fi
+  done
 }
 
 #############################
