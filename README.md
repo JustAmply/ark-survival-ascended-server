@@ -39,6 +39,7 @@ Your server will be discoverable in the "Unofficial" server browser once setup i
 - **Storage**: ~31 GB (server files only)
 - **OS**: Linux with Docker support
 - **Tested on**: Ubuntu 24.04, Debian 12, Docker Desktop on Windows
+- **Architectures**: x86_64 (Intel/AMD) and ARM64 (Apple Silicon, Oracle OCI Ampere) via built-in Box64/Box86 emulation
 
 ## 🎯 Main Use Cases
 

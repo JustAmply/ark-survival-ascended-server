@@ -4,6 +4,7 @@ FROM python:3.12-slim
 ARG VERSION="unknown"
 ARG GIT_COMMIT="unknown"
 ARG BUILD_DATE="unknown"
+ARG TARGETARCH
 
 # Add metadata labels
 LABEL org.opencontainers.image.version="${VERSION}" \
@@ -17,19 +18,33 @@ LABEL org.opencontainers.image.version="${VERSION}" \
 ENV TZ=UTC
 ARG DEBIAN_FRONTEND=noninteractive
 
+# Install dependencies and setup environment
 RUN apt-get update && apt-get install -y --no-install-recommends \
     locales \
     tzdata \
     wget \
     unzip \
-    libc6-dev \
-    lib32stdc++6 \
-    lib32z1 \
-    lib32gcc-s1 \
-    libfreetype6 \
-    && rm -rf /var/lib/apt/lists/* && \
-    echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen && \
-    locale-gen
+    gnupg \
+    && echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen && \
+    locale-gen && \
+    # Install box64/box86 for ARM64
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        wget https://ryanfortner.github.io/box64-debs/box64.list -O /etc/apt/sources.list.d/box64.list && \
+        wget -O- https://ryanfortner.github.io/box64-debs/KEY.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/box64-debs-archive-keyring.gpg && \
+        wget https://ryanfortner.github.io/box86-debs/box86.list -O /etc/apt/sources.list.d/box86.list && \
+        wget -O- https://ryanfortner.github.io/box86-debs/KEY.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/box86-debs-archive-keyring.gpg && \
+        dpkg --add-architecture armhf && \
+        apt-get update && \
+        apt-get install -y --no-install-recommends box64 box86-generic-arm libc6:armhf libstdc++6:armhf libncurses6:armhf; \
+    else \
+        apt-get install -y --no-install-recommends \
+        libc6-dev \
+        lib32stdc++6 \
+        lib32z1 \
+        lib32gcc-s1 \
+        libfreetype6; \
+    fi && \
+    rm -rf /var/lib/apt/lists/*
 
 # Set locale-related environment variables early (inherit to runtime)
 ENV LANG=en_US.UTF-8 \

@@ -171,6 +171,15 @@ ensure_steamcmd() {
     mkdir -p "$STEAMCMD_DIR"
     (cd "$STEAMCMD_DIR" && wget -q https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz && tar xf steamcmd_linux.tar.gz)
   fi
+
+  # ARM64: Patch steamcmd to run under box86
+  if [ "$(uname -m)" = "aarch64" ]; then
+    local steamcmd_script="$STEAMCMD_DIR/steamcmd.sh"
+    if [ -f "$steamcmd_script" ] && ! grep -q "box86" "$steamcmd_script"; then
+      log "ARM64 detected: Patching steamcmd.sh to use box86..."
+      sed -i 's|STEAMEXE="${STEAMROOT}/linux32/${STEAMCMD}"|STEAMEXE="box86 ${STEAMROOT}/linux32/${STEAMCMD}"|g' "$steamcmd_script"
+    fi
+  fi
 }
 
 update_server_files() {
@@ -309,6 +318,29 @@ install_proton_if_needed() {
     log "Checksum file unavailable"; [ "${PROTON_SKIP_CHECKSUM:-0}" != "1" ] && exit 201 || log "Continuing without verification"
   fi
   tar -xf "$archive" -C "$STEAM_COMPAT_DIR" && rm -f "$archive"
+
+  # ARM64: Patch Proton to run binaries under box64
+  if [ "$(uname -m)" = "aarch64" ]; then
+    log "ARM64 detected: Patching Proton binaries to use box64..."
+    local proton_root="$STEAM_COMPAT_DIR/$PROTON_DIR_NAME"
+    local files_bin="$proton_root/files/bin"
+
+    # List of binaries to wrap with box64
+    local binaries=("python3" "wine" "wine64" "wineserver")
+
+    for bin in "${binaries[@]}"; do
+      local target="$files_bin/$bin"
+      local original="$files_bin/$bin.original"
+
+      if [ -f "$target" ] && [ ! -f "$original" ]; then
+        mv "$target" "$original"
+        echo '#!/bin/bash' > "$target"
+        echo "exec box64 \"$original\" \"\$@\"" >> "$target"
+        chmod +x "$target"
+        log "Wrapped $bin with box64"
+      fi
+    done
+  fi
 }
 
 ensure_proton_compat_data() {
