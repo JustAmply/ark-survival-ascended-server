@@ -11,8 +11,8 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-import asa_ctrl.restart_scheduler as scheduler  # noqa: E402
-from asa_ctrl.restart_scheduler import CronSchedule, parse_warning_offsets, run_scheduler  # noqa: E402
+import asa_ctrl.core.restart_scheduler as scheduler  # noqa: E402
+from asa_ctrl.core.restart_scheduler import CronSchedule, parse_warning_offsets, run_scheduler  # noqa: E402
 
 
 def make_dt(text: str) -> datetime:

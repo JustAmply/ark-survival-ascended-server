@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
-from .logging_config import configure_logging, get_logger
+from asa_ctrl.common.logging_config import configure_logging, get_logger
 
 
 DEFAULT_ASA_CTRL_BIN = "/usr/local/bin/asa-ctrl"
