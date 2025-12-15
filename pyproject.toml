@@ -26,6 +26,9 @@ classifiers = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+dev = ["pytest>=7.4,<9.1"]
+
 [project.urls]
 Homepage = "https://github.com/JustAmply/ark-survival-ascended-server"
 Issues = "https://github.com/JustAmply/ark-survival-ascended-server/issues"
