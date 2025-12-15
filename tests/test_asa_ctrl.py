@@ -22,12 +22,12 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from asa_ctrl.mods import ModDatabase, ModRecord  # noqa: E402
-from asa_ctrl.config import StartParamsHelper, parse_start_params  # noqa: E402
-from asa_ctrl.constants import ExitCodes  # noqa: E402
+from asa_ctrl.core.mods import ModDatabase, ModRecord  # noqa: E402
+from asa_ctrl.common.config import StartParamsHelper, parse_start_params  # noqa: E402
+from asa_ctrl.common.constants import ExitCodes  # noqa: E402
 from asa_ctrl.cli import main as cli_main  # noqa: E402
-from asa_ctrl.rcon import RconClient, RconPacket  # noqa: E402
-from asa_ctrl.errors import (  # noqa: E402
+from asa_ctrl.core.rcon import RconClient, RconPacket  # noqa: E402
+from asa_ctrl.common.errors import (  # noqa: E402
     RconPortNotFoundError,
     RconPasswordNotFoundError,
     RconConnectionError,
@@ -36,7 +36,7 @@ from asa_ctrl.errors import (  # noqa: E402
     RconAuthenticationError,
     CorruptedModsDatabaseError,
 )
-from asa_ctrl.constants import RconPacketTypes  # noqa: E402
+from asa_ctrl.common.constants import RconPacketTypes  # noqa: E402
 
 
 def test_start_params_helper():
@@ -64,9 +64,9 @@ def test_start_params_helper():
 def test_ini_config_helper_duplicate_keys():
     """Test that IniConfigHelper handles duplicate keys in INI files gracefully."""
     print("Testing IniConfigHelper with duplicate keys...")
-    
-    from asa_ctrl.config import IniConfigHelper
-    
+
+    from asa_ctrl.common.config import IniConfigHelper
+
     # Create a test INI file with duplicate keys (similar to ARK GameUserSettings.ini)
     ini_content = """[/Script/ShooterGame.ShooterGameUserSettings]
 LastJoinedSessionPerCategory=
@@ -77,7 +77,7 @@ RCONPort=27020
 RCONPort=27020
 ServerAdminPassword=testpass
 """
-    
+
     temp_path = None
 
     try:
@@ -102,7 +102,7 @@ ServerAdminPassword=testpass
     finally:
         if temp_path and os.path.exists(temp_path):
             os.unlink(temp_path)
-    
+
     print("✓ IniConfigHelper duplicate keys tests passed")
 
 
@@ -261,56 +261,56 @@ def test_exit_codes():
 def test_rcon_validation():
     """Test RCON client validation functions."""
     print("Testing RCON validation...")
-    
+
     # Create client instance without initialization to test individual methods
     client = RconClient.__new__(RconClient)
     client.MAX_COMMAND_LENGTH = 1000
-    
+
     # Test IP validation
     assert client._validate_ip('127.0.0.1') == '127.0.0.1'
     assert client._validate_ip('localhost') == 'localhost'
-    
+
     try:
         client._validate_ip('')
         assert False, "Should have raised ValueError for empty IP"
     except ValueError:
         pass  # Expected
-    
+
     try:
         client._validate_ip(None)  # type: ignore
         assert False, "Should have raised ValueError for None IP"
     except ValueError:
         pass  # Expected
-    
+
     # Test command validation
     assert client._validate_command('saveworld') == 'saveworld'
     assert client._validate_command('  broadcast Hello  ') == 'broadcast Hello'
-    
+
     try:
         client._validate_command('')
         assert False, "Should have raised ValueError for empty command"
     except ValueError:
         pass  # Expected
-    
+
     try:
         client._validate_command('x' * 2000)  # Too long
         assert False, "Should have raised ValueError for long command"
     except ValueError:
         pass  # Expected
-    
+
     try:
         client._validate_command('\x00\x01\x02')  # Control characters
         assert False, "Should have raised ValueError for control characters only"
     except ValueError:
         pass  # Expected
-    
+
     # Test packet validation
     try:
         client._validate_packet_data(b'')
         assert False, "Should have raised RconPacketError for empty data"
     except RconPacketError:
         pass  # Expected
-    
+
     try:
         client._validate_packet_data(b'abc')  # Too small
         assert False, "Should have raised RconPacketError for small packet"
@@ -365,7 +365,7 @@ def test_rcon_connect_propagates_auth_failure():
         def close(self):  # pragma: no cover - trivial closer
             self.closed = True
 
-    with patch('asa_ctrl.rcon.socket.socket', return_value=DummySocket()):
+    with patch('asa_ctrl.core.rcon.socket.socket', return_value=DummySocket()):
         try:
             client.connect()
             assert False, "connect() should raise RconAuthenticationError when auth fails"
