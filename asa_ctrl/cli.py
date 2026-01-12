@@ -73,7 +73,7 @@ class RconCommand:
             exit_with_error(
                 "Could not find RCON port. Make sure it is properly configured in start parameters "
                 "or GameUserSettings.ini",
-                ExitCodes.RCON_PASSWORD_NOT_FOUND
+                ExitCodes.RCON_CONNECTION_FAILED
             )
         except RconConnectionError as e:
             exit_with_error(
