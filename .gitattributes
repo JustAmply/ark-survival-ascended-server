@@ -1,4 +1,2 @@
-# Enforce LF endings for shell scripts and Docker-related files
-scripts/* text eol=lf
-*.sh text eol=lf
 Dockerfile text eol=lf
+*.sh text eol=lf
