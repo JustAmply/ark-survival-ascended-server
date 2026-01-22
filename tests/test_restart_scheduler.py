@@ -95,7 +95,7 @@ def test_run_scheduler_announces_and_triggers(monkeypatch):
 
     calls = []
 
-    def fake_run_rcon(command: str, _logger) -> bool:
+    def fake_run_rcon(command: str, _logger, _settings) -> bool:
         calls.append(command)
         return True
 

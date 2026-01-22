@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import signal
 import subprocess
 import time
@@ -10,10 +9,10 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
+from asa_ctrl.common.config import AsaSettings
 from asa_ctrl.common.logging_config import configure_logging, get_logger
 
 
-DEFAULT_ASA_CTRL_BIN = "/usr/local/bin/asa-ctrl"
 MAX_SLEEP_INTERVAL_SECONDS = 30
 POST_RESTART_DELAY_SECONDS = 10
 
@@ -225,8 +224,8 @@ def _is_process_alive(pid: Optional[int]) -> bool:
     return True
 
 
-def _run_rcon_command(command: str, logger) -> bool:
-    exe = os.environ.get("ASA_CTRL_BIN", DEFAULT_ASA_CTRL_BIN)
+def _run_rcon_command(command: str, logger, settings: AsaSettings) -> bool:
+    exe = settings.asa_ctrl_bin()
     result = subprocess.run(
         [exe, "rcon", "--exec", command],
         stdout=subprocess.DEVNULL,
@@ -240,18 +239,18 @@ def _run_rcon_command(command: str, logger) -> bool:
     return True
 
 
-def _announce(minutes: int, target: datetime, logger) -> None:
+def _announce(minutes: int, target: datetime, logger, settings: AsaSettings) -> None:
     time_str = target.strftime("%H:%M")
     if minutes == 1:
         message = f"Server restart in 1 minute (scheduled {time_str})."
     else:
         message = f"Server restart in {minutes} minutes (scheduled {time_str})."
-    _run_rcon_command(f"serverchat {message}", logger)
+    _run_rcon_command(f"serverchat {message}", logger, settings)
 
 
-def _announce_now(target: datetime, logger) -> None:
+def _announce_now(target: datetime, logger, settings: AsaSettings) -> None:
     time_str = target.strftime("%H:%M")
-    _run_rcon_command(f"serverchat Server restarting now (scheduled {time_str}).", logger)
+    _run_rcon_command(f"serverchat Server restarting now (scheduled {time_str}).", logger, settings)
 
 
 def _trigger_restart(supervisor_pid_file: Optional[str], logger) -> None:
@@ -269,18 +268,19 @@ def _trigger_restart(supervisor_pid_file: Optional[str], logger) -> None:
         logger.error("Failed to trigger restart - supervisor process %s not found", pid)
 
 
-def run_scheduler() -> None:
+def run_scheduler(settings: Optional[AsaSettings] = None) -> None:
     """Entry point that waits for cron events and orchestrates restarts."""
 
     configure_logging()
     logger = get_logger(__name__)
 
-    cron_expression = os.environ.get("SERVER_RESTART_CRON", "").strip()
+    settings = settings or AsaSettings()
+    cron_expression = settings.server_restart_cron().strip()
     if not cron_expression:
         logger.info("Restart scheduler disabled (no cron expression provided)")
         return
 
-    warnings_raw = os.environ.get("SERVER_RESTART_WARNINGS", "")
+    warnings_raw = settings.server_restart_warnings()
     try:
         warnings = parse_warning_offsets(warnings_raw)
     except ValueError as exc:
@@ -293,8 +293,8 @@ def run_scheduler() -> None:
         logger.error("Invalid SERVER_RESTART_CRON expression '%s': %s", cron_expression, exc)
         return
 
-    supervisor_pid_file = os.environ.get("ASA_SUPERVISOR_PID_FILE")
-    server_pid_file = os.environ.get("ASA_SERVER_PID_FILE")
+    supervisor_pid_file = settings.supervisor_pid_file()
+    server_pid_file = settings.server_pid_file()
 
     logger.info(
         "Restart scheduler active (cron='%s', warnings=%s)",
@@ -334,10 +334,10 @@ def run_scheduler() -> None:
 
             if event_type == "warn" and payload is not None:
                 logger.info("Announcing restart %s minutes before scheduled time", payload)
-                _announce(payload, next_run, logger)
+                _announce(payload, next_run, logger, settings)
             elif event_type == "restart":
                 logger.info("Scheduled restart window reached - notifying players and signalling supervisor")
-                _announce_now(next_run, logger)
+                _announce_now(next_run, logger, settings)
                 _trigger_restart(supervisor_pid_file, logger)
                 break
 

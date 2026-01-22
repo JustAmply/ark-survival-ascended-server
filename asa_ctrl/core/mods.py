@@ -8,7 +8,6 @@ Handles mod database operations including:
 """
 
 import json
-import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from collections.abc import Mapping
@@ -17,6 +16,7 @@ from threading import RLock
 
 from asa_ctrl.common.logging_config import get_logger
 
+from asa_ctrl.common.config import AsaSettings
 from asa_ctrl.common.constants import MOD_DATABASE_PATH
 from asa_ctrl.common.errors import ModAlreadyEnabledError, CorruptedModsDatabaseError
 
@@ -63,10 +63,10 @@ class ModDatabase:
         self._load_database()
     
     @classmethod
-    def get_instance(cls) -> 'ModDatabase':
+    def get_instance(cls, settings: Optional[AsaSettings] = None) -> 'ModDatabase':
         """Get the singleton instance of the mod database."""
-        env_path = os.environ.get('ASA_MOD_DATABASE_PATH')
-        desired_path = env_path or MOD_DATABASE_PATH
+        settings = settings or AsaSettings()
+        desired_path = settings.mod_database_path() or MOD_DATABASE_PATH
 
         if (
             cls._instance is None

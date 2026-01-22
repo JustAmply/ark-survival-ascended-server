@@ -4,14 +4,13 @@ RCON (Remote Console) communication module for ASA Control.
 Handles communication with the ARK server via RCON protocol.
 """
 
-import os
 import socket
 import struct
 import time
 from typing import NamedTuple, Optional
 
 from asa_ctrl.common.constants import RconPacketTypes
-from asa_ctrl.common.config import StartParamsHelper, IniConfigHelper
+from asa_ctrl.common.config import AsaSettings, StartParamsHelper
 from asa_ctrl.common.errors import (
     AsaCtrlError,
     RconPasswordNotFoundError,
@@ -103,8 +102,9 @@ class RconClient:
     DEFAULT_RETRY_DELAY = 1.0
     
     def __init__(self, server_ip: str = '127.0.0.1', port: Optional[int] = None, password: Optional[str] = None,
-                 connect_timeout: float = 30.0, read_timeout: float = 10.0, 
-                 retry_count: int = DEFAULT_RETRY_COUNT, retry_delay: float = DEFAULT_RETRY_DELAY):
+                 connect_timeout: float = 30.0, read_timeout: float = 10.0,
+                 retry_count: int = DEFAULT_RETRY_COUNT, retry_delay: float = DEFAULT_RETRY_DELAY,
+                 settings: Optional[AsaSettings] = None):
         """
         Initialize RCON client.
         
@@ -118,6 +118,7 @@ class RconClient:
             retry_delay: Base delay between retry attempts (exponential backoff)
         """
         self.server_ip = self._validate_ip(server_ip)
+        self._settings = settings or AsaSettings()
         self.port = self._validate_port(port) if port is not None else self._identify_port()
         self.password = password or self._identify_password()
         self.connect_timeout = max(1.0, connect_timeout)
@@ -267,14 +268,16 @@ class RconClient:
             RconPasswordNotFoundError: If password cannot be found
         """
         # Try to get password from start parameters
-        start_params = os.environ.get('ASA_START_PARAMS')
-        password = StartParamsHelper.get_value(start_params, 'ServerAdminPassword')
+        password = StartParamsHelper.get_value(
+            self._settings.start_params(),
+            'ServerAdminPassword',
+        )
         
         if password:
             return password
         
         # Try to get password from GameUserSettings.ini
-        password = IniConfigHelper.get_server_setting('ServerAdminPassword')
+        password = self._settings.get_server_setting('ServerAdminPassword')
         
         if password:
             return password
@@ -292,14 +295,16 @@ class RconClient:
             RconPortNotFoundError: If port cannot be found
         """
         # Try to get port from start parameters
-        start_params = os.environ.get('ASA_START_PARAMS')
-        port_str = StartParamsHelper.get_value(start_params, 'RCONPort')
+        port_str = StartParamsHelper.get_value(
+            self._settings.start_params(),
+            'RCONPort',
+        )
         
         if port_str:
             return self._parse_port_value(port_str, "start parameters")
         
         # Try to get port from GameUserSettings.ini
-        port_str = IniConfigHelper.get_server_setting('RCONPort')
+        port_str = self._settings.get_server_setting('RCONPort')
         
         if port_str:
             return self._parse_port_value(port_str, "configuration")

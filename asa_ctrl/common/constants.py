@@ -27,6 +27,7 @@ class RconPacketTypes:
 
 
 # File paths
+DEFAULT_ASA_CTRL_BIN = "/usr/local/bin/asa-ctrl"
 DEFAULT_MOD_DATABASE_PATH = '/home/gameserver/server-files/mods.json'
 # Backwards compatibility alias for modules still importing MOD_DATABASE_PATH directly.
 MOD_DATABASE_PATH = DEFAULT_MOD_DATABASE_PATH
