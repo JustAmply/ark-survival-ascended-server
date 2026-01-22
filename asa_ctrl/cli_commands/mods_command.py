@@ -1,0 +1,113 @@
+"""Mod management command handling for the asa-ctrl CLI."""
+
+import argparse
+import sys
+
+from asa_ctrl.cli_helpers import exit_with_error
+from asa_ctrl.common.constants import ExitCodes
+from asa_ctrl.common.errors import CorruptedModsDatabaseError, ModAlreadyEnabledError
+from asa_ctrl.core.mods import ModDatabase, format_mod_list_for_server
+
+
+class ModsCommand:
+    """Handles mod management commands."""
+
+    @staticmethod
+    def add_parser(subparsers) -> None:
+        """Add mods command parser to subparsers."""
+        parser = subparsers.add_parser('mods', help='Interface for mod management')
+
+        mod_subparsers = parser.add_subparsers(dest='mod_action', help='Mod actions')
+
+        enable_parser = mod_subparsers.add_parser('enable', help='Enable a mod')
+        enable_parser.add_argument('mod_id', type=int, help='The mod ID to enable')
+
+        disable_parser = mod_subparsers.add_parser('disable', help='Disable a mod')
+        disable_parser.add_argument('mod_id', type=int, help='The mod ID to disable')
+
+        remove_parser = mod_subparsers.add_parser('remove', help='Remove a mod entry entirely')
+        remove_parser.add_argument('mod_id', type=int, help='The mod ID to remove from the database')
+
+        list_parser = mod_subparsers.add_parser('list', help='List all mods')
+        list_parser.add_argument('--enabled-only', action='store_true', help='Show only enabled mods')
+
+        parser.set_defaults(func=ModsCommand.execute)
+
+        hidden = subparsers.add_parser('mods-string', help=argparse.SUPPRESS)
+        hidden.set_defaults(func=ModsCommand.print_mods_string)
+
+    @staticmethod
+    def execute(args) -> None:
+        """Execute a mod management command."""
+        try:
+            if args.mod_action == 'enable':
+                ModsCommand._enable_mod(args.mod_id)
+            elif args.mod_action == 'disable':
+                ModsCommand._disable_mod(args.mod_id)
+            elif args.mod_action == 'remove':
+                ModsCommand._remove_mod(args.mod_id)
+            elif args.mod_action == 'list':
+                ModsCommand._list_mods(args.enabled_only)
+            else:
+                print("Please specify a mod action: enable, disable, remove, or list")
+                sys.exit(ExitCodes.OK)
+
+        except CorruptedModsDatabaseError as e:
+            exit_with_error(str(e), ExitCodes.CORRUPTED_MODS_DATABASE)
+
+    @staticmethod
+    def _enable_mod(mod_id: int) -> None:
+        """Enable a mod."""
+        try:
+            db = ModDatabase.get_instance()
+            db.enable_mod(mod_id)
+            print(f"Enabled mod id '{mod_id}' successfully. The server will download the mod upon startup.")
+
+        except ModAlreadyEnabledError:
+            exit_with_error(
+                "This mod is already enabled! Use 'asa-ctrl mods list' to see what mods are currently enabled.",
+                ExitCodes.MOD_ALREADY_ENABLED,
+            )
+
+    @staticmethod
+    def _disable_mod(mod_id: int) -> None:
+        """Disable a mod."""
+        db = ModDatabase.get_instance()
+        if db.disable_mod(mod_id):
+            print(f"Disabled mod id '{mod_id}' successfully.")
+        else:
+            print(f"Mod id '{mod_id}' was not found in the database.")
+
+    @staticmethod
+    def _remove_mod(mod_id: int) -> None:
+        """Remove a mod entry entirely."""
+        db = ModDatabase.get_instance()
+        if db.remove_mod(mod_id):
+            print(f"Removed mod id '{mod_id}' successfully.")
+        else:
+            print(f"Mod id '{mod_id}' was not found in the database.")
+
+    @staticmethod
+    def _list_mods(enabled_only: bool = False) -> None:
+        """List mods."""
+        db = ModDatabase.get_instance()
+
+        if enabled_only:
+            mods = db.get_enabled_mods()
+            print("Enabled mods:")
+        else:
+            mods = db.get_all_mods()
+            print("All mods:")
+
+        if not mods:
+            print("  No mods found.")
+            return
+
+        for mod in mods:
+            status = "enabled" if mod.enabled else "disabled"
+            print(f"  {mod.mod_id}: {mod.name} ({status})")
+
+    @staticmethod
+    def print_mods_string(_args) -> None:
+        """Print the formatted mods parameter string only."""
+        print(format_mod_list_for_server(), end="")
