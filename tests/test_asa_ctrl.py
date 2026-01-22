@@ -373,6 +373,17 @@ def test_rcon_connect_propagates_auth_failure():
             assert client._authenticated is False
 
 
+def test_rcon_identify_port_rejects_invalid_start_params():
+    """Ensure invalid start parameter ports surface a consistent error."""
+    os.environ['ASA_START_PARAMS'] = "TheIsland_WP?listen?RCONPort=notanint"
+    try:
+        with pytest.raises(RconPortNotFoundError) as exc:
+            RconClient(port=None, password="secret", retry_count=0)
+        assert "Invalid port in start parameters: notanint" in str(exc.value)
+    finally:
+        os.environ.pop('ASA_START_PARAMS', None)
+
+
 def main():  # pragma: no cover - simple runner
     print("Running asa_ctrl tests...\n")
     try:

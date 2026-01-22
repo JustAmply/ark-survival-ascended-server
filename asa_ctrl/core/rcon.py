@@ -236,27 +236,22 @@ class RconClient:
         port_str = StartParamsHelper.get_value(start_params, 'RCONPort')
         
         if port_str:
-            try:
-                port = int(port_str)
-                if not (1 <= port <= 65535):
-                    raise ValueError(f"Port out of range: {port}")
-                return port
-            except ValueError as e:
-                raise RconPortNotFoundError(f"Invalid port in start parameters: {port_str}") from e
+            return self._parse_port_value(port_str, "start parameters")
         
         # Try to get port from GameUserSettings.ini
         port_str = IniConfigHelper.get_server_setting('RCONPort')
         
         if port_str:
-            try:
-                port = int(port_str)
-                if not (1 <= port <= 65535):
-                    raise ValueError(f"Port out of range: {port}")
-                return port
-            except ValueError as e:
-                raise RconPortNotFoundError(f"Invalid port in configuration: {port_str}") from e
+            return self._parse_port_value(port_str, "configuration")
             
         raise RconPortNotFoundError("Could not find RCON port in start parameters or configuration")
+
+    def _parse_port_value(self, port_str: str, source: str) -> int:
+        try:
+            port = int(port_str)
+            return self._validate_port(port)
+        except (TypeError, ValueError) as exc:
+            raise RconPortNotFoundError(f"Invalid port in {source}: {port_str}") from exc
     
     def _send_packet(self, data: str, packet_type: int) -> RconPacket:
         """
