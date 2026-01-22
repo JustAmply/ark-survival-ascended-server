@@ -2,12 +2,10 @@
 
 import argparse
 import sys
-import os
 from typing import List, Optional
 
 from .common.config import AsaSettings
 from .common.logging_config import configure_logging, get_logger
-from .common.config import parse_start_params
 from .common.constants import ExitCodes
 from .cli_commands import COMMANDS
 
@@ -50,9 +48,9 @@ def main(args: Optional[List[str]] = None) -> None:
     parsed_args = parser.parse_args(args)
     parsed_args.settings = AsaSettings()
     # Lazy debug output if user enabled verbose logging
-    raw_params = os.environ.get('ASA_START_PARAMS')
-    if raw_params and logger.isEnabledFor(10):  # DEBUG level
-        logger.debug("Parsed start params: %s", parse_start_params(raw_params))
+    settings = parsed_args.settings
+    if settings.start_params() and logger.isEnabledFor(10):  # DEBUG level
+        logger.debug("Parsed start params: %s", settings.parse_start_params())
     
     # Execute the appropriate command
     if hasattr(parsed_args, 'func'):

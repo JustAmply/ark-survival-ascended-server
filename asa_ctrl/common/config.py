@@ -31,78 +31,6 @@ def get_game_ini_path() -> str:
     return os.environ.get("ASA_GAME_INI_PATH", DEFAULT_GAME_INI_PATH)
 
 
-class StartParamsHelper:
-    """Helper for parsing start parameters from environment variables."""
-    
-    @staticmethod
-    def get_value(start_params: Optional[str], key: str) -> Optional[str]:
-        """
-        Extract a parameter value from start parameters string.
-        
-        Args:
-            start_params: The start parameters string
-            key: The parameter key to find
-            
-        Returns:
-            The parameter value or None if not found
-        """
-        if not start_params:
-            return None
-            
-        key_pattern = f"{key}="
-        offset = start_params.find(key_pattern)
-        
-        if offset == -1:
-            return None
-            
-        offset += len(key_pattern)
-        value = ""
-        
-        for char in start_params[offset:]:
-            if char in [' ', '?']:
-                break
-            value += char
-            
-        return value
-
-
-def parse_start_params(start_params: Optional[str]) -> Dict[str, str]:
-    """Parse the raw `ASA_START_PARAMS` string into a dictionary.
-
-    This is a best-effort parser: it looks for segments separated by `?` and
-    key/value pairs separated by `=` (for the part preceding spaces / next `?`).
-
-    Non key/value tokens (like the initial map) are stored under the synthetic
-    key `_map` if detected.
-    """
-    result: Dict[str, str] = {}
-    if not start_params:
-        return result
-
-    # Split on whitespace first to discard trailing flags (e.g. -WinLiveMaxPlayers=50)
-    # We'll keep full string; then split tokens by space to treat flags separately.
-    space_tokens = start_params.split()
-    if not space_tokens:
-        return result
-
-    # First token often contains map plus ? delimited options
-    first = space_tokens[0]
-    parts = first.split('?')
-    if parts:
-        result['_map'] = parts[0]
-        for seg in parts[1:]:
-            if '=' in seg:
-                k, v = seg.split('=', 1)
-                result[k] = v
-
-    # Remaining tokens may include -Key=Value style args
-    for token in space_tokens[1:]:
-        if token.startswith('-') and '=' in token:
-            k, v = token[1:].split('=', 1)
-            result[k] = v.strip('"')
-    return result
-
-
 class IniConfigHelper:
     """Helper for parsing INI configuration files."""
     
@@ -194,3 +122,68 @@ class AsaSettings:
         if not config or 'ServerSettings' not in config:
             return default
         return config['ServerSettings'].get(key, default)
+
+    def get_start_param_value(self, key: str) -> Optional[str]:
+        return self._get_start_param_value(self.start_params(), key)
+
+    def parse_start_params(self) -> Dict[str, str]:
+        return self._parse_start_params(self.start_params())
+
+    @staticmethod
+    def _get_start_param_value(start_params: Optional[str], key: str) -> Optional[str]:
+        if not start_params:
+            return None
+
+        key_pattern = f"{key}="
+        offset = start_params.find(key_pattern)
+
+        if offset == -1:
+            return None
+
+        offset += len(key_pattern)
+        value = ""
+
+        for char in start_params[offset:]:
+            if char in [' ', '?']:
+                break
+            value += char
+
+        return value
+
+    @staticmethod
+    def _parse_start_params(start_params: Optional[str]) -> Dict[str, str]:
+        result: Dict[str, str] = {}
+        if not start_params:
+            return result
+
+        space_tokens = start_params.split()
+        if not space_tokens:
+            return result
+
+        first = space_tokens[0]
+        parts = first.split('?')
+        if parts:
+            result['_map'] = parts[0]
+            for seg in parts[1:]:
+                if '=' in seg:
+                    k, v = seg.split('=', 1)
+                    result[k] = v
+
+        for token in space_tokens[1:]:
+            if token.startswith('-') and '=' in token:
+                k, v = token[1:].split('=', 1)
+                result[k] = v.strip('"')
+        return result
+
+
+class StartParamsHelper:
+    """Compatibility wrapper for start parameter parsing."""
+
+    @staticmethod
+    def get_value(start_params: Optional[str], key: str) -> Optional[str]:
+        return AsaSettings._get_start_param_value(start_params, key)
+
+
+def parse_start_params(start_params: Optional[str]) -> Dict[str, str]:
+    """Compatibility wrapper for start parameter parsing."""
+    return AsaSettings._parse_start_params(start_params)

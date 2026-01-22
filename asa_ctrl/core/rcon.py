@@ -10,7 +10,7 @@ import time
 from typing import NamedTuple, Optional
 
 from asa_ctrl.common.constants import RconPacketTypes
-from asa_ctrl.common.config import AsaSettings, StartParamsHelper
+from asa_ctrl.common.config import AsaSettings
 from asa_ctrl.common.errors import (
     AsaCtrlError,
     RconPasswordNotFoundError,
@@ -268,10 +268,7 @@ class RconClient:
             RconPasswordNotFoundError: If password cannot be found
         """
         # Try to get password from start parameters
-        password = StartParamsHelper.get_value(
-            self._settings.start_params(),
-            'ServerAdminPassword',
-        )
+        password = self._settings.get_start_param_value('ServerAdminPassword')
         
         if password:
             return password
@@ -295,10 +292,7 @@ class RconClient:
             RconPortNotFoundError: If port cannot be found
         """
         # Try to get port from start parameters
-        port_str = StartParamsHelper.get_value(
-            self._settings.start_params(),
-            'RCONPort',
-        )
+        port_str = self._settings.get_start_param_value('RCONPort')
         
         if port_str:
             return self._parse_port_value(port_str, "start parameters")
