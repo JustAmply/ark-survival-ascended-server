@@ -3,7 +3,7 @@
 import argparse
 import sys
 
-from asa_ctrl.cli_helpers import exit_with_error
+from asa_ctrl.cli_helpers import exit_with_error, map_exception_to_exit_code
 from asa_ctrl.common.constants import ExitCodes
 from asa_ctrl.common.errors import CorruptedModsDatabaseError, ModAlreadyEnabledError
 from asa_ctrl.core.mods import ModDatabase, format_mod_list_for_server
@@ -52,22 +52,28 @@ class ModsCommand:
                 print("Please specify a mod action: enable, disable, remove, or list")
                 sys.exit(ExitCodes.OK)
 
-        except CorruptedModsDatabaseError as e:
-            exit_with_error(str(e), ExitCodes.CORRUPTED_MODS_DATABASE)
+        except Exception as exc:
+            exit_code = map_exception_to_exit_code(exc)
+            if isinstance(exc, CorruptedModsDatabaseError):
+                message = str(exc)
+            elif isinstance(exc, ModAlreadyEnabledError):
+                message = (
+                    "This mod is already enabled! Use 'asa-ctrl mods list' to see what mods are currently enabled."
+                )
+            else:
+                message = f"Mod command failed: {exc}"
+
+            if exit_code is None:
+                exit_code = ExitCodes.CORRUPTED_MODS_DATABASE
+
+            exit_with_error(message, exit_code)
 
     @staticmethod
     def _enable_mod(mod_id: int) -> None:
         """Enable a mod."""
-        try:
-            db = ModDatabase.get_instance()
-            db.enable_mod(mod_id)
-            print(f"Enabled mod id '{mod_id}' successfully. The server will download the mod upon startup.")
-
-        except ModAlreadyEnabledError:
-            exit_with_error(
-                "This mod is already enabled! Use 'asa-ctrl mods list' to see what mods are currently enabled.",
-                ExitCodes.MOD_ALREADY_ENABLED,
-            )
+        db = ModDatabase.get_instance()
+        db.enable_mod(mod_id)
+        print(f"Enabled mod id '{mod_id}' successfully. The server will download the mod upon startup.")
 
     @staticmethod
     def _disable_mod(mod_id: int) -> None:

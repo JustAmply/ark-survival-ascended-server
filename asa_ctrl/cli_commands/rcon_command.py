@@ -1,6 +1,6 @@
 """RCON command handling for the asa-ctrl CLI."""
 
-from asa_ctrl.cli_helpers import exit_with_error
+from asa_ctrl.cli_helpers import exit_with_error, map_exception_to_exit_code
 from asa_ctrl.common.constants import ExitCodes
 from asa_ctrl.common.errors import (
     RconAuthenticationError,
@@ -31,46 +31,35 @@ class RconCommand:
             response = execute_rcon_command(args.command)
             print(response)
 
-        except RconPasswordNotFoundError:
-            exit_with_error(
-                "Could not read RCON password. Make sure it is properly configured, either as "
-                "start parameter ?ServerAdminPassword=mypass or in GameUserSettings.ini in the "
-                "[ServerSettings] section as ServerAdminPassword=mypass",
-                ExitCodes.RCON_PASSWORD_NOT_FOUND,
-            )
-        except RconAuthenticationError:
-            exit_with_error(
-                "Could not execute this RCON command. Authentication failed (wrong server password).",
-                ExitCodes.RCON_PASSWORD_WRONG,
-            )
-        except RconPortNotFoundError:
-            exit_with_error(
-                "Could not find RCON port. Make sure it is properly configured in start parameters "
-                "or GameUserSettings.ini",
-                ExitCodes.RCON_CONNECTION_FAILED,
-            )
-        except RconConnectionError as e:
-            exit_with_error(
-                f"Failed to connect to RCON server: {e}",
-                ExitCodes.RCON_CONNECTION_FAILED,
-            )
-        except RconTimeoutError as e:
-            exit_with_error(
-                f"RCON operation timed out: {e}",
-                ExitCodes.RCON_TIMEOUT,
-            )
-        except RconPacketError as e:
-            exit_with_error(
-                f"RCON packet error: {e}",
-                ExitCodes.RCON_PACKET_ERROR,
-            )
-        except ValueError as e:
-            exit_with_error(
-                f"Invalid command: {e}",
-                ExitCodes.RCON_COMMAND_EXECUTION_FAILED,
-            )
-        except Exception as e:
-            exit_with_error(
-                f"Rcon command execution failed: {e}",
-                ExitCodes.RCON_COMMAND_EXECUTION_FAILED,
-            )
+        except Exception as exc:
+            exit_code = map_exception_to_exit_code(exc)
+            if isinstance(exc, RconPasswordNotFoundError):
+                message = (
+                    "Could not read RCON password. Make sure it is properly configured, either as "
+                    "start parameter ?ServerAdminPassword=mypass or in GameUserSettings.ini in the "
+                    "[ServerSettings] section as ServerAdminPassword=mypass"
+                )
+            elif isinstance(exc, RconAuthenticationError):
+                message = "Could not execute this RCON command. Authentication failed (wrong server password)."
+            elif isinstance(exc, RconPortNotFoundError):
+                message = (
+                    "Could not find RCON port. Make sure it is properly configured in start parameters "
+                    "or GameUserSettings.ini"
+                )
+            elif isinstance(exc, RconConnectionError):
+                message = f"Failed to connect to RCON server: {exc}"
+            elif isinstance(exc, RconTimeoutError):
+                message = f"RCON operation timed out: {exc}"
+            elif isinstance(exc, RconPacketError):
+                message = f"RCON packet error: {exc}"
+            elif isinstance(exc, ValueError):
+                message = f"Invalid command: {exc}"
+                exit_code = ExitCodes.RCON_COMMAND_EXECUTION_FAILED
+            else:
+                message = f"Rcon command execution failed: {exc}"
+                exit_code = ExitCodes.RCON_COMMAND_EXECUTION_FAILED
+
+            if exit_code is None:
+                exit_code = ExitCodes.RCON_COMMAND_EXECUTION_FAILED
+
+            exit_with_error(message, exit_code)
