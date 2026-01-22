@@ -11,6 +11,8 @@ import json
 import os
 import sys
 import tempfile
+import logging
+import time
 from pathlib import Path
 from types import MethodType
 from unittest.mock import patch
@@ -22,11 +24,15 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from asa_ctrl.core.mods import ModDatabase, ModRecord  # noqa: E402
-from asa_ctrl.common.config import StartParamsHelper, parse_start_params  # noqa: E402
-from asa_ctrl.common.constants import ExitCodes  # noqa: E402
+from asa_ctrl.core.mods import ModDatabase, ModRecord, format_mod_list_for_server  # noqa: E402
+from asa_ctrl.common.config import AsaSettings, StartParamsHelper, parse_start_params  # noqa: E402
+from asa_ctrl.common.constants import ExitCodes, get_mod_database_path  # noqa: E402
+from asa_ctrl.common.logging_config import configure_logging  # noqa: E402
+from asa_ctrl.cli_helpers import exit_with_error, map_exception_to_exit_code  # noqa: E402
+from asa_ctrl.cli_commands.mods_command import ModsCommand  # noqa: E402
+from asa_ctrl.cli_commands.rcon_command import RconCommand  # noqa: E402
 from asa_ctrl.cli import main as cli_main  # noqa: E402
-from asa_ctrl.core.rcon import RconClient, RconPacket  # noqa: E402
+from asa_ctrl.core.rcon import RconClient, RconPacket, RconPacketCodec, execute_rcon_command  # noqa: E402
 from asa_ctrl.common.errors import (  # noqa: E402
     RconPortNotFoundError,
     RconPasswordNotFoundError,
@@ -35,6 +41,7 @@ from asa_ctrl.common.errors import (  # noqa: E402
     RconTimeoutError,
     RconAuthenticationError,
     CorruptedModsDatabaseError,
+    ModAlreadyEnabledError,
 )
 from asa_ctrl.common.constants import RconPacketTypes  # noqa: E402
 
@@ -109,6 +116,26 @@ ServerAdminPassword=testpass
 def test_mod_database():
     """Test mod database functionality."""
     print("Testing ModDatabase...")
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = os.path.join(temp_dir, "mods.json")
+        db = ModDatabase(db_path)
+        assert db.get_all_mods() == []
+
+        db.enable_mod(123)
+        assert db.mod_exists(123) is True
+        assert db.is_mod_enabled(123) is True
+
+        # Enabling an existing disabled mod should flip the flag.
+        db.disable_mod(123)
+        assert db.is_mod_enabled(123) is False
+        db.enable_mod(123)
+        assert db.is_mod_enabled(123) is True
+
+        # Remove and verify persistence to disk by reloading.
+        assert db.remove_mod(123) is True
+        assert db.get_mod(123) is None
+        reloaded = ModDatabase(db_path)
+        assert reloaded.get_all_mods() == []
 
 
 def test_cli_mods_string():
@@ -150,7 +177,8 @@ def test_cli_mods_string():
             buf = StringIO()
             with contextlib.redirect_stdout(buf):
                 cli_main(['mods', 'remove', str(mod_id)])
-            assert db.get_mod(mod_id) is None
+            refreshed = ModDatabase(db_path)
+            assert refreshed.get_mod(mod_id) is None
             output = buf.getvalue()
             assert "Removed mod id" in output
         finally:
@@ -241,6 +269,38 @@ def test_mod_database_load_reports_missing_keys(tmp_path):
     assert "mod_id" in message
 
 
+def test_mod_database_load_rejects_bad_json(tmp_path):
+    db_path = tmp_path / "mods.json"
+    db_path.write_text("not-json", encoding="utf-8")
+
+    with pytest.raises(CorruptedModsDatabaseError) as exc:
+        ModDatabase(str(db_path))
+
+    assert "mods.json file is corrupted" in str(exc.value)
+
+
+def test_format_mod_list_for_server_empty(tmp_path):
+    db_path = tmp_path / "mods.json"
+    os.environ["ASA_MOD_DATABASE_PATH"] = str(db_path)
+    try:
+        assert format_mod_list_for_server() == ""
+    finally:
+        os.environ.pop("ASA_MOD_DATABASE_PATH", None)
+
+
+def test_format_mod_list_for_server_sorted_ids(tmp_path):
+    db_path = tmp_path / "mods.json"
+    os.environ["ASA_MOD_DATABASE_PATH"] = str(db_path)
+    try:
+        db = ModDatabase(str(db_path))
+        db.enable_mod(200)
+        db.enable_mod(100)
+        output = format_mod_list_for_server()
+        assert output in ("-mods=200,100", "-mods=100,200")
+    finally:
+        os.environ.pop("ASA_MOD_DATABASE_PATH", None)
+
+
 def test_exit_codes():
     print("Testing ExitCodes...")
     assert ExitCodes.OK == 0
@@ -253,6 +313,44 @@ def test_exit_codes():
     assert ExitCodes.RCON_PACKET_ERROR == 7
     assert ExitCodes.RCON_TIMEOUT == 8
     print("✓ ExitCodes tests passed")
+
+
+def test_constants_get_mod_database_path_env_override(tmp_path):
+    override_path = tmp_path / "mods.json"
+    os.environ["ASA_MOD_DATABASE_PATH"] = str(override_path)
+    try:
+        assert get_mod_database_path() == str(override_path)
+    finally:
+        os.environ.pop("ASA_MOD_DATABASE_PATH", None)
+
+
+def test_logging_config_env_and_explicit(monkeypatch):
+    monkeypatch.setenv("ASA_LOG_LEVEL", "DEBUG")
+    configure_logging(force=True)
+    assert logging.getLogger().level == logging.DEBUG
+
+    configure_logging(level="WARNING", force=True)
+    assert logging.getLogger().level == logging.WARNING
+
+
+def test_cli_helpers_exit_with_error(capsys):
+    with pytest.raises(SystemExit) as exc:
+        exit_with_error("boom", 7)
+    assert exc.value.code == 7
+    captured = capsys.readouterr()
+    assert "Error: boom" in captured.err
+
+
+def test_cli_helpers_map_exception_to_exit_code():
+    assert map_exception_to_exit_code(RconPasswordNotFoundError("x")) == ExitCodes.RCON_PASSWORD_NOT_FOUND
+    assert map_exception_to_exit_code(RconAuthenticationError("x")) == ExitCodes.RCON_PASSWORD_WRONG
+    assert map_exception_to_exit_code(RconPortNotFoundError("x")) == ExitCodes.RCON_CONNECTION_FAILED
+    assert map_exception_to_exit_code(RconConnectionError("x")) == ExitCodes.RCON_CONNECTION_FAILED
+    assert map_exception_to_exit_code(RconTimeoutError("x")) == ExitCodes.RCON_TIMEOUT
+    assert map_exception_to_exit_code(RconPacketError("x")) == ExitCodes.RCON_PACKET_ERROR
+    assert map_exception_to_exit_code(ModAlreadyEnabledError("x")) == ExitCodes.MOD_ALREADY_ENABLED
+    assert map_exception_to_exit_code(CorruptedModsDatabaseError("x")) == ExitCodes.CORRUPTED_MODS_DATABASE
+    assert map_exception_to_exit_code(ValueError("x")) is None
 
 
 def test_rcon_validation():
@@ -379,6 +477,196 @@ def test_rcon_identify_port_rejects_invalid_start_params():
         assert "Invalid port in start parameters: notanint" in str(exc.value)
     finally:
         os.environ.pop('ASA_START_PARAMS', None)
+
+
+def test_rcon_packet_codec_round_trip():
+    codec = RconPacketCodec(4096, 12)
+    packet = codec.encode(123, RconPacketTypes.EXEC_COMMAND, "saveworld")
+    decoded = codec.decode(packet)
+    assert decoded.id == 123
+    assert decoded.type == RconPacketTypes.EXEC_COMMAND
+    assert decoded.body == "saveworld"
+
+
+def test_rcon_packet_codec_rejects_size_mismatch():
+    codec = RconPacketCodec(4096, 12)
+    packet = bytearray(codec.encode(1, RconPacketTypes.EXEC_COMMAND, "hi"))
+    # Corrupt size to force mismatch
+    packet[0] = packet[0] + 1
+    with pytest.raises(RconPacketError):
+        codec.decode(bytes(packet))
+
+
+def test_rcon_identify_password_from_start_params():
+    settings = AsaSettings(
+        {
+            "ASA_START_PARAMS": "TheIsland_WP?listen?ServerAdminPassword=fromparams",
+        }
+    )
+    client = RconClient(port=27020, settings=settings)
+    assert client.password == "fromparams"
+
+
+def test_rcon_identify_password_from_ini(tmp_path):
+    ini_path = tmp_path / "GameUserSettings.ini"
+    ini_path.write_text(
+        "[ServerSettings]\nServerAdminPassword=fromini\nRCONPort=27020\n",
+        encoding="utf-8",
+    )
+    settings = AsaSettings(
+        {
+            "ASA_GAME_USER_SETTINGS_PATH": str(ini_path),
+        }
+    )
+    client = RconClient(port=27020, settings=settings)
+    assert client.password == "fromini"
+
+
+def test_rcon_identify_port_from_ini(tmp_path):
+    ini_path = tmp_path / "GameUserSettings.ini"
+    ini_path.write_text(
+        "[ServerSettings]\nServerAdminPassword=fromini\nRCONPort=27021\n",
+        encoding="utf-8",
+    )
+    settings = AsaSettings(
+        {
+            "ASA_GAME_USER_SETTINGS_PATH": str(ini_path),
+        }
+    )
+    client = RconClient(password="secret", settings=settings, retry_count=0)
+    assert client.port == 27021
+
+
+def test_rcon_with_retry_resets_state(monkeypatch):
+    client = RconClient.__new__(RconClient)
+    client.retry_count = 1
+    client.retry_delay = 0.01
+    client._connected = True
+    client._authenticated = True
+    client.socket = None
+
+    def fail_once():
+        raise RconTimeoutError("nope")
+
+    monkeypatch.setattr(time, "sleep", lambda _value: None)
+    with pytest.raises(RconTimeoutError):
+        client._with_retry(fail_once)
+    assert client._connected is False
+    assert client._authenticated is False
+
+
+def test_rcon_receive_exact_reads_full_buffer():
+    client = RconClient.__new__(RconClient)
+
+    class DummySocket:
+        def __init__(self):
+            self.calls = 0
+
+        def recv(self, size):
+            self.calls += 1
+            if self.calls == 1:
+                return b"ab"
+            return b"cd"
+
+    client.socket = DummySocket()
+    data = client._receive_exact(4)
+    assert data == b"abcd"
+
+
+def test_rcon_execute_command_raises_on_invalid_command():
+    client = RconClient.__new__(RconClient)
+    with pytest.raises(ValueError):
+        client.execute_command("")
+
+
+def test_execute_rcon_command_uses_client(monkeypatch):
+    responses = []
+
+    class DummyClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def execute_command(self, command):
+            responses.append(command)
+            return "ok"
+
+    monkeypatch.setattr("asa_ctrl.core.rcon.RconClient", DummyClient)
+    assert execute_rcon_command("listplayers") == "ok"
+    assert responses == ["listplayers"]
+
+
+def test_cli_main_no_args_shows_help(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli_main([])
+    assert exc.value.code == ExitCodes.OK
+    captured = capsys.readouterr()
+    assert "Available commands" in captured.out
+
+
+def test_cli_mods_no_action_prints_help(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli_main(["mods"])
+    assert exc.value.code == ExitCodes.OK
+    captured = capsys.readouterr()
+    assert "Please specify a mod action" in captured.out
+
+
+def test_mods_command_enable_disable_list(tmp_path, capsys):
+    db_path = tmp_path / "mods.json"
+    settings = AsaSettings({"ASA_MOD_DATABASE_PATH": str(db_path)})
+
+    args = type("Args", (), {"mod_action": "enable", "mod_id": 123, "settings": settings})
+    ModsCommand.execute(args)
+    out = capsys.readouterr().out
+    assert "Enabled mod id" in out
+
+    args = type("Args", (), {"mod_action": "disable", "mod_id": 123, "settings": settings})
+    ModsCommand.execute(args)
+    out = capsys.readouterr().out
+    assert "Disabled mod id" in out
+
+    args = type("Args", (), {"mod_action": "list", "enabled_only": True, "settings": settings})
+    ModsCommand.execute(args)
+    out = capsys.readouterr().out
+    assert "Enabled mods:" in out
+
+
+def test_mods_command_already_enabled_exit_code(tmp_path, capsys):
+    db_path = tmp_path / "mods.json"
+    settings = AsaSettings({"ASA_MOD_DATABASE_PATH": str(db_path)})
+    db = ModDatabase(str(db_path))
+    db.enable_mod(999)
+
+    args = type("Args", (), {"mod_action": "enable", "mod_id": 999, "settings": settings})
+    with pytest.raises(SystemExit) as exc:
+        ModsCommand.execute(args)
+    assert exc.value.code == ExitCodes.MOD_ALREADY_ENABLED
+    assert "already enabled" in capsys.readouterr().err.lower()
+
+
+def test_rcon_command_errors_map_to_exit_codes(capsys, monkeypatch):
+    def raise_password_error(_command):
+        raise RconPasswordNotFoundError("missing")
+
+    monkeypatch.setattr("asa_ctrl.cli_commands.rcon_command.execute_rcon_command", raise_password_error)
+    args = type("Args", (), {"command": "listplayers"})
+    with pytest.raises(SystemExit) as exc:
+        RconCommand.execute(args)
+    assert exc.value.code == ExitCodes.RCON_PASSWORD_NOT_FOUND
+    assert "could not read rcon password" in capsys.readouterr().err.lower()
+
+
+def test_ini_config_helper_missing_file_returns_none(tmp_path):
+    missing = tmp_path / "missing.ini"
+    from asa_ctrl.common.config import IniConfigHelper
+
+    assert IniConfigHelper.parse_ini(str(missing)) is None
 
 
 def main():  # pragma: no cover - simple runner

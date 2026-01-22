@@ -12,7 +12,16 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import asa_ctrl.core.restart_scheduler as scheduler  # noqa: E402
-from asa_ctrl.core.restart_scheduler import CronSchedule, parse_warning_offsets, run_scheduler  # noqa: E402
+from asa_ctrl.core.restart_scheduler import (
+    CronSchedule,
+    parse_warning_offsets,
+    run_scheduler,
+    _read_pid_from_file,
+    _is_process_alive,
+    _announce,
+    _announce_now,
+    _trigger_restart,
+)
 
 
 def make_dt(text: str) -> datetime:
@@ -60,6 +69,50 @@ def test_parse_warning_offsets_default_and_custom():
         parse_warning_offsets("0,5")
     with pytest.raises(ValueError):
         parse_warning_offsets("abc")
+
+
+def test_parse_warning_offsets_dedup_and_sort():
+    assert parse_warning_offsets("5,1,5,10") == [10, 5, 1]
+
+
+def test_read_pid_from_file_missing(tmp_path):
+    assert _read_pid_from_file(str(tmp_path / "missing.pid")) is None
+
+
+def test_read_pid_from_file_invalid(tmp_path):
+    pid_path = tmp_path / "pid.txt"
+    pid_path.write_text("not-an-int", encoding="utf-8")
+    assert _read_pid_from_file(str(pid_path)) is None
+
+
+def test_is_process_alive_false(monkeypatch):
+    def fake_kill(_pid, _sig):
+        raise OSError("nope")
+
+    monkeypatch.setattr(os, "kill", fake_kill)
+    assert _is_process_alive(12345) is False
+
+
+def test_trigger_restart_missing_pid_file(caplog):
+    with caplog.at_level("ERROR"):
+        _trigger_restart(None, scheduler.get_logger(__name__))
+    assert "Cannot trigger restart" in "\n".join(caplog.messages)
+
+
+def test_announce_helpers(monkeypatch):
+    calls = []
+
+    def fake_run(command, _logger, _settings):
+        calls.append(command)
+        return True
+
+    monkeypatch.setattr(scheduler, "_run_rcon_command", fake_run)
+    settings = scheduler.AsaSettings({})
+    now = datetime(2024, 1, 1, 12, 0)
+    _announce(5, now, scheduler.get_logger(__name__), settings)
+    _announce_now(now, scheduler.get_logger(__name__), settings)
+    assert any("restart in 5 minutes" in command for command in calls)
+    assert any("restarting now" in command for command in calls)
 
 
 def test_run_scheduler_no_cron_exits_quickly(monkeypatch):
