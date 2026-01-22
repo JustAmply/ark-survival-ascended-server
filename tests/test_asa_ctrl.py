@@ -118,7 +118,7 @@ def test_cli_mods_string():
         db_path = os.path.join(temp_dir, 'mods.json')
         os.environ['ASA_MOD_DATABASE_PATH'] = db_path
         try:
-            db = ModDatabase.get_instance()
+            db = ModDatabase(db_path)
             db.enable_mod(111)
             db.enable_mod(222)
             # Capture stdout
@@ -138,7 +138,7 @@ def test_cli_mods_string():
         db_path = os.path.join(temp_dir, 'mods.json')
         os.environ['ASA_MOD_DATABASE_PATH'] = db_path
         try:
-            db = ModDatabase.get_instance()
+            db = ModDatabase(db_path)
 
             mod_id = 98765
             db.enable_mod(mod_id)
@@ -185,25 +185,22 @@ def test_cli_mods_string():
     print("✓ ModDatabase tests passed")
 
 
-def test_mod_database_get_instance_respects_env():
-    """Ensure ModDatabase singleton honours environment overrides."""
-    print("Testing ModDatabase.get_instance() with environment override...")
+def test_mod_database_from_settings_respects_env():
+    """Ensure ModDatabase respects environment overrides."""
+    print("Testing ModDatabase.from_settings() with environment override...")
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = Path(temp_dir) / 'mods.json'
         os.environ['ASA_MOD_DATABASE_PATH'] = str(db_path)
         try:
-            db = ModDatabase.get_instance()
+            db = ModDatabase.from_settings()
             assert db.database_path == db_path
 
             db.enable_mod(42)
             assert db.database_path.exists()
-
-            same_db = ModDatabase.get_instance()
-            assert same_db is db
         finally:
             os.environ.pop('ASA_MOD_DATABASE_PATH', None)
 
-    print("✓ ModDatabase.get_instance() environment override tests passed")
+    print("✓ ModDatabase.from_settings() environment override tests passed")
 
 
 def test_mod_database_load_rejects_non_list_json(tmp_path):

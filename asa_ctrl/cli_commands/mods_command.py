@@ -6,6 +6,7 @@ import sys
 from asa_ctrl.cli_helpers import exit_with_error, map_exception_to_exit_code
 from asa_ctrl.common.constants import ExitCodes
 from asa_ctrl.common.errors import CorruptedModsDatabaseError, ModAlreadyEnabledError
+from asa_ctrl.common.config import AsaSettings
 from asa_ctrl.core.mods import ModDatabase, format_mod_list_for_server
 
 
@@ -41,13 +42,13 @@ class ModsCommand:
         """Execute a mod management command."""
         try:
             if args.mod_action == 'enable':
-                ModsCommand._enable_mod(args.mod_id)
+                ModsCommand._enable_mod(args)
             elif args.mod_action == 'disable':
-                ModsCommand._disable_mod(args.mod_id)
+                ModsCommand._disable_mod(args)
             elif args.mod_action == 'remove':
-                ModsCommand._remove_mod(args.mod_id)
+                ModsCommand._remove_mod(args)
             elif args.mod_action == 'list':
-                ModsCommand._list_mods(args.enabled_only)
+                ModsCommand._list_mods(args)
             else:
                 print("Please specify a mod action: enable, disable, remove, or list")
                 sys.exit(ExitCodes.OK)
@@ -69,36 +70,36 @@ class ModsCommand:
             exit_with_error(message, exit_code)
 
     @staticmethod
-    def _enable_mod(mod_id: int) -> None:
+    def _enable_mod(args) -> None:
         """Enable a mod."""
-        db = ModDatabase.get_instance()
-        db.enable_mod(mod_id)
-        print(f"Enabled mod id '{mod_id}' successfully. The server will download the mod upon startup.")
+        db = ModsCommand._get_db(args)
+        db.enable_mod(args.mod_id)
+        print(f"Enabled mod id '{args.mod_id}' successfully. The server will download the mod upon startup.")
 
     @staticmethod
-    def _disable_mod(mod_id: int) -> None:
+    def _disable_mod(args) -> None:
         """Disable a mod."""
-        db = ModDatabase.get_instance()
-        if db.disable_mod(mod_id):
-            print(f"Disabled mod id '{mod_id}' successfully.")
+        db = ModsCommand._get_db(args)
+        if db.disable_mod(args.mod_id):
+            print(f"Disabled mod id '{args.mod_id}' successfully.")
         else:
-            print(f"Mod id '{mod_id}' was not found in the database.")
+            print(f"Mod id '{args.mod_id}' was not found in the database.")
 
     @staticmethod
-    def _remove_mod(mod_id: int) -> None:
+    def _remove_mod(args) -> None:
         """Remove a mod entry entirely."""
-        db = ModDatabase.get_instance()
-        if db.remove_mod(mod_id):
-            print(f"Removed mod id '{mod_id}' successfully.")
+        db = ModsCommand._get_db(args)
+        if db.remove_mod(args.mod_id):
+            print(f"Removed mod id '{args.mod_id}' successfully.")
         else:
-            print(f"Mod id '{mod_id}' was not found in the database.")
+            print(f"Mod id '{args.mod_id}' was not found in the database.")
 
     @staticmethod
-    def _list_mods(enabled_only: bool = False) -> None:
+    def _list_mods(args) -> None:
         """List mods."""
-        db = ModDatabase.get_instance()
+        db = ModsCommand._get_db(args)
 
-        if enabled_only:
+        if args.enabled_only:
             mods = db.get_enabled_mods()
             print("Enabled mods:")
         else:
@@ -114,6 +115,16 @@ class ModsCommand:
             print(f"  {mod.mod_id}: {mod.name} ({status})")
 
     @staticmethod
-    def print_mods_string(_args) -> None:
+    def print_mods_string(args) -> None:
         """Print the formatted mods parameter string only."""
-        print(format_mod_list_for_server(), end="")
+        settings = getattr(args, "settings", None)
+        if not isinstance(settings, AsaSettings):
+            settings = AsaSettings()
+        print(format_mod_list_for_server(settings), end="")
+
+    @staticmethod
+    def _get_db(args) -> ModDatabase:
+        settings = getattr(args, "settings", None)
+        if not isinstance(settings, AsaSettings):
+            settings = AsaSettings()
+        return ModDatabase.from_settings(settings)

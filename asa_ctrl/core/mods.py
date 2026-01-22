@@ -45,9 +45,7 @@ class ModRecord:
 
 class ModDatabase:
     """Manages the mod database for the ASA server."""
-    
-    _instance: Optional['ModDatabase'] = None
-    
+
     def __init__(self, database_path: str = MOD_DATABASE_PATH):
         """
         Initialize the mod database.
@@ -62,18 +60,12 @@ class ModDatabase:
         self._ensure_database_exists()
         self._load_database()
     
-    @classmethod
-    def get_instance(cls, settings: Optional[AsaSettings] = None) -> 'ModDatabase':
-        """Get the singleton instance of the mod database."""
+    @staticmethod
+    def from_settings(settings: Optional[AsaSettings] = None) -> 'ModDatabase':
+        """Create a mod database instance from settings."""
         settings = settings or AsaSettings()
         desired_path = settings.mod_database_path() or MOD_DATABASE_PATH
-
-        if (
-            cls._instance is None
-            or cls._instance.database_path != Path(desired_path)
-        ):
-            cls._instance = cls(desired_path)
-        return cls._instance
+        return ModDatabase(desired_path)
     
     def _ensure_database_exists(self) -> None:
         """Ensure the database file exists, create if it doesn't."""
@@ -202,25 +194,25 @@ class ModDatabase:
             return False
 
 
-def get_enabled_mod_ids() -> List[int]:
+def get_enabled_mod_ids(settings: Optional[AsaSettings] = None) -> List[int]:
     """
     Get a list of enabled mod IDs (convenience function).
     
     Returns:
         List of enabled mod IDs
     """
-    db = ModDatabase.get_instance()
+    db = ModDatabase.from_settings(settings)
     return [mod.mod_id for mod in db.get_enabled_mods()]
 
 
-def format_mod_list_for_server() -> str:
+def format_mod_list_for_server(settings: Optional[AsaSettings] = None) -> str:
     """
     Format the enabled mods list for use in server start parameters.
     
     Returns:
         Formatted mod list string for server parameters
     """
-    mod_ids = get_enabled_mod_ids()
+    mod_ids = get_enabled_mod_ids(settings)
     if not mod_ids:
         return ""
     

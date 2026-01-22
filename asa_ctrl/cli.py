@@ -5,6 +5,7 @@ import sys
 import os
 from typing import List, Optional
 
+from .common.config import AsaSettings
 from .common.logging_config import configure_logging, get_logger
 from .common.config import parse_start_params
 from .common.constants import ExitCodes
@@ -47,6 +48,7 @@ def main(args: Optional[List[str]] = None) -> None:
         sys.exit(ExitCodes.OK)
     
     parsed_args = parser.parse_args(args)
+    parsed_args.settings = AsaSettings()
     # Lazy debug output if user enabled verbose logging
     raw_params = os.environ.get('ASA_START_PARAMS')
     if raw_params and logger.isEnabledFor(10):  # DEBUG level
