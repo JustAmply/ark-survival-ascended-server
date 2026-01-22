@@ -31,6 +31,67 @@ class RconPacket(NamedTuple):
     body: str
 
 
+class RconPacketCodec:
+    """Encode/decode RCON packets and validate raw data."""
+
+    def __init__(self, max_packet_size: int, min_packet_size: int) -> None:
+        self._max_packet_size = max_packet_size
+        self._min_packet_size = min_packet_size
+
+    def validate_packet_data(self, data: bytes, expected_min_size: Optional[int] = None) -> None:
+        """
+        Validate received packet data.
+
+        Args:
+            data: Raw packet data
+            expected_min_size: Minimum expected packet size
+
+        Raises:
+            RconPacketError: If packet is invalid
+        """
+        min_size = expected_min_size if expected_min_size is not None else self._min_packet_size
+        if not data:
+            raise RconPacketError("Received empty packet")
+
+        if len(data) < min_size:
+            raise RconPacketError(f"Packet too small: {len(data)} < {min_size}")
+
+        if len(data) > self._max_packet_size:
+            raise RconPacketError(f"Packet too large: {len(data)} > {self._max_packet_size}")
+
+    def encode(self, packet_id: int, packet_type: int, body: str) -> bytes:
+        body_bytes = body.encode('utf-8')
+        packet_size = 10 + len(body_bytes)
+        packet_data = struct.pack('<Iii', packet_size, packet_id, packet_type)
+        return packet_data + body_bytes + b'\x00\x00'
+
+    def decode(self, data: bytes) -> RconPacket:
+        self.validate_packet_data(data)
+        if len(data) < 12:
+            raise RconPacketError(f"Response too short: {len(data)} bytes")
+
+        size, response_id, response_type = struct.unpack('<Iii', data[:12])
+        if size < 10:
+            raise RconPacketError(f"Invalid response size: {size}")
+        if size != len(data) - 4:  # Size field doesn't include itself
+            raise RconPacketError(f"Size mismatch: declared {size}, actual {len(data) - 4}")
+
+        body_data = data[12:]
+        if body_data and body_data[-1:] == b'\x00':
+            body_data = body_data[:-1]
+
+        null_pos = body_data.find(b'\x00')
+        if null_pos >= 0:
+            body_data = body_data[:null_pos]
+
+        try:
+            body = body_data.decode('utf-8', errors='replace')
+        except UnicodeDecodeError:
+            body = body_data.decode('utf-8', errors='ignore')
+
+        return RconPacket(size, response_id, response_type, body)
+
+
 class RconClient:
     """RCON client for communicating with ARK server."""
     
@@ -64,8 +125,14 @@ class RconClient:
         self.retry_count = max(0, retry_count)
         self.retry_delay = max(0.1, retry_delay)
         self.socket = None
+        self._codec = RconPacketCodec(self.MAX_PACKET_SIZE, self.MIN_PACKET_SIZE)
         self._connected = False
         self._authenticated = False
+
+    def _get_codec(self) -> RconPacketCodec:
+        if not hasattr(self, "_codec") or self._codec is None:
+            self._codec = RconPacketCodec(self.MAX_PACKET_SIZE, self.MIN_PACKET_SIZE)
+        return self._codec
     
     def _validate_ip(self, ip: str) -> str:
         """
@@ -147,14 +214,7 @@ class RconClient:
         Raises:
             RconPacketError: If packet is invalid
         """
-        if not data:
-            raise RconPacketError("Received empty packet")
-            
-        if len(data) < expected_min_size:
-            raise RconPacketError(f"Packet too small: {len(data)} < {expected_min_size}")
-            
-        if len(data) > self.MAX_PACKET_SIZE:
-            raise RconPacketError(f"Packet too large: {len(data)} > {self.MAX_PACKET_SIZE}")
+        self._get_codec().validate_packet_data(data, expected_min_size)
     
     def _with_retry(self, operation, *args, **kwargs):
         """
@@ -274,16 +334,12 @@ class RconClient:
         
         # Validate and encode data
         data = self._validate_command(data) if packet_type == RconPacketTypes.EXEC_COMMAND else data
-        data_bytes = data.encode('utf-8')
-        
-        packet_size = 10 + len(data_bytes)
         packet_id = int(time.time()) % 2**31  # Use timestamp as packet ID for uniqueness
         
         # Pack the packet: size, id, type, body (null-terminated), extra null byte.
         # IDs and types must be encoded as signed integers because the RCON
         # protocol uses -1 as the authentication failure sentinel.
-        packet_data = struct.pack('<Iii', packet_size, packet_id, packet_type)
-        packet_data += data_bytes + b'\x00\x00'
+        packet_data = self._get_codec().encode(packet_id, packet_type, data)
         
         try:
             # Send with timeout
@@ -296,35 +352,7 @@ class RconClient:
             # Validate response
             self._validate_packet_data(response_data)
             
-            # Unpack response: size, id, type, then body
-            if len(response_data) < 12:
-                raise RconPacketError(f"Response too short: {len(response_data)} bytes")
-            
-            # IDs and types are signed because the server returns -1 on auth failure.
-            size, response_id, response_type = struct.unpack('<Iii', response_data[:12])
-            
-            # Validate response packet structure
-            if size < 10:
-                raise RconPacketError(f"Invalid response size: {size}")
-            if size != len(response_data) - 4:  # Size field doesn't include itself
-                raise RconPacketError(f"Size mismatch: declared {size}, actual {len(response_data) - 4}")
-            
-            # Extract body
-            body_data = response_data[12:]
-            if body_data and body_data[-1:] == b'\x00':
-                body_data = body_data[:-1]  # Remove trailing null
-            
-            # Find first null terminator for body
-            null_pos = body_data.find(b'\x00')
-            if null_pos >= 0:
-                body_data = body_data[:null_pos]
-            
-            try:
-                body = body_data.decode('utf-8', errors='replace')
-            except UnicodeDecodeError:
-                body = body_data.decode('utf-8', errors='ignore')
-            
-            return RconPacket(size, response_id, response_type, body)
+            return self._get_codec().decode(response_data)
             
         except socket.timeout as e:
             raise RconTimeoutError(f"Packet operation timed out after {self.read_timeout}s") from e
