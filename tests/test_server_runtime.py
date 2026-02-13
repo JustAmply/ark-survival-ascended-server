@@ -129,7 +129,8 @@ def test_scheduler_contract_exports_env(monkeypatch, tmp_path):
         calls["command"] = command
         return DummyProcess()
 
-    monkeypatch.setattr(os.path, "exists", lambda path: True)
+    monkeypatch.setattr(os.path, "isfile", lambda path: True)
+    monkeypatch.setattr(os, "access", lambda path, mode: True)
     monkeypatch.setattr("server_runtime.supervisor.ASA_CTRL_BIN", "/usr/local/bin/asa-ctrl")
     monkeypatch.setattr("server_runtime.supervisor.subprocess.Popen", fake_popen)
     supervisor.start_restart_scheduler()

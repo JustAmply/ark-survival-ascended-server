@@ -79,3 +79,7 @@ def safe_kill_process(process: Optional[subprocess.Popen]) -> None:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass

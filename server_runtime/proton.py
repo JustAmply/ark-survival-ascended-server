@@ -91,9 +91,11 @@ def find_latest_release_with_assets(skip_version: Optional[str] = None) -> Optio
 def resolve_proton_version(logger: logging.Logger) -> str:
     """Resolve a Proton version and export PROTON_VERSION."""
     configured = (os.environ.get("PROTON_VERSION") or "").strip()
-    if configured:
+    if configured and _SAFE_VERSION_PATTERN.match(configured):
         version = configured
     else:
+        if configured:
+            logger.warning("Ignoring invalid PROTON_VERSION value: %r", configured)
         version = ""
         payload = _fetch_json(f"https://api.github.com/repos/{PROTON_REPO}/releases/latest")
         detected = ""
@@ -122,7 +124,18 @@ def resolve_proton_version(logger: logging.Logger) -> str:
 
 def _download_file(url: str, destination: Path) -> None:
     with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310
-        destination.write_bytes(response.read())
+        with destination.open("wb") as handle:
+            shutil.copyfileobj(response, handle, length=1024 * 1024)
+
+
+def _safe_extract_tar(tar: tarfile.TarFile, destination: Path) -> None:
+    dest_root = destination.resolve()
+    members = tar.getmembers()
+    for member in members:
+        target = (dest_root / member.name).resolve()
+        if target != dest_root and dest_root not in target.parents:
+            raise RuntimeError(f"Unsafe tar member path detected: {member.name!r}")
+    tar.extractall(dest_root, members=members)
 
 
 def _verify_sha512(archive_path: Path, checksum_path: Path) -> bool:
@@ -171,7 +184,7 @@ def install_proton_if_needed(version: str, logger: logging.Logger) -> str:
             logger.warning("Skipping Proton checksum verification (PROTON_SKIP_CHECKSUM=1).")
 
         with tarfile.open(archive, "r:gz") as tar:
-            tar.extractall(proton_dir.parent)
+            _safe_extract_tar(tar, proton_dir.parent)
 
     return proton_dir_name
 

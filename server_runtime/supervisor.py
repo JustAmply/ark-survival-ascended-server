@@ -52,8 +52,17 @@ class ServerSupervisor:
         cron = (os.environ.get("SERVER_RESTART_CRON") or "").strip()
         if not cron:
             return
-        if not os.path.exists(ASA_CTRL_BIN):
-            self.logger.warning("Restart scheduler requested but asa-ctrl binary is missing.")
+        if not os.path.isfile(ASA_CTRL_BIN):
+            self.logger.warning(
+                "Restart scheduler requested but asa-ctrl path '%s' is not a regular file.",
+                ASA_CTRL_BIN,
+            )
+            return
+        if not os.access(ASA_CTRL_BIN, os.X_OK):
+            self.logger.warning(
+                "Restart scheduler requested but asa-ctrl binary '%s' is not executable.",
+                ASA_CTRL_BIN,
+            )
             return
         if self.restart_scheduler_process and self.restart_scheduler_process.poll() is None:
             return

@@ -11,6 +11,16 @@ from pathlib import Path
 from .constants import SERVER_FILES_DIR, STEAM_APP_ID, STEAMCMD_DIR
 
 
+def _safe_extract_tar(tar: tarfile.TarFile, destination: Path) -> None:
+    dest_root = destination.resolve()
+    members = tar.getmembers()
+    for member in members:
+        target = (dest_root / member.name).resolve()
+        if target != dest_root and dest_root not in target.parents:
+            raise RuntimeError(f"Unsafe tar member path detected: {member.name!r}")
+    tar.extractall(dest_root, members=members)
+
+
 def ensure_steamcmd(logger: logging.Logger) -> None:
     """Install SteamCMD when not present."""
     linux32_dir = Path(STEAMCMD_DIR) / "linux32"
@@ -20,12 +30,17 @@ def ensure_steamcmd(logger: logging.Logger) -> None:
     logger.info("Installing SteamCMD...")
     Path(STEAMCMD_DIR).mkdir(parents=True, exist_ok=True)
     archive_path = Path(STEAMCMD_DIR) / "steamcmd_linux.tar.gz"
-    urllib.request.urlretrieve(
+    with urllib.request.urlopen(
         "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz",
-        archive_path,
-    )
+        timeout=30,
+    ) as response, archive_path.open("wb") as out_file:
+        while True:
+            chunk = response.read(8192)
+            if not chunk:
+                break
+            out_file.write(chunk)
     with tarfile.open(archive_path, "r:gz") as tar:
-        tar.extractall(STEAMCMD_DIR)
+        _safe_extract_tar(tar, Path(STEAMCMD_DIR))
     archive_path.unlink(missing_ok=True)
 
 
