@@ -169,7 +169,11 @@ def install_proton_if_needed(version: str, logger: logging.Logger) -> str:
         tmp = Path(tmp_dir)
         archive = tmp / f"{proton_dir_name}.tar.gz"
         checksum = tmp / f"{proton_dir_name}.sha512sum"
-        _download_file(f"{base}/{archive.name}", archive)
+        archive_url = f"{base}/{archive.name}"
+        try:
+            _download_file(archive_url, archive)
+        except (urllib.error.URLError, OSError) as exc:
+            raise RuntimeError(f"Failed to download Proton archive from {archive_url}") from exc
 
         checksum_ok = False
         try:

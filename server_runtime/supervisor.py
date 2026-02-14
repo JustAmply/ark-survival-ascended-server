@@ -115,6 +115,7 @@ class ServerSupervisor:
 
     def _build_launch_command(self, proton_dir_name: str, launch_binary: str, params: str) -> list[str]:
         proton_path = str(Path(STEAM_COMPAT_DIR) / proton_dir_name / "proton")
+        # launch_binary is intentionally a filename; process cwd is ASA_BINARY_DIR.
         command = [proton_path, "run", launch_binary]
         if params.strip():
             command.extend(shlex.split(params))
@@ -180,7 +181,8 @@ class ServerSupervisor:
     def run(self) -> int:
         signal.signal(signal.SIGTERM, self._handle_shutdown_signal)
         signal.signal(signal.SIGINT, self._handle_shutdown_signal)
-        signal.signal(signal.SIGHUP, self._handle_shutdown_signal)
+        if hasattr(signal, "SIGHUP"):
+            signal.signal(signal.SIGHUP, self._handle_shutdown_signal)
         if hasattr(signal, "SIGUSR1"):
             signal.signal(signal.SIGUSR1, self._handle_restart_signal)
 
@@ -189,6 +191,8 @@ class ServerSupervisor:
             try:
                 exit_code = self._launch_server_once()
                 self.logger.info("Server process exited with code %s.", exit_code)
+            except Exception:
+                self.logger.exception("Unhandled exception during server run; will attempt restart.")
             finally:
                 self._cleanup_after_run()
 

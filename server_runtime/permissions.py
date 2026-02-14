@@ -24,10 +24,8 @@ from .constants import (
 
 def _chown_if_possible(path: Path, recursive: bool) -> None:
     if recursive:
-        for root, dirs, files in os.walk(path):
+        for root, _, files in os.walk(path):
             shutil.chown(root, user=TARGET_UID, group=TARGET_GID)
-            for name in dirs:
-                shutil.chown(Path(root) / name, user=TARGET_UID, group=TARGET_GID)
             for name in files:
                 shutil.chown(Path(root) / name, user=TARGET_UID, group=TARGET_GID)
     else:
@@ -61,10 +59,22 @@ def ensure_permissions_and_drop_privileges(logger: logging.Logger) -> None:
 
     os.environ[PRIVS_DROPPED_ENV] = "1"
     command = [sys.executable, "-m", "server_runtime"]
+    exec_errors: list[str] = []
     if shutil.which("runuser"):
-        os.execvp("runuser", ["runuser", "-u", "gameserver", "--"] + command)
+        try:
+            os.execvp("runuser", ["runuser", "-u", "gameserver", "--"] + command)
+        except OSError as exc:
+            exec_errors.append(f"runuser: {exc}")
     if shutil.which("su"):
-        os.execvp("su", ["su", "-s", "/bin/bash", "-c", shlex.join(command), "gameserver"])
+        try:
+            os.execvp("su", ["su", "-s", "/bin/bash", "-c", shlex.join(command), "gameserver"])
+        except OSError as exc:
+            exec_errors.append(f"su: {exc}")
+
+    if exec_errors:
+        raise RuntimeError(
+            "Failed to drop privileges via available helper(s): " + "; ".join(exec_errors)
+        )
 
     raise RuntimeError("Neither runuser nor su is available for privilege drop")
 

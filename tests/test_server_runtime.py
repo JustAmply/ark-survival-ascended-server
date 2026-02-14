@@ -4,7 +4,11 @@ import logging
 import os
 from unittest.mock import Mock
 
+import pytest
+
+from server_runtime import logging_utils as runtime_logging
 from server_runtime import params as runtime_params
+from server_runtime import permissions as runtime_permissions
 from server_runtime import proton as runtime_proton
 from server_runtime.constants import RuntimeSettings
 from server_runtime.supervisor import ServerSupervisor
@@ -139,3 +143,56 @@ def test_scheduler_contract_exports_env(monkeypatch, tmp_path):
     assert os.environ["ASA_SUPERVISOR_PID_FILE"]
     assert os.environ["ASA_SERVER_PID_FILE"]
     assert os.environ["SERVER_RESTART_WARNINGS"] == "30,5,1"
+
+
+def test_configure_runtime_logging_invalid_level_warns(monkeypatch, caplog):
+    monkeypatch.setenv("ASA_LOG_LEVEL", "VERBOSE")
+    caplog.set_level(logging.WARNING, logger="server_runtime")
+
+    logger = runtime_logging.configure_runtime_logging()
+
+    assert logger is logging.getLogger("server_runtime")
+    assert "Invalid ASA_LOG_LEVEL" in caplog.text
+
+
+def test_drop_privileges_reports_exec_errors(monkeypatch, tmp_path):
+    monkeypatch.setattr(runtime_permissions.os, "geteuid", lambda: 0, raising=False)
+    monkeypatch.delenv(runtime_permissions.PRIVS_DROPPED_ENV, raising=False)
+    monkeypatch.setattr(runtime_permissions, "STEAM_HOME_DIR", str(tmp_path / "steam"))
+    monkeypatch.setattr(runtime_permissions, "STEAMCMD_DIR", str(tmp_path / "steamcmd"))
+    monkeypatch.setattr(runtime_permissions, "SERVER_FILES_DIR", str(tmp_path / "server"))
+    monkeypatch.setattr(runtime_permissions, "CLUSTER_DIR", str(tmp_path / "cluster"))
+    monkeypatch.setattr(runtime_permissions, "_chown_if_possible", lambda _path, recursive: None)
+    monkeypatch.setattr(runtime_permissions.shutil, "which", lambda cmd: "/usr/sbin/runuser" if cmd == "runuser" else None)
+    monkeypatch.setattr(
+        runtime_permissions.os,
+        "execvp",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("permission denied")),
+    )
+
+    with pytest.raises(RuntimeError, match="Failed to drop privileges"):
+        runtime_permissions.ensure_permissions_and_drop_privileges(logging.getLogger("test"))
+
+
+def test_supervisor_run_restarts_after_launch_exception(monkeypatch, caplog):
+    logger = logging.getLogger("test-supervisor")
+    settings = RuntimeSettings.from_env()
+    supervisor = ServerSupervisor(settings, logger)
+    attempts = {"count": 0}
+
+    def fake_launch():
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise RuntimeError("boom")
+        supervisor.supervisor_exit_requested = True
+        return 0
+
+    monkeypatch.setattr(supervisor, "_launch_server_once", fake_launch)
+    monkeypatch.setattr("server_runtime.supervisor.time.sleep", lambda _seconds: None)
+    caplog.set_level(logging.ERROR)
+
+    code = supervisor.run()
+
+    assert code == 0
+    assert attempts["count"] == 2
+    assert "Unhandled exception during server run" in caplog.text
