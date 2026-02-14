@@ -15,6 +15,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from .archive_utils import safe_extract_tar
 from .constants import (
     ASA_COMPAT_DATA,
     FALLBACK_PROTON_VERSION,
@@ -128,16 +129,6 @@ def _download_file(url: str, destination: Path) -> None:
             shutil.copyfileobj(response, handle, length=1024 * 1024)
 
 
-def _safe_extract_tar(tar: tarfile.TarFile, destination: Path) -> None:
-    dest_root = destination.resolve()
-    members = tar.getmembers()
-    for member in members:
-        target = (dest_root / member.name).resolve()
-        if target != dest_root and dest_root not in target.parents:
-            raise RuntimeError(f"Unsafe tar member path detected: {member.name!r}")
-    tar.extractall(dest_root, members=members)
-
-
 def _verify_sha512(archive_path: Path, checksum_path: Path) -> bool:
     checksums = checksum_path.read_text(encoding="utf-8", errors="ignore").splitlines()
     expected = ""
@@ -188,7 +179,7 @@ def install_proton_if_needed(version: str, logger: logging.Logger) -> str:
             logger.warning("Skipping Proton checksum verification (PROTON_SKIP_CHECKSUM=1).")
 
         with tarfile.open(archive, "r:gz") as tar:
-            _safe_extract_tar(tar, proton_dir.parent)
+            safe_extract_tar(tar, proton_dir.parent)
 
     return proton_dir_name
 

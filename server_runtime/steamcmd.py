@@ -8,17 +8,8 @@ import tarfile
 import urllib.request
 from pathlib import Path
 
+from .archive_utils import safe_extract_tar
 from .constants import SERVER_FILES_DIR, STEAM_APP_ID, STEAMCMD_DIR
-
-
-def _safe_extract_tar(tar: tarfile.TarFile, destination: Path) -> None:
-    dest_root = destination.resolve()
-    members = tar.getmembers()
-    for member in members:
-        target = (dest_root / member.name).resolve()
-        if target != dest_root and dest_root not in target.parents:
-            raise RuntimeError(f"Unsafe tar member path detected: {member.name!r}")
-    tar.extractall(dest_root, members=members)
 
 
 def ensure_steamcmd(logger: logging.Logger) -> None:
@@ -40,7 +31,7 @@ def ensure_steamcmd(logger: logging.Logger) -> None:
                 break
             out_file.write(chunk)
     with tarfile.open(archive_path, "r:gz") as tar:
-        _safe_extract_tar(tar, Path(STEAMCMD_DIR))
+        safe_extract_tar(tar, Path(STEAMCMD_DIR))
     archive_path.unlink(missing_ok=True)
 
 
