@@ -7,6 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 from server_runtime import logging_utils as runtime_logging
+from server_runtime import bootstrap as runtime_bootstrap
 from server_runtime import params as runtime_params
 from server_runtime import permissions as runtime_permissions
 from server_runtime import proton as runtime_proton
@@ -25,6 +26,38 @@ def test_runtime_settings_defaults(monkeypatch):
     assert settings.server_restart_delay == 15
     assert settings.shutdown_saveworld_delay == 15
     assert settings.shutdown_timeout == 180
+
+
+def test_ensure_machine_id_creates_when_missing_and_root(monkeypatch, tmp_path):
+    machine_id_path = tmp_path / "machine-id"
+    monkeypatch.setattr(runtime_bootstrap.os, "geteuid", lambda: 0, raising=False)
+
+    runtime_bootstrap.ensure_machine_id(logging.getLogger("test"), path=machine_id_path)
+
+    machine_id = machine_id_path.read_text(encoding="utf-8").strip()
+    assert len(machine_id) == 32
+    int(machine_id, 16)
+
+
+def test_ensure_machine_id_keeps_existing_value(monkeypatch, tmp_path):
+    machine_id_path = tmp_path / "machine-id"
+    machine_id_path.write_text("existing-machine-id\n", encoding="utf-8")
+    monkeypatch.setattr(runtime_bootstrap.os, "geteuid", lambda: 0, raising=False)
+
+    runtime_bootstrap.ensure_machine_id(logging.getLogger("test"), path=machine_id_path)
+
+    assert machine_id_path.read_text(encoding="utf-8") == "existing-machine-id\n"
+
+
+def test_ensure_machine_id_warns_when_missing_and_not_root(monkeypatch, tmp_path, caplog):
+    machine_id_path = tmp_path / "machine-id"
+    monkeypatch.setattr(runtime_bootstrap.os, "geteuid", lambda: 25000, raising=False)
+    caplog.set_level(logging.WARNING)
+
+    runtime_bootstrap.ensure_machine_id(logging.getLogger("test"), path=machine_id_path)
+
+    assert not machine_id_path.exists()
+    assert "missing/empty" in caplog.text
 
 
 def test_server_admin_password_fallback_when_missing(monkeypatch):

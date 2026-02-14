@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import uuid
 from pathlib import Path
 
 
@@ -45,6 +46,28 @@ def configure_timezone(logger: logging.Logger) -> None:
 
     os.environ["TZ"] = tz
     logger.info("Configured timezone to '%s'.", tz)
+
+
+def ensure_machine_id(logger: logging.Logger, path: Path = Path("/etc/machine-id")) -> None:
+    """Ensure a machine-id file exists for runtime components that require it."""
+    try:
+        current_value = path.read_text(encoding="utf-8", errors="ignore").strip()
+    except OSError:
+        current_value = ""
+
+    if current_value:
+        return
+
+    if os.geteuid() != 0:
+        logger.warning("Machine ID file '%s' is missing/empty and cannot be created without root.", path)
+        return
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{uuid.uuid4().hex}\n", encoding="utf-8")
+        logger.info("Created machine ID file at '%s'.", path)
+    except OSError as exc:
+        logger.warning("Failed to create machine ID file '%s': %s", path, exc)
 
 
 def maybe_debug_hold(enable_debug: bool, logger: logging.Logger) -> None:
