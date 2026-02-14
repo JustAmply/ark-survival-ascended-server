@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from .bootstrap import configure_timezone, maybe_debug_hold
+from .bootstrap import configure_timezone, ensure_machine_id, maybe_debug_hold
 from .constants import (
     ASA_BINARY_DIR,
     ASA_COMPAT_DATA,
@@ -222,6 +222,7 @@ def main() -> None:
 
     if os.geteuid() == 0:
         configure_timezone(logger)
+        ensure_machine_id(logger)
     maybe_debug_hold(settings.enable_debug, logger)
     ensure_permissions_and_drop_privileges(logger)
 
