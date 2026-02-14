@@ -4,7 +4,7 @@ Focus: Maintain a lean Dockerized ARK: Survival Ascended server image with a zer
 
 ### 1. Big Picture Architecture
 * Runtime is a Docker image (`Dockerfile`) based on `ubuntu:24.04` with only core OS + Python stdlib.
-* Entry point: `scripts/start_server.sh` (installed as `/usr/bin/start_server.sh`) – handles timezone sync (`TZ`), optional debug sleep, permission fix (runs as root first, then drops to UID/GID 25000), SteamCMD validation, Proton install/version resolution, default admin password enforcement / start param fallback, dynamic mods injection, forced `-nosteam`, optional plugin loader, log streaming, and supervised server launch via Proton (with restart scheduler support).
+* Entry point: standalone Python runtime package `server_runtime` (`python -m server_runtime`) – handles timezone sync (`TZ`), optional debug sleep, permission fix (runs as root first, then drops to UID/GID 25000), SteamCMD validation, Proton install/version resolution, default admin password enforcement / start param fallback, dynamic mods injection, forced `-nosteam`, optional plugin loader, log streaming, and supervised server launch via Proton (with restart scheduler support).
 * Control/utility layer: Python package `asa_ctrl` (mounted at `/usr/share/asa_ctrl`, executed via wrapper `/usr/local/bin/asa-ctrl`). Provides:
   * RCON execution (`rcon.py`) – auto-detects password & port from `ASA_START_PARAMS` or INI files.
   * Mod management (`mods.py`) – JSON database at `/home/gameserver/server-files/mods.json` enabling dynamic `-mods=` string injection (`asa-ctrl mods-string`).
@@ -14,7 +14,7 @@ Focus: Maintain a lean Dockerized ARK: Survival Ascended server image with a zer
 * `docker-compose.yml` supplies environment (`ASA_START_PARAMS`, `ENABLE_DEBUG`, cluster + ports) and named volumes (Steam, steamcmd, server-files, cluster-shared).
 
 ### 2. Key Environment & Behavior Switches
-* `ASA_START_PARAMS` – authoritative launch flags; start script appends dynamic mods, enforces `-nosteam`, and injects a default `ServerAdminPassword` (or a full default map payload) when absent.
+* `ASA_START_PARAMS` – authoritative launch flags; runtime appends dynamic mods, enforces `-nosteam`, and injects a default `ServerAdminPassword` (or a full default map payload) when absent.
 * `ENABLE_DEBUG=1` – container sleeps (no server launch) for interactive troubleshooting.
 * `PROTON_VERSION` – pin GE-Proton; omitted → auto-detect GitHub latest → fallback default (`8-21`).
 * `PROTON_SKIP_CHECKSUM=1` – bypass Proton archive hash verification (temporary / last resort).
@@ -27,11 +27,11 @@ Focus: Maintain a lean Dockerized ARK: Survival Ascended server image with a zer
 * Maintain zero external Python deps; tests & features must rely only on stdlib (image size + simplicity guarantee).
 * When adding CLI subcommands: update `cli.py` (argparse), reuse `ExitCodes` in `constants.py`, raise custom errors from `errors.py` for consistent mapping, and export new public helpers in `__init__.py` if intended for programmatic use.
 * Preserve idempotent logging setup (`configure_logging()` can be safely called multiple times).
-* Avoid changing hard-coded filesystem layout constants unless also adjusting `start_server.sh` (paths tightly coupled with container dirs & volume mounts).
-* Restart scheduler is invoked via `asa-ctrl restart-scheduler` and relies on PID files + env wiring from the start script; keep its interfaces stable.
+* Avoid changing hard-coded filesystem layout constants unless also adjusting `server_runtime/constants.py` (paths tightly coupled with container dirs & volume mounts).
+* Restart scheduler is invoked via `asa-ctrl restart-scheduler` and relies on PID files + env wiring from the runtime supervisor; keep its interfaces stable.
 * Concurrency: `ModDatabase` uses an `RLock`; keep state mutations inside the lock and persist via `_write_database()`.
 
-### 4. Start Script Critical Steps (in order)
+### 4. Startup Runtime Critical Steps (in order)
 1. (Root) Optional timezone configuration via `TZ`, then debug hold (sleep) if requested.
 2. Permission normalization + privilege drop to UID/GID 25000.
 3. Register supervisor PID, start restart scheduler when `SERVER_RESTART_CRON` is set, ensure SteamCMD is present.
@@ -54,7 +54,7 @@ Changing ordering can break cold start expectations; keep this sequence.
 * New persistent metadata: extend `ModRecord` (provide defaults) → maintain backward compatibility in `from_dict` using `.get()`; bump schema only if strictly needed.
 
 ### 7. Common Pitfalls
-* Do NOT introduce blocking network calls in CLI code paths that run every start (keep latency in `start_server.sh` only where expected – Proton detection already optional/fallback).
+* Do NOT introduce blocking network calls in CLI code paths that run every start (keep latency in `server_runtime` only where expected – Proton detection already optional/fallback).
 * Avoid printing extraneous stdout in `mods-string` (consumer expects raw token only).
 * Keep restart scheduler contract intact (env variables, PID files, `restart-scheduler` command) so scheduled restarts can signal the supervisor.
 * Preserve automatic `ServerAdminPassword` fallback and `-nosteam` injection; downstream logic assumes these guarantees.

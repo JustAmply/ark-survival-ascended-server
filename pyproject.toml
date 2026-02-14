@@ -37,4 +37,4 @@ Issues = "https://github.com/JustAmply/ark-survival-ascended-server/issues"
 "asa-ctrl" = "asa_ctrl.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["asa_ctrl"]
+include = ["asa_ctrl", "server_runtime"]

@@ -65,7 +65,7 @@ def test_start_params_helper():
     assert parsed.get('RCONPort') == '27020'
     assert parsed.get('WinLiveMaxPlayers') == '50'
 
-    print("✓ StartParamsHelper tests passed")
+    print("OK StartParamsHelper tests passed")
 
 
 def test_ini_config_helper_duplicate_keys():
@@ -110,7 +110,7 @@ ServerAdminPassword=testpass
         if temp_path and os.path.exists(temp_path):
             os.unlink(temp_path)
 
-    print("✓ IniConfigHelper duplicate keys tests passed")
+    print("OK IniConfigHelper duplicate keys tests passed")
 
 
 def test_mod_database():
@@ -158,7 +158,7 @@ def test_cli_mods_string():
             assert out in ('-mods=111,222', '-mods=222,111')  # order not guaranteed
         finally:
             os.environ.pop('ASA_MOD_DATABASE_PATH', None)
-    print("\u2713 CLI mods-string tests passed")
+    print("OK CLI mods-string tests passed")
 
     print("Testing CLI mods removal...")
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -184,7 +184,7 @@ def test_cli_mods_string():
         finally:
             os.environ.pop('ASA_MOD_DATABASE_PATH', None)
 
-    print("\u2713 CLI mods removal tests passed")
+    print("OK CLI mods removal tests passed")
 
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = os.path.join(temp_dir, "mods.json")
@@ -210,7 +210,7 @@ def test_cli_mods_string():
         assert len(enabled_mods) == 1
         assert enabled_mods[0].mod_id == 67890
 
-    print("✓ ModDatabase tests passed")
+    print("OK ModDatabase tests passed")
 
 
 def test_mod_database_from_settings_respects_env():
@@ -228,7 +228,7 @@ def test_mod_database_from_settings_respects_env():
         finally:
             os.environ.pop('ASA_MOD_DATABASE_PATH', None)
 
-    print("✓ ModDatabase.from_settings() environment override tests passed")
+    print("OK ModDatabase.from_settings() environment override tests passed")
 
 
 def test_mod_database_load_rejects_non_list_json(tmp_path):
@@ -312,7 +312,7 @@ def test_exit_codes():
     assert ExitCodes.RCON_CONNECTION_FAILED == 6
     assert ExitCodes.RCON_PACKET_ERROR == 7
     assert ExitCodes.RCON_TIMEOUT == 8
-    print("✓ ExitCodes tests passed")
+    print("OK ExitCodes tests passed")
 
 
 def test_constants_get_mod_database_path_env_override(tmp_path):
@@ -412,7 +412,7 @@ def test_rcon_validation():
     except RconPacketError:
         pass  # Expected
 
-    print("✓ RCON validation tests passed")
+    print("OK RCON validation tests passed")
 
 
 def test_rcon_authenticate_failure_propagates_error():
