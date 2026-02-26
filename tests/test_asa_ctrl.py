@@ -556,19 +556,12 @@ def test_rcon_with_retry_resets_state(monkeypatch):
 
 
 def test_rcon_receive_exact_reads_full_buffer():
+    from unittest.mock import Mock
     client = RconClient.__new__(RconClient)
 
-    class DummySocket:
-        def __init__(self):
-            self.calls = 0
-
-        def recv(self, size):
-            self.calls += 1
-            if self.calls == 1:
-                return b"ab"
-            return b"cd"
-
-    client.socket = DummySocket()
+    mock_socket = Mock()
+    mock_socket.recv.side_effect = [b"ab", b"cd"]
+    object.__setattr__(client, 'socket', mock_socket)
     data = client._receive_exact(4)
     assert data == b"abcd"
 
