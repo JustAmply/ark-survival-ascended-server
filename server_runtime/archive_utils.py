@@ -11,6 +11,10 @@ def safe_extract_tar(tar: tarfile.TarFile, destination: Path) -> None:
     dest_root = destination.resolve()
     members = tar.getmembers()
     for member in members:
+        if member.issym() or member.islnk():
+            raise RuntimeError(f"Unsupported tar link member detected: {member.name!r}")
+        if member.isdev() or member.isfifo():
+            raise RuntimeError(f"Unsupported tar special member detected: {member.name!r}")
         target = (dest_root / member.name).resolve()
         if target != dest_root and dest_root not in target.parents:
             raise RuntimeError(f"Unsafe tar member path detected: {member.name!r}")

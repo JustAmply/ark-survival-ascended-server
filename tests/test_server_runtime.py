@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import tarfile
 from unittest.mock import Mock
 
 import pytest
@@ -11,6 +12,7 @@ from server_runtime import logging_utils as runtime_logging
 from server_runtime import params as runtime_params
 from server_runtime import permissions as runtime_permissions
 from server_runtime import proton as runtime_proton
+from server_runtime.archive_utils import safe_extract_tar
 from server_runtime.constants import RuntimeSettings
 from server_runtime.supervisor import ServerSupervisor
 
@@ -221,3 +223,16 @@ def test_supervisor_run_restarts_after_launch_exception(monkeypatch, caplog):
     assert code == 0
     assert attempts["count"] == 2
     assert "Unhandled exception during server run" in caplog.text
+
+
+def test_safe_extract_tar_rejects_link_members(tmp_path):
+    archive = tmp_path / "archive.tar"
+    with tarfile.open(archive, "w") as tar:
+        link = tarfile.TarInfo("link")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "/tmp"
+        tar.addfile(link)
+
+    with tarfile.open(archive, "r") as tar:
+        with pytest.raises(RuntimeError, match="Unsupported tar link member"):
+            safe_extract_tar(tar, tmp_path / "extract")
