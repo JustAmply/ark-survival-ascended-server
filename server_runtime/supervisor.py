@@ -155,8 +155,9 @@ class ServerSupervisor:
             self.logger.info("Shutdown requested before launch or after stop; no server process to stop.")
             return
 
-        send_saveworld(self.logger)
-        time.sleep(max(self.settings.shutdown_saveworld_delay, 0))
+        saveworld_sent = send_saveworld(self.logger)
+        if saveworld_sent:
+            time.sleep(max(self.settings.shutdown_saveworld_delay, 0))
         stop_server_process(self.server_process, self.settings.shutdown_timeout, self.logger)
 
     def _handle_shutdown_signal(self, sig: int, _frame) -> None:

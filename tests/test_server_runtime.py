@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 from unittest.mock import Mock
 
 import pytest
@@ -172,6 +173,30 @@ def test_drop_privileges_reports_exec_errors(monkeypatch, tmp_path):
 
     with pytest.raises(RuntimeError, match="Failed to drop privileges"):
         runtime_permissions.ensure_permissions_and_drop_privileges(logging.getLogger("test"))
+
+
+def test_shutdown_sequence_skips_delay_when_saveworld_fails(monkeypatch):
+    logger = logging.getLogger("test-shutdown")
+    settings = RuntimeSettings.from_env()
+    supervisor = ServerSupervisor(settings, logger)
+
+    class DummyProcess:
+        pid = 4242
+
+        @staticmethod
+        def poll():
+            return None
+
+    supervisor.server_process = DummyProcess()
+    sleep_calls = []
+
+    monkeypatch.setattr("server_runtime.supervisor.send_saveworld", lambda _logger: False)
+    monkeypatch.setattr("server_runtime.supervisor.time.sleep", lambda seconds: sleep_calls.append(seconds))
+    monkeypatch.setattr("server_runtime.supervisor.stop_server_process", lambda *_args, **_kwargs: None)
+
+    supervisor._perform_shutdown_sequence(signal.SIGTERM, "container shutdown")
+
+    assert sleep_calls == []
 
 
 def test_supervisor_run_restarts_after_launch_exception(monkeypatch, caplog):
