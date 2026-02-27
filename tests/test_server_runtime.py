@@ -320,7 +320,7 @@ def test_prepare_runtime_env_falls_back_when_xdg_runtime_dir_is_file(monkeypatch
     mkdir_calls = []
 
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(xdg_file))
-    monkeypatch.setattr("server_runtime.supervisor.os.getuid", lambda: 12345)
+    monkeypatch.setattr("server_runtime.supervisor.os.getuid", lambda: 12345, raising=False)
     monkeypatch.setattr("server_runtime.supervisor.os.access", lambda _path, _mode: True)
     monkeypatch.setattr(
         "server_runtime.supervisor.Path.mkdir",
@@ -331,7 +331,7 @@ def test_prepare_runtime_env_falls_back_when_xdg_runtime_dir_is_file(monkeypatch
     supervisor._prepare_runtime_env()
 
     assert os.environ["XDG_RUNTIME_DIR"] == "/tmp/xdg-runtime-12345"
-    assert "/tmp/xdg-runtime-12345" in mkdir_calls
+    assert any(path.replace("\\", "/") == "/tmp/xdg-runtime-12345" for path in mkdir_calls)
 
 
 def test_ensure_steamcmd_reinstalls_when_linux32_is_file(monkeypatch, tmp_path):
