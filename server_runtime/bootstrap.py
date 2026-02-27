@@ -5,7 +5,12 @@ from __future__ import annotations
 import logging
 import os
 import time
+import uuid
 from pathlib import Path
+
+
+ETC_MACHINE_ID_PATH = "/etc/machine-id"
+DBUS_MACHINE_ID_PATH = "/var/lib/dbus/machine-id"
 
 
 def configure_timezone(logger: logging.Logger) -> None:
@@ -45,6 +50,45 @@ def configure_timezone(logger: logging.Logger) -> None:
 
     os.environ["TZ"] = tz
     logger.info("Configured timezone to '%s'.", tz)
+
+
+def ensure_machine_id(logger: logging.Logger) -> None:
+    """Ensure machine-id files exist for components expecting host identity."""
+    etc_machine_id = Path(ETC_MACHINE_ID_PATH)
+    dbus_machine_id = Path(DBUS_MACHINE_ID_PATH)
+    dbus_dir = dbus_machine_id.parent
+
+    machine_id = ""
+    try:
+        machine_id = etc_machine_id.read_text(encoding="utf-8").strip()
+    except OSError:
+        machine_id = ""
+
+    if len(machine_id) != 32 or any(c not in "0123456789abcdef" for c in machine_id.lower()):
+        machine_id = uuid.uuid4().hex
+        try:
+            etc_machine_id.parent.mkdir(parents=True, exist_ok=True)
+            etc_machine_id.write_text(f"{machine_id}\n", encoding="utf-8")
+            logger.info("Initialized /etc/machine-id for container runtime compatibility.")
+        except OSError as exc:
+            logger.warning("Failed to initialize /etc/machine-id: %s", exc)
+            return
+
+    try:
+        dbus_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.warning("Failed to create %s for machine-id linking: %s", dbus_dir, exc)
+        return
+
+    try:
+        if dbus_machine_id.exists() or dbus_machine_id.is_symlink():
+            dbus_machine_id.unlink()
+        dbus_machine_id.symlink_to(etc_machine_id)
+    except OSError:
+        try:
+            dbus_machine_id.write_text(f"{machine_id}\n", encoding="utf-8")
+        except OSError as exc:
+            logger.warning("Failed to provision %s: %s", dbus_machine_id, exc)
 
 
 def maybe_debug_hold(enable_debug: bool, logger: logging.Logger) -> None:

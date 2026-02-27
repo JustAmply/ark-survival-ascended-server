@@ -8,6 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from server_runtime import bootstrap as runtime_bootstrap
 from server_runtime import logging_utils as runtime_logging
 from server_runtime import params as runtime_params
 from server_runtime import permissions as runtime_permissions
@@ -332,6 +333,9 @@ def test_prepare_runtime_env_falls_back_when_xdg_runtime_dir_is_file(monkeypatch
 
     assert os.environ["XDG_RUNTIME_DIR"] == "/tmp/xdg-runtime-12345"
     assert any(path.replace("\\", "/") == "/tmp/xdg-runtime-12345" for path in mkdir_calls)
+    assert os.environ["SDL_VIDEODRIVER"] == "dummy"
+    assert os.environ["SDL_AUDIODRIVER"] == "dummy"
+    assert os.environ["XDG_SESSION_TYPE"] == "headless"
 
 
 def test_ensure_steamcmd_reinstalls_when_linux32_is_file(monkeypatch, tmp_path):
@@ -443,3 +447,79 @@ def test_chown_path_uses_no_symlink_follow(monkeypatch, tmp_path):
     runtime_permissions._chown_path(tmp_path)
 
     assert calls[0]["follow_symlinks"] is False
+
+def test_prepare_runtime_env_preserves_headless_env_overrides(monkeypatch, tmp_path):
+    logger = logging.getLogger("test-runtime-env-overrides")
+    supervisor = ServerSupervisor(RuntimeSettings.from_env(), logger)
+    runtime_dir = tmp_path / "xdg-runtime"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
+    monkeypatch.setenv("SDL_VIDEODRIVER", "wayland")
+    monkeypatch.setenv("SDL_AUDIODRIVER", "pulse")
+    monkeypatch.setenv("XDG_SESSION_TYPE", "tty")
+    monkeypatch.setattr("server_runtime.supervisor.os.getuid", lambda: 12345, raising=False)
+    monkeypatch.setattr("server_runtime.supervisor.os.chmod", lambda *_args, **_kwargs: None)
+
+    supervisor._prepare_runtime_env()
+
+    assert os.environ["SDL_VIDEODRIVER"] == "wayland"
+    assert os.environ["SDL_AUDIODRIVER"] == "pulse"
+    assert os.environ["XDG_SESSION_TYPE"] == "tty"
+
+
+def test_ensure_machine_id_creates_files(monkeypatch, tmp_path):
+    etc_machine_id = tmp_path / "etc" / "machine-id"
+    dbus_machine_id = tmp_path / "var" / "lib" / "dbus" / "machine-id"
+
+    monkeypatch.setattr(runtime_bootstrap, "ETC_MACHINE_ID_PATH", str(etc_machine_id))
+    monkeypatch.setattr(runtime_bootstrap, "DBUS_MACHINE_ID_PATH", str(dbus_machine_id))
+
+    runtime_bootstrap.ensure_machine_id(logging.getLogger("test-machine-id"))
+
+    machine_id = etc_machine_id.read_text(encoding="utf-8").strip()
+    assert len(machine_id) == 32
+    assert all(ch in "0123456789abcdef" for ch in machine_id)
+    assert dbus_machine_id.exists()
+    if dbus_machine_id.is_symlink():
+        assert dbus_machine_id.resolve() == etc_machine_id.resolve()
+    else:
+        assert dbus_machine_id.read_text(encoding="utf-8").strip() == machine_id
+
+
+def test_ensure_machine_id_keeps_existing_value(monkeypatch, tmp_path):
+    existing_machine_id = "0123456789abcdef0123456789abcdef"
+    etc_machine_id = tmp_path / "etc" / "machine-id"
+    dbus_machine_id = tmp_path / "var" / "lib" / "dbus" / "machine-id"
+    etc_machine_id.parent.mkdir(parents=True, exist_ok=True)
+    etc_machine_id.write_text(f"{existing_machine_id}\n", encoding="utf-8")
+
+    monkeypatch.setattr(runtime_bootstrap, "ETC_MACHINE_ID_PATH", str(etc_machine_id))
+    monkeypatch.setattr(runtime_bootstrap, "DBUS_MACHINE_ID_PATH", str(dbus_machine_id))
+
+    runtime_bootstrap.ensure_machine_id(logging.getLogger("test-machine-id-existing"))
+
+    assert etc_machine_id.read_text(encoding="utf-8").strip() == existing_machine_id
+    assert dbus_machine_id.exists()
+
+
+def test_ensure_machine_id_write_error_is_non_fatal(monkeypatch, tmp_path, caplog):
+    etc_machine_id = tmp_path / "etc" / "machine-id"
+    dbus_machine_id = tmp_path / "var" / "lib" / "dbus" / "machine-id"
+
+    monkeypatch.setattr(runtime_bootstrap, "ETC_MACHINE_ID_PATH", str(etc_machine_id))
+    monkeypatch.setattr(runtime_bootstrap, "DBUS_MACHINE_ID_PATH", str(dbus_machine_id))
+
+    real_write_text = runtime_bootstrap.Path.write_text
+
+    def fake_write_text(path_obj, *args, **kwargs):
+        if path_obj == etc_machine_id:
+            raise OSError("permission denied")
+        return real_write_text(path_obj, *args, **kwargs)
+
+    monkeypatch.setattr(runtime_bootstrap.Path, "write_text", fake_write_text)
+    caplog.set_level(logging.WARNING)
+
+    runtime_bootstrap.ensure_machine_id(logging.getLogger("test-machine-id-error"))
+
+    assert "Failed to initialize /etc/machine-id" in caplog.text

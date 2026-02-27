@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from .bootstrap import configure_timezone, maybe_debug_hold
+from .bootstrap import configure_timezone, ensure_machine_id, maybe_debug_hold
 from .constants import (
     ASA_BINARY_DIR,
     ASA_COMPAT_DATA,
@@ -101,6 +101,9 @@ class ServerSupervisor:
         os.environ["XDG_RUNTIME_DIR"] = runtime_dir
         os.environ["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = STEAM_HOME_DIR
         os.environ["STEAM_COMPAT_DATA_PATH"] = ASA_COMPAT_DATA
+        os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+        os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+        os.environ.setdefault("XDG_SESSION_TYPE", "headless")
 
     def _start_log_streamer(self) -> None:
         log_dir = Path(LOG_DIR)
@@ -226,6 +229,7 @@ def main() -> None:
 
     if os.geteuid() == 0:
         configure_timezone(logger)
+        ensure_machine_id(logger)
     maybe_debug_hold(settings.enable_debug, logger)
     ensure_permissions_and_drop_privileges(logger)
 
