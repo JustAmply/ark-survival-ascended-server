@@ -51,38 +51,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       FEX_ROOTFS_METADATA_URL="$FEX_ROOTFS_METADATA_URL" \
       FEX_ROOTFS_ENTRY="$FEX_ROOTFS_ENTRY" \
       FEX_ROOTFS_TARGET="$FEX_ROOTFS_TARGET" \
-      python3 - <<'PY' > /tmp/fex_rootfs.xxhash
-import json
-import os
-import pathlib
-import urllib.request
-
-metadata_url = os.environ["FEX_ROOTFS_METADATA_URL"]
-entry_name = os.environ["FEX_ROOTFS_ENTRY"]
-target = pathlib.Path(os.environ["FEX_ROOTFS_TARGET"])
-
-with urllib.request.urlopen(metadata_url, timeout=30) as response:
-    metadata = json.load(response)
-
-entry = (metadata.get("v1") or {}).get(entry_name)
-if not isinstance(entry, dict):
-    raise SystemExit(f"FEX RootFS entry not found: {entry_name!r}")
-
-url = str(entry.get("URL", "")).strip()
-expected_hash = str(entry.get("Hash", "")).strip().lower()
-if not url or not expected_hash:
-    raise SystemExit("FEX RootFS metadata entry is incomplete")
-
-target.parent.mkdir(parents=True, exist_ok=True)
-with urllib.request.urlopen(url, timeout=120) as source, target.open("wb") as destination:
-    while True:
-        chunk = source.read(1024 * 1024)
-        if not chunk:
-            break
-        destination.write(chunk)
-
-print(f"{expected_hash}  {target}")
-PY
+      python3 -c "import json, os, pathlib, shutil, urllib.request; \
+metadata_url = os.environ['FEX_ROOTFS_METADATA_URL']; \
+entry_name = os.environ['FEX_ROOTFS_ENTRY']; \
+target = pathlib.Path(os.environ['FEX_ROOTFS_TARGET']); \
+response = urllib.request.urlopen(metadata_url, timeout=30); \
+metadata = json.load(response); \
+response.close(); \
+entry = (metadata.get('v1') or {}).get(entry_name); \
+isinstance(entry, dict) or (_ for _ in ()).throw(SystemExit(f'FEX RootFS entry not found: {entry_name!r}')); \
+url = str(entry.get('URL', '')).strip(); \
+expected_hash = str(entry.get('Hash', '')).strip().lower(); \
+(url and expected_hash) or (_ for _ in ()).throw(SystemExit('FEX RootFS metadata entry is incomplete')); \
+target.parent.mkdir(parents=True, exist_ok=True); \
+source = urllib.request.urlopen(url, timeout=120); \
+destination = target.open('wb'); \
+shutil.copyfileobj(source, destination, 1024 * 1024); \
+destination.close(); \
+source.close(); \
+print(f'{expected_hash}  {target}')" > /tmp/fex_rootfs.xxhash; \
       xxhsum -c /tmp/fex_rootfs.xxhash; \
       rm -f /tmp/fex_rootfs.xxhash; \
     fi \
