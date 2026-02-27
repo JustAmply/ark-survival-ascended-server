@@ -244,7 +244,14 @@ def test_configure_runtime_logging_warn_alias(monkeypatch):
     calls = {}
     monkeypatch.setattr(runtime_logging.logging, "basicConfig", lambda **kwargs: calls.update(kwargs))
     logger = Mock()
-    monkeypatch.setattr(runtime_logging.logging, "getLogger", lambda _name: logger)
+    real_get_logger = runtime_logging.logging.getLogger
+
+    def fake_get_logger(name=None):
+        if name == "server_runtime":
+            return logger
+        return real_get_logger(name)
+
+    monkeypatch.setattr(runtime_logging.logging, "getLogger", fake_get_logger)
 
     resolved = runtime_logging.configure_runtime_logging()
 
