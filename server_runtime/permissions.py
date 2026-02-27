@@ -41,7 +41,7 @@ def _chown_if_possible(path: Path, recursive: bool) -> None:
 
 def ensure_permissions_and_drop_privileges(logger: logging.Logger) -> None:
     """Normalize ownership for persistent dirs and re-exec as gameserver."""
-    if os.geteuid() != 0 or os.environ.get(PRIVS_DROPPED_ENV):
+    if os.geteuid() != 0 or os.environ.get(PRIVS_DROPPED_ENV): # pyright: ignore[reportAttributeAccessIssue]
         return
 
     dirs = [Path(STEAM_HOME_DIR), Path(STEAMCMD_DIR), Path(SERVER_FILES_DIR), Path(CLUSTER_DIR)]
