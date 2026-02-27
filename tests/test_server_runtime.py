@@ -14,6 +14,7 @@ from server_runtime import params as runtime_params
 from server_runtime import permissions as runtime_permissions
 from server_runtime import proton as runtime_proton
 from server_runtime import steamcmd as runtime_steamcmd
+from server_runtime import translation as runtime_translation
 from server_runtime.archive_utils import safe_extract_tar
 from server_runtime.constants import RuntimeSettings
 from server_runtime.supervisor import ServerSupervisor
@@ -523,3 +524,246 @@ def test_ensure_machine_id_write_error_is_non_fatal(monkeypatch, tmp_path, caplo
     runtime_bootstrap.ensure_machine_id(logging.getLogger("test-machine-id-error"))
 
     assert "Failed to initialize /etc/machine-id" in caplog.text
+
+def test_resolve_execution_context_auto_arm64_uses_fex(monkeypatch):
+    monkeypatch.delenv("ASA_TRANSLATOR_MODE", raising=False)
+    monkeypatch.delenv("ASA_TRANSLATOR_PROBE_TIMEOUT", raising=False)
+    monkeypatch.delenv("ASA_PROTON_PROFILE", raising=False)
+    monkeypatch.setattr(runtime_translation.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(
+        runtime_translation.shutil,
+        "which",
+        lambda name: "/usr/bin/FEXBash" if name == "FEXBash" else None,
+    )
+
+    context = runtime_translation.resolve_execution_context(logging.getLogger("test-context"))
+
+    assert context.architecture == "arm64"
+    assert context.translator_mode == "fex"
+    assert context.runner_prefix == ("/usr/bin/FEXBash", "-c")
+    assert context.wraps_with_shell is True
+    assert context.probe_timeout == 20
+    assert context.proton_profile == "balanced"
+
+
+def test_wrap_command_uses_shell_runner():
+    context = runtime_translation.ExecutionContext(
+        architecture="arm64",
+        translator_mode="fex",
+        runner_prefix=("/usr/bin/FEXBash", "-c"),
+        wraps_with_shell=True,
+        probe_timeout=20,
+        proton_profile="balanced",
+    )
+
+    wrapped = runtime_translation.wrap_command(context, ["/path/to/tool", "arg one", "--flag"])
+
+    assert wrapped[:2] == ["/usr/bin/FEXBash", "-c"]
+    assert "/path/to/tool" in wrapped[2]
+    assert "arg one" in wrapped[2]
+
+
+def test_run_probe_command_sets_probe_complete(monkeypatch):
+    context = runtime_translation.ExecutionContext(
+        architecture="arm64",
+        translator_mode="fex",
+        runner_prefix=("/usr/bin/FEXInterpreter",),
+        wraps_with_shell=False,
+        probe_timeout=20,
+        proton_profile="balanced",
+    )
+
+    result = Mock(returncode=0, stderr="")
+    monkeypatch.setattr(runtime_translation.subprocess, "run", lambda *args, **kwargs: result)
+
+    runtime_translation.run_probe_command(
+        context,
+        ["/home/gameserver/steamcmd/linux32/steamcmd", "+quit"],
+        "/home/gameserver/steamcmd",
+        logging.getLogger("test-probe"),
+        "SteamCMD",
+    )
+
+    assert context.translator_probe_complete is True
+
+
+def test_run_probe_command_raises_on_nonzero(monkeypatch):
+    context = runtime_translation.ExecutionContext(
+        architecture="arm64",
+        translator_mode="fex",
+        runner_prefix=("/usr/bin/FEXInterpreter",),
+        wraps_with_shell=False,
+        probe_timeout=20,
+        proton_profile="balanced",
+    )
+
+    result = Mock(returncode=1, stderr="failed")
+    monkeypatch.setattr(runtime_translation.subprocess, "run", lambda *args, **kwargs: result)
+
+    with pytest.raises(RuntimeError, match="translation probe failed"):
+        runtime_translation.run_probe_command(
+            context,
+            ["/home/gameserver/steamcmd/linux32/steamcmd", "+quit"],
+            "/home/gameserver/steamcmd",
+            logging.getLogger("test-probe"),
+            "SteamCMD",
+        )
+
+
+def test_update_server_files_wraps_command_for_translator(monkeypatch, tmp_path):
+    steamcmd_dir = tmp_path / "steamcmd"
+    steamcmd_bin = steamcmd_dir / "linux32" / "steamcmd"
+    steamcmd_bin.parent.mkdir(parents=True, exist_ok=True)
+    steamcmd_bin.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(runtime_steamcmd, "STEAMCMD_DIR", str(steamcmd_dir))
+    monkeypatch.setattr(runtime_steamcmd, "SERVER_FILES_DIR", str(tmp_path / "server"))
+
+    context = runtime_translation.ExecutionContext(
+        architecture="arm64",
+        translator_mode="fex",
+        runner_prefix=("/usr/bin/FEXInterpreter",),
+        wraps_with_shell=False,
+        probe_timeout=20,
+        proton_profile="balanced",
+    )
+
+    calls = {}
+
+    def fake_run(command, cwd=None, check=False):
+        calls["command"] = command
+        calls["cwd"] = cwd
+        calls["check"] = check
+
+    monkeypatch.setattr(runtime_steamcmd.subprocess, "run", fake_run)
+
+    runtime_steamcmd.update_server_files(logging.getLogger("test-steamcmd"), context)
+
+    assert calls["command"][0] == "/usr/bin/FEXInterpreter"
+    assert str(steamcmd_bin) in calls["command"]
+    assert calls["cwd"] == str(steamcmd_dir)
+    assert calls["check"] is True
+
+
+def test_build_launch_command_wraps_proton_for_translator(monkeypatch, tmp_path):
+    proton_root = tmp_path / "compat" / "GE-ProtonX"
+    proton_root.mkdir(parents=True, exist_ok=True)
+    proton_path = proton_root / "proton"
+    proton_path.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(tmp_path / "compat"))
+    monkeypatch.setattr(runtime_proton.os, "access", lambda path, mode: True)
+
+    context = runtime_translation.ExecutionContext(
+        architecture="arm64",
+        translator_mode="fex",
+        runner_prefix=("/usr/bin/FEXBash", "-c"),
+        wraps_with_shell=True,
+        probe_timeout=20,
+        proton_profile="balanced",
+    )
+
+    command = runtime_proton.build_launch_command(
+        "GE-ProtonX",
+        "ArkAscendedServer.exe",
+        "Map?listen -nosteam",
+        context,
+    )
+
+    assert command[:2] == ["/usr/bin/FEXBash", "-c"]
+    assert str(proton_path) in command[2]
+    assert "run ArkAscendedServer.exe" in command[2]
+
+
+def test_supervisor_switches_to_safe_profile_after_two_early_crashes(monkeypatch):
+    logger = logging.getLogger("test-safe-switch")
+    settings = RuntimeSettings.from_env()
+    context = runtime_translation.ExecutionContext(
+        architecture="arm64",
+        translator_mode="fex",
+        runner_prefix=("/usr/bin/FEXInterpreter",),
+        wraps_with_shell=False,
+        probe_timeout=20,
+        proton_profile="balanced",
+    )
+
+    monkeypatch.setattr("server_runtime.supervisor.resolve_execution_context", lambda _logger: context)
+    supervisor = ServerSupervisor(settings, logger)
+
+    runs = {"count": 0}
+
+    def fake_launch():
+        runs["count"] += 1
+        supervisor.last_run_duration = 30
+        if runs["count"] >= 3:
+            supervisor.supervisor_exit_requested = True
+        return 1
+
+    monkeypatch.setattr(supervisor, "_launch_server_once", fake_launch)
+    monkeypatch.setattr("server_runtime.supervisor.time.sleep", lambda _seconds: None)
+
+    code = supervisor.run()
+
+    assert code == 1
+    assert runs["count"] == 3
+    assert supervisor.execution_context.proton_profile == "safe"
+    assert supervisor.safe_profile_retry_used is True
+
+
+def test_supervisor_fails_fast_after_early_crash_in_safe_profile(monkeypatch):
+    logger = logging.getLogger("test-safe-failfast")
+    settings = RuntimeSettings.from_env()
+    context = runtime_translation.ExecutionContext(
+        architecture="arm64",
+        translator_mode="fex",
+        runner_prefix=("/usr/bin/FEXInterpreter",),
+        wraps_with_shell=False,
+        probe_timeout=20,
+        proton_profile="safe",
+    )
+
+    monkeypatch.setattr("server_runtime.supervisor.resolve_execution_context", lambda _logger: context)
+    supervisor = ServerSupervisor(settings, logger)
+
+    def fake_launch():
+        supervisor.last_run_duration = 25
+        return 1
+
+    monkeypatch.setattr(supervisor, "_launch_server_once", fake_launch)
+    monkeypatch.setattr("server_runtime.supervisor.time.sleep", lambda _seconds: None)
+
+    code = supervisor.run()
+
+    assert code == 1
+
+
+def test_supervisor_startup_exceptions_escalate_to_safe_failfast(monkeypatch):
+    logger = logging.getLogger("test-safe-failfast-exception")
+    settings = RuntimeSettings.from_env()
+    context = runtime_translation.ExecutionContext(
+        architecture="arm64",
+        translator_mode="fex",
+        runner_prefix=("/usr/bin/FEXInterpreter",),
+        wraps_with_shell=False,
+        probe_timeout=20,
+        proton_profile="balanced",
+    )
+
+    monkeypatch.setattr("server_runtime.supervisor.resolve_execution_context", lambda _logger: context)
+    supervisor = ServerSupervisor(settings, logger)
+
+    runs = {"count": 0}
+
+    def fake_launch():
+        runs["count"] += 1
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(supervisor, "_launch_server_once", fake_launch)
+    monkeypatch.setattr("server_runtime.supervisor.time.sleep", lambda _seconds: None)
+
+    code = supervisor.run()
+
+    assert code == 1
+    assert runs["count"] == 3
+    assert supervisor.execution_context.proton_profile == "safe"
+    assert supervisor.safe_profile_retry_used is True

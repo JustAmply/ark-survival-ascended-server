@@ -8,7 +8,7 @@ Your complete guide to getting an amazing ARK server up and running! This covers
 - **RAM**: ~13 GB per server (more = better performance!)
 - **Storage**: ~31 GB for server files + space for saves
 - **OS**: Any Linux with Docker support
-- **Tested on**: Ubuntu 24.04, Debian 12
+- **Tested on**: Ubuntu 24.04, Debian 12, ARM64 cloud hosts (experimental image)
 
 **⚠️ Avoid Ubuntu 22.04** - Known issues cause high CPU usage and server startup failures.
 
@@ -33,6 +33,8 @@ Your complete guide to getting an amazing ARK server up and running! This covers
    ```
 
    **Tip:** The container already passes `-nosteam` in `ASA_START_PARAMS` (also required if you roll your own launch line) to avoid the startup `Error 3` where Steam refuses to fire up inside the container.
+
+   **ARM64 tip:** Use `ghcr.io/justamply/asa-linux-server:arm64-experimental` for ARM64 hosts while support is experimental.
 
 3. **Watch it come to life:**
    ```bash
@@ -79,12 +81,27 @@ environment:
 - **🔢 Change ports**: Modify `Port=7777` and `RCONPort=27020`
 - **👥 Player limit**: Adjust `-WinLiveMaxPlayers=50`
 - **🕒 Timezone**: Set `TZ=Europe/Berlin` (or your region) so server logs follow your local time (default: `UTC`)
+- **🧭 Translator mode**: `ASA_TRANSLATOR_MODE=auto|fex|none` (default `auto`; resolves to `fex` on ARM64)
+- **⏱️ Translator probe timeout**: `ASA_TRANSLATOR_PROBE_TIMEOUT=20` (seconds)
+- **🛡️ Proton stability profile**: `ASA_PROTON_PROFILE=balanced|safe` (`safe` disables esync/fsync)
 
 ### 📂 File Locations
 
 Your server files are stored in Docker volumes:
 - **Server files**: `/var/lib/docker/volumes/asa-server_server-files-1/_data/`
 - **Config files**: `/var/lib/docker/volumes/asa-server_server-files-1/_data/ShooterGame/Saved/Config/WindowsServer/`
+
+## 🧪 ARM64 Experimental Mode
+
+ARM64 images are published with dedicated experimental tags:
+
+- `ghcr.io/justamply/asa-linux-server:arm64-experimental`
+- `ghcr.io/justamply/asa-linux-server:<version>-arm64-experimental`
+
+Behavior on ARM64:
+- Startup performs a SteamCMD translation probe before full updates/downloads.
+- `Exec format error` typically indicates translator setup mismatch; verify `ASA_TRANSLATOR_MODE` and FEX availability.
+- Keep persistent volumes mounted so SteamCMD/Proton caches are reused between restarts.
 
 ## 🌐 Port Configuration
 
