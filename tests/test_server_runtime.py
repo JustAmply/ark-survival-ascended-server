@@ -12,6 +12,7 @@ from server_runtime import logging_utils as runtime_logging
 from server_runtime import params as runtime_params
 from server_runtime import permissions as runtime_permissions
 from server_runtime import proton as runtime_proton
+from server_runtime import steamcmd as runtime_steamcmd
 from server_runtime.archive_utils import safe_extract_tar
 from server_runtime.constants import RuntimeSettings
 from server_runtime.supervisor import ServerSupervisor
@@ -309,3 +310,70 @@ def test_safe_extract_tar_rejects_hardlink_targets_outside_destination(tmp_path)
     with tarfile.open(archive, "r") as tar:
         with pytest.raises(RuntimeError, match="Unsafe tar link target detected"):
             safe_extract_tar(tar, tmp_path / "extract")
+
+
+def test_prepare_runtime_env_falls_back_when_xdg_runtime_dir_is_file(monkeypatch, tmp_path):
+    logger = logging.getLogger("test-runtime-env")
+    supervisor = ServerSupervisor(RuntimeSettings.from_env(), logger)
+    xdg_file = tmp_path / "xdg-runtime-file"
+    xdg_file.write_text("broken", encoding="utf-8")
+    mkdir_calls = []
+
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(xdg_file))
+    monkeypatch.setattr("server_runtime.supervisor.os.getuid", lambda: 12345)
+    monkeypatch.setattr("server_runtime.supervisor.os.access", lambda _path, _mode: True)
+    monkeypatch.setattr(
+        "server_runtime.supervisor.Path.mkdir",
+        lambda self, parents=True, exist_ok=True: mkdir_calls.append(str(self)),
+    )
+    monkeypatch.setattr("server_runtime.supervisor.os.chmod", lambda *_args, **_kwargs: None)
+
+    supervisor._prepare_runtime_env()
+
+    assert os.environ["XDG_RUNTIME_DIR"] == "/tmp/xdg-runtime-12345"
+    assert "/tmp/xdg-runtime-12345" in mkdir_calls
+
+
+def test_ensure_steamcmd_reinstalls_when_linux32_is_file(monkeypatch, tmp_path):
+    steamcmd_dir = tmp_path / "steamcmd"
+    steamcmd_dir.mkdir(parents=True, exist_ok=True)
+    (steamcmd_dir / "linux32").write_text("stale", encoding="utf-8")
+
+    calls = {"url": "", "extract": 0}
+
+    class DummyResponse:
+        def __init__(self):
+            self._chunks = [b"not-a-real-tar", b""]
+
+        def read(self, _size):
+            return self._chunks.pop(0)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class DummyTar:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fake_urlopen(url, timeout=30):
+        calls["url"] = url
+        return DummyResponse()
+
+    def fake_extract(_tar, _destination):
+        calls["extract"] += 1
+
+    monkeypatch.setattr(runtime_steamcmd, "STEAMCMD_DIR", str(steamcmd_dir))
+    monkeypatch.setattr(runtime_steamcmd.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(runtime_steamcmd.tarfile, "open", lambda *_args, **_kwargs: DummyTar())
+    monkeypatch.setattr(runtime_steamcmd, "safe_extract_tar", fake_extract)
+
+    runtime_steamcmd.ensure_steamcmd(logging.getLogger("test-steamcmd"))
+
+    assert "steamcmd_linux.tar.gz" in calls["url"]
+    assert calls["extract"] == 1
