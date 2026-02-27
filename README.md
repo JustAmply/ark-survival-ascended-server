@@ -4,6 +4,8 @@
 
 This project provides a streamlined way to host ARK: Survival Ascended servers using Docker, with powerful management tools and full cluster support.
 
+The container startup lifecycle is managed by a standalone Python runtime (`python -m server_runtime`) and auto-runs when the container starts.
+
 ## 🚀 Quick Start
 
 Get your ARK server running in minutes:
@@ -151,7 +153,7 @@ I decided to completely rewrite everything from scratch in **Python** to create 
 - **🐍 Python-powered**: Cleaner, more maintainable codebase
 - **📦 Zero dependencies**: Uses only Python standard library
 - **🏗️ Simplified builds**: Standard Docker builds instead of complex KIWI-NG
-- **🧩 Modular design**: Single script with clear functions
+- **🧩 Modular design**: Dedicated Python runtime modules with clear responsibilities
 - **⚡ Same functionality**: All features preserved while improving maintainability
 
 ## 📖 Documentation

@@ -34,7 +34,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set locale-related environment variables early (inherit to runtime)
 ENV LANG=en_US.UTF-8 \
     LANGUAGE=en_US:en \
-    LC_ALL=en_US.UTF-8
+    LC_ALL=en_US.UTF-8 \
+    PYTHONPATH=/usr/share
 
 # Create gameserver user
 RUN groupadd -g 25000 gameserver && \
@@ -48,8 +49,9 @@ RUN mkdir -p \
     /home/gameserver/cluster-shared && \
     chown -R gameserver:gameserver /home/gameserver
 
-# Copy Python application
+# Copy Python applications
 COPY asa_ctrl /usr/share/asa_ctrl
+COPY server_runtime /usr/share/server_runtime
 
 # Create launcher script for Python application (avoid pip install to prevent PEP 668 issues)
 WORKDIR /usr/share
@@ -78,4 +80,4 @@ VOLUME ["/home/gameserver/Steam", \
 WORKDIR /home/gameserver
 
 # Entry point
-ENTRYPOINT ["/usr/bin/start_server.sh"]
+ENTRYPOINT ["python", "-m", "server_runtime"]

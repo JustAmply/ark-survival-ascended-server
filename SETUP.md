@@ -49,6 +49,8 @@ Your server will automatically:
 - ✅ Generate a random server name
 - ✅ Start accepting connections in ~5-10 minutes
 
+Startup is fully automatic through the container's Python runtime entrypoint; no manual startup command is required.
+
 ### 🔍 Find Your Server
 
 Once you see `"Starting the ARK: Survival Ascended dedicated server..."` in the logs, check your server name:
