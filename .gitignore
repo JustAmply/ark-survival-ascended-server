@@ -49,6 +49,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+uv.lock
 
 # IDE
 .vscode/
@@ -82,4 +83,3 @@ docker-compose.dev.yml
 /tmp/test-mods/
 /tmp/mods.json
 /tmp/mod-read-error
-uv.lock
