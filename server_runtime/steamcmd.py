@@ -15,7 +15,7 @@ from .constants import SERVER_FILES_DIR, STEAM_APP_ID, STEAMCMD_DIR
 def ensure_steamcmd(logger: logging.Logger) -> None:
     """Install SteamCMD when not present."""
     linux32_dir = Path(STEAMCMD_DIR) / "linux32"
-    if linux32_dir.exists():
+    if linux32_dir.is_dir():
         return
 
     logger.info("Installing SteamCMD...")

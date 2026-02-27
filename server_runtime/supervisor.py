@@ -82,7 +82,7 @@ class ServerSupervisor:
         runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
         if runtime_dir:
             p = Path(runtime_dir)
-            if not p.exists() or not os.access(runtime_dir, os.W_OK):
+            if not p.is_dir() or not os.access(runtime_dir, os.W_OK):
                 runtime_dir = f"/tmp/xdg-runtime-{uid}"
         else:
             candidate = f"/run/user/{uid}"
