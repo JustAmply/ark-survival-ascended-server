@@ -169,6 +169,7 @@ class ServerSupervisor:
         self._perform_shutdown_sequence(sig, "scheduled restart")
 
     def _cleanup_after_run(self) -> None:
+        safe_kill_process(self.server_process)
         Path(PID_FILE).unlink(missing_ok=True)
         self.server_process = None
 

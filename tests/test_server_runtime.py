@@ -225,7 +225,7 @@ def test_supervisor_run_restarts_after_launch_exception(monkeypatch, caplog):
     assert "Unhandled exception during server run" in caplog.text
 
 
-def test_safe_extract_tar_rejects_link_members(tmp_path):
+def test_safe_extract_tar_rejects_link_targets_outside_destination(tmp_path):
     archive = tmp_path / "archive.tar"
     with tarfile.open(archive, "w") as tar:
         link = tarfile.TarInfo("link")
@@ -234,5 +234,71 @@ def test_safe_extract_tar_rejects_link_members(tmp_path):
         tar.addfile(link)
 
     with tarfile.open(archive, "r") as tar:
-        with pytest.raises(RuntimeError, match="Unsupported tar link member"):
+        with pytest.raises(RuntimeError, match="Unsafe tar link target detected"):
+            safe_extract_tar(tar, tmp_path / "extract")
+
+
+def test_configure_runtime_logging_warn_alias(monkeypatch):
+    monkeypatch.setenv("ASA_LOG_LEVEL", "warn")
+
+    calls = {}
+    monkeypatch.setattr(runtime_logging.logging, "basicConfig", lambda **kwargs: calls.update(kwargs))
+    logger = Mock()
+    monkeypatch.setattr(runtime_logging.logging, "getLogger", lambda _name: logger)
+
+    resolved = runtime_logging.configure_runtime_logging()
+
+    assert resolved is logger
+    assert calls["level"] == logging.WARNING
+    logger.warning.assert_not_called()
+
+
+def test_cleanup_after_run_terminates_server_process(monkeypatch):
+    logger = logging.getLogger("test-cleanup")
+    settings = RuntimeSettings.from_env()
+    supervisor = ServerSupervisor(settings, logger)
+    process = Mock()
+    supervisor.server_process = process
+
+    kill_calls = []
+    monkeypatch.setattr("server_runtime.supervisor.safe_kill_process", lambda proc: kill_calls.append(proc))
+
+    supervisor._cleanup_after_run()
+
+    assert kill_calls == [process]
+    assert supervisor.server_process is None
+
+
+def test_safe_extract_tar_allows_symlink_targets_within_destination(tmp_path):
+    class DummyTar:
+        def __init__(self, members):
+            self._members = members
+            self.extract_calls = []
+
+        def getmembers(self):
+            return self._members
+
+        def extractall(self, destination, members):
+            self.extract_calls.append((destination, members))
+
+    link = tarfile.TarInfo("plugins/link")
+    link.type = tarfile.SYMTYPE
+    link.linkname = "../target.dll"
+
+    archive = DummyTar([link])
+    safe_extract_tar(archive, tmp_path / "extract")
+
+    assert len(archive.extract_calls) == 1
+
+
+def test_safe_extract_tar_rejects_hardlink_targets_outside_destination(tmp_path):
+    archive = tmp_path / "archive-hardlink.tar"
+    with tarfile.open(archive, "w") as tar:
+        hardlink = tarfile.TarInfo("hardlink")
+        hardlink.type = tarfile.LNKTYPE
+        hardlink.linkname = "../outside"
+        tar.addfile(hardlink)
+
+    with tarfile.open(archive, "r") as tar:
+        with pytest.raises(RuntimeError, match="Unsafe tar link target detected"):
             safe_extract_tar(tar, tmp_path / "extract")

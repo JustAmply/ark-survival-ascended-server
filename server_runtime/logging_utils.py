@@ -6,16 +6,23 @@ import logging
 import os
 
 
+_LEVEL_ALIASES = {
+    "WARN": "WARNING",
+    "FATAL": "CRITICAL",
+}
+
+
 def configure_runtime_logging() -> logging.Logger:
     """Configure runtime logger from ASA_LOG_LEVEL."""
-    level_name = (os.environ.get("ASA_LOG_LEVEL") or "INFO").upper()
+    configured_level = (os.environ.get("ASA_LOG_LEVEL") or "INFO").upper()
+    level_name = _LEVEL_ALIASES.get(configured_level, configured_level)
     valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
     if level_name in valid_levels:
         level = getattr(logging, level_name)
         invalid_level = None
     else:
         level = logging.INFO
-        invalid_level = level_name
+        invalid_level = configured_level
 
     logging.basicConfig(
         level=level,
