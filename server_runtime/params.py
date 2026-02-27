@@ -63,6 +63,10 @@ def inject_mods_param(base_params: str, logger: logging.Logger) -> str:
         logger.warning("Failed to query dynamic mods via asa-ctrl: %s", exc)
         return base_params
 
+    if result.returncode != 0:
+        logger.warning("asa-ctrl mods-string exited with code %s; skipping dynamic mods injection.", result.returncode)
+        return base_params
+
     mods = (result.stdout or "").strip()
     if not mods:
         return base_params

@@ -377,3 +377,69 @@ def test_ensure_steamcmd_reinstalls_when_linux32_is_file(monkeypatch, tmp_path):
 
     assert "steamcmd_linux.tar.gz" in calls["url"]
     assert calls["extract"] == 1
+
+
+def test_inject_mods_param_ignores_nonzero_exit(monkeypatch):
+    logger = logging.getLogger("test")
+    monkeypatch.setenv("ASA_START_PARAMS", "Map?listen")
+    result = Mock(returncode=1, stdout="-mods=1,2", stderr="error")
+    monkeypatch.setattr(runtime_params.subprocess, "run", lambda *args, **kwargs: result)
+
+    merged = runtime_params.inject_mods_param("Map?listen", logger)
+
+    assert merged == "Map?listen"
+    assert os.environ["ASA_START_PARAMS"] == "Map?listen"
+
+
+def test_verify_sha512_requires_exact_filename_match(tmp_path):
+    archive = tmp_path / "GE-Proton9-2.tar.gz"
+    archive.write_bytes(b"abc123")
+    import hashlib
+
+    digest = hashlib.sha512(b"abc123").hexdigest()
+    checksum = tmp_path / "GE-Proton9-2.sha512sum"
+    checksum.write_text(f"{digest}  GE-Proton9-20.tar.gz\n", encoding="utf-8")
+
+    assert runtime_proton._verify_sha512(archive, checksum) is False
+
+
+def test_scheduler_contract_defaults_warnings_when_empty(monkeypatch):
+    monkeypatch.setenv("SERVER_RESTART_CRON", "0 4 * * *")
+    monkeypatch.setenv("SERVER_RESTART_WARNINGS", "")
+    logger = logging.getLogger("test")
+    settings = RuntimeSettings.from_env()
+    supervisor = ServerSupervisor(settings, logger)
+
+    class DummyProcess:
+        pid = 999
+
+        @staticmethod
+        def poll():
+            return None
+
+    monkeypatch.setattr(os.path, "isfile", lambda path: True)
+    monkeypatch.setattr(os, "access", lambda path, mode: True)
+    monkeypatch.setattr("server_runtime.supervisor.ASA_CTRL_BIN", "/usr/local/bin/asa-ctrl")
+    monkeypatch.setattr("server_runtime.supervisor.subprocess.Popen", lambda *args, **kwargs: DummyProcess())
+
+    supervisor.start_restart_scheduler()
+
+    assert os.environ["SERVER_RESTART_WARNINGS"] == "30,5,1"
+
+
+def test_chown_path_uses_no_symlink_follow(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_chown(path, user=None, group=None, follow_symlinks=True):
+        calls.append({
+            "path": path,
+            "user": user,
+            "group": group,
+            "follow_symlinks": follow_symlinks,
+        })
+
+    monkeypatch.setattr(runtime_permissions.shutil, "chown", fake_chown)
+
+    runtime_permissions._chown_path(tmp_path)
+
+    assert calls[0]["follow_symlinks"] is False

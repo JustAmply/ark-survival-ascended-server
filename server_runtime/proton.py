@@ -133,8 +133,14 @@ def _verify_sha512(archive_path: Path, checksum_path: Path) -> bool:
     checksums = checksum_path.read_text(encoding="utf-8", errors="ignore").splitlines()
     expected = ""
     for line in checksums:
-        if archive_path.name in line:
-            expected = line.split()[0].strip()
+        parts = line.strip().split(maxsplit=1)
+        if len(parts) != 2:
+            continue
+        checksum_value, checksum_name = parts[0].strip(), parts[1].strip()
+        if checksum_name.startswith("*"):
+            checksum_name = checksum_name[1:]
+        if Path(checksum_name).name == archive_path.name:
+            expected = checksum_value
             break
     if not expected:
         return False

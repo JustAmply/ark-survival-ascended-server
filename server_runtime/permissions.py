@@ -22,14 +22,21 @@ from .constants import (
 )
 
 
+def _chown_path(path: Path) -> None:
+    try:
+        shutil.chown(path, user=TARGET_UID, group=TARGET_GID, follow_symlinks=False)
+    except TypeError:
+        shutil.chown(path, user=TARGET_UID, group=TARGET_GID)
+
+
 def _chown_if_possible(path: Path, recursive: bool) -> None:
     if recursive:
         for root, _, files in os.walk(path):
-            shutil.chown(root, user=TARGET_UID, group=TARGET_GID)
+            _chown_path(Path(root))
             for name in files:
-                shutil.chown(Path(root) / name, user=TARGET_UID, group=TARGET_GID)
+                _chown_path(Path(root) / name)
     else:
-        shutil.chown(path, user=TARGET_UID, group=TARGET_GID)
+        _chown_path(path)
 
 
 def ensure_permissions_and_drop_privileges(logger: logging.Logger) -> None:

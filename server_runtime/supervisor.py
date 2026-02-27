@@ -20,6 +20,7 @@ from .constants import (
     LOG_DIR,
     PID_FILE,
     STEAM_COMPAT_DIR,
+    STEAM_HOME_DIR,
     SUPERVISOR_PID_FILE,
     RuntimeSettings,
 )
@@ -67,7 +68,8 @@ class ServerSupervisor:
         if self.restart_scheduler_process and self.restart_scheduler_process.poll() is None:
             return
 
-        os.environ["SERVER_RESTART_WARNINGS"] = os.environ.get("SERVER_RESTART_WARNINGS", "30,5,1")
+        warnings = (os.environ.get("SERVER_RESTART_WARNINGS") or "").strip()
+        os.environ["SERVER_RESTART_WARNINGS"] = warnings or "30,5,1"
         os.environ["ASA_SUPERVISOR_PID_FILE"] = SUPERVISOR_PID_FILE
         os.environ["ASA_SERVER_PID_FILE"] = PID_FILE
         self.restart_scheduler_process = subprocess.Popen([ASA_CTRL_BIN, "restart-scheduler"])
@@ -97,7 +99,7 @@ class ServerSupervisor:
             pass
 
         os.environ["XDG_RUNTIME_DIR"] = runtime_dir
-        os.environ["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = "/home/gameserver/Steam"
+        os.environ["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = STEAM_HOME_DIR
         os.environ["STEAM_COMPAT_DATA_PATH"] = ASA_COMPAT_DATA
 
     def _start_log_streamer(self) -> None:
