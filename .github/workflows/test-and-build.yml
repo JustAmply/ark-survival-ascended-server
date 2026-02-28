@@ -118,6 +118,7 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.run_id }}
+            TARGETARCH=amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -182,5 +183,6 @@ jobs:
             VERSION=${{ needs.test-and-build.outputs.version }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.run_id }}
+            TARGETARCH=arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
