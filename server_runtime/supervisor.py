@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shlex
 import signal
 import subprocess
 import sys
@@ -17,9 +16,9 @@ from .constants import (
     ASA_BINARY_DIR,
     ASA_COMPAT_DATA,
     ASA_CTRL_BIN,
+    EARLY_CRASH_THRESHOLD_SECONDS,
     LOG_DIR,
     PID_FILE,
-    STEAM_COMPAT_DIR,
     STEAM_HOME_DIR,
     SUPERVISOR_PID_FILE,
     RuntimeSettings,
@@ -28,9 +27,16 @@ from .logging_utils import configure_runtime_logging
 from .params import ensure_nosteam_flag, ensure_server_admin_password, inject_mods_param
 from .permissions import ensure_permissions_and_drop_privileges, safe_kill_process
 from .plugins import resolve_launch_binary
-from .proton import ensure_proton_compat_data, install_proton_if_needed, resolve_proton_version
+from .proton import (
+    build_launch_command,
+    build_launch_environment,
+    ensure_proton_compat_data,
+    install_proton_if_needed,
+    resolve_proton_version,
+)
 from .shutdown import send_saveworld, signal_name, stop_server_process
-from .steamcmd import ensure_steamcmd, update_server_files
+from .steamcmd import ensure_steamcmd, probe_steamcmd_translation, update_server_files
+from .translation import format_execution_error, resolve_execution_context
 
 
 class ServerSupervisor:
@@ -45,6 +51,10 @@ class ServerSupervisor:
         self.shutdown_in_progress = False
         self.supervisor_exit_requested = False
         self.restart_requested = False
+        self.execution_context = resolve_execution_context(logger)
+        self.safe_profile_retry_used = self.execution_context.proton_profile == "safe"
+        self.quick_crash_count = 0
+        self.last_run_duration = 0.0
 
     def register_supervisor_pid(self) -> None:
         Path(SUPERVISOR_PID_FILE).write_text(f"{os.getpid()}\n", encoding="utf-8")
@@ -118,16 +128,9 @@ class ServerSupervisor:
             stderr=subprocess.DEVNULL,
         )
 
-    def _build_launch_command(self, proton_dir_name: str, launch_binary: str, params: str) -> list[str]:
-        proton_path = str(Path(STEAM_COMPAT_DIR) / proton_dir_name / "proton")
-        # launch_binary is intentionally a filename; process cwd is ASA_BINARY_DIR.
-        command = [proton_path, "run", launch_binary]
-        if params.strip():
-            command.extend(shlex.split(params))
-        return command
-
     def _launch_server_once(self) -> int:
-        update_server_files(self.logger)
+        probe_steamcmd_translation(self.execution_context, self.logger)
+        update_server_files(self.logger, self.execution_context)
         params = ensure_server_admin_password(self.logger)
         version = resolve_proton_version(self.logger)
         proton_dir_name = install_proton_if_needed(version, self.logger)
@@ -140,10 +143,28 @@ class ServerSupervisor:
 
         self.logger.info("Starting ASA dedicated server.")
         self.logger.info("Start parameters: %s", params)
-        command = self._build_launch_command(proton_dir_name, launch_binary, params)
-        self.server_process = subprocess.Popen(command, cwd=ASA_BINARY_DIR)
+        self.logger.info(
+            "Launch context: translator=%s, proton_profile=%s",
+            self.execution_context.translator_mode,
+            self.execution_context.proton_profile,
+        )
+        command = build_launch_command(
+            proton_dir_name,
+            launch_binary,
+            params,
+            self.execution_context,
+        )
+        launch_env = build_launch_environment(dict(os.environ), self.execution_context.proton_profile)
+        start_time = time.monotonic()
+        try:
+            self.server_process = subprocess.Popen(command, cwd=ASA_BINARY_DIR, env=launch_env)
+        except OSError as exc:
+            raise RuntimeError(format_execution_error("Proton launch", exc, self.execution_context)) from exc
+
         Path(PID_FILE).write_text(f"{self.server_process.pid}\n", encoding="utf-8")
-        return self.server_process.wait()
+        exit_code = self.server_process.wait()
+        self.last_run_duration = max(0.0, time.monotonic() - start_time)
+        return exit_code
 
     def _perform_shutdown_sequence(self, sig: int, purpose: str) -> None:
         if self.shutdown_in_progress:
@@ -173,6 +194,37 @@ class ServerSupervisor:
         self.restart_requested = True
         self._perform_shutdown_sequence(sig, "scheduled restart")
 
+    def _apply_early_crash_policy(self, exit_code: int) -> int | None:
+        if self.last_run_duration >= EARLY_CRASH_THRESHOLD_SECONDS:
+            self.quick_crash_count = 0
+            return None
+
+        if self.execution_context.proton_profile == "safe":
+            self.logger.error(
+                "Server exited after %.1fs while ASA_PROTON_PROFILE=safe. "
+                "Failing fast to avoid an endless restart loop.",
+                self.last_run_duration,
+            )
+            return exit_code if exit_code != 0 else 1
+
+        self.quick_crash_count += 1
+        self.logger.warning(
+            "Early server exit detected after %.1fs (%s/2) with ASA_PROTON_PROFILE=%s.",
+            self.last_run_duration,
+            self.quick_crash_count,
+            self.execution_context.proton_profile,
+        )
+
+        if self.quick_crash_count >= 2 and not self.safe_profile_retry_used:
+            self.execution_context.proton_profile = "safe"
+            self.safe_profile_retry_used = True
+            self.quick_crash_count = 0
+            os.environ["ASA_PROTON_PROFILE"] = "safe"
+            self.logger.warning(
+                "Switching ASA_PROTON_PROFILE to 'safe' after repeated early crashes."
+            )
+        return None
+
     def _cleanup_after_run(self) -> None:
         safe_kill_process(self.server_process)
         Path(PID_FILE).unlink(missing_ok=True)
@@ -197,8 +249,13 @@ class ServerSupervisor:
             exit_code = 1
             try:
                 exit_code = self._launch_server_once()
-                self.logger.info("Server process exited with code %s.", exit_code)
+                self.logger.info(
+                    "Server process exited with code %s after %.1fs.",
+                    exit_code,
+                    self.last_run_duration,
+                )
             except Exception:
+                self.last_run_duration = 0.0
                 self.logger.exception("Unhandled exception during server run; will attempt restart.")
             finally:
                 self._cleanup_after_run()
@@ -212,12 +269,18 @@ class ServerSupervisor:
                     "Scheduled restart completed; relaunching after %ss.",
                     self.settings.server_restart_delay,
                 )
+                self.quick_crash_count = 0
             else:
+                fail_fast_code = self._apply_early_crash_policy(exit_code)
+                if fail_fast_code is not None:
+                    return fail_fast_code
+
                 self.logger.info(
                     "Server exited unexpectedly with code %s; restarting after %ss.",
                     exit_code,
                     self.settings.server_restart_delay,
                 )
+
             self.restart_requested = False
             self.shutdown_in_progress = False
             time.sleep(max(self.settings.server_restart_delay, 0))

@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import tarfile
 import tempfile
@@ -23,6 +24,7 @@ from .constants import (
     STEAM_COMPAT_DATA,
     STEAM_COMPAT_DIR,
 )
+from .translation import ExecutionContext, wrap_command
 
 _SAFE_VERSION_PATTERN = re.compile(r"^[0-9][0-9A-Za-z._-]*$")
 
@@ -200,3 +202,33 @@ def ensure_proton_compat_data(proton_dir_name: str, logger: logging.Logger) -> N
     source = Path(STEAM_COMPAT_DIR) / proton_dir_name / "files" / "share" / "default_pfx"
     Path(STEAM_COMPAT_DATA).mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, compat)
+
+
+def build_launch_command(
+    proton_dir_name: str,
+    launch_binary: str,
+    params: str,
+    execution_context: ExecutionContext,
+) -> list[str]:
+    """Build Proton launch command and wrap it for translated execution when required."""
+    proton_path = Path(STEAM_COMPAT_DIR) / proton_dir_name / "proton"
+    if not proton_path.is_file():
+        raise RuntimeError(f"Proton launcher not found at '{proton_path}'.")
+    if not os.access(proton_path, os.X_OK):
+        raise RuntimeError(f"Proton launcher at '{proton_path}' is not executable.")
+
+    command = [str(proton_path), "run", launch_binary]
+    if params.strip():
+        command.extend(shlex.split(params))
+
+    return wrap_command(execution_context, command)
+
+
+def build_launch_environment(base_env: dict[str, str], proton_profile: str) -> dict[str, str]:
+    """Build launch environment adjusted for the selected Proton profile."""
+    env = dict(base_env)
+    if proton_profile == "safe":
+        env.setdefault("PROTON_NO_ESYNC", "1")
+        env.setdefault("PROTON_NO_FSYNC", "1")
+        env.setdefault("WINEDEBUG", "-all")
+    return env

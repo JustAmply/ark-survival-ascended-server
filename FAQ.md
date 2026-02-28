@@ -81,6 +81,19 @@ docker volume rm asa-server_server-files-1 asa-server_steam-1 asa-server_steamcm
 docker compose up -d
 ```
 
+### **Q: I'm on ARM64 and see `Exec format error` in logs**
+
+**A:** This means an x86/x64 binary was started without a working translation path. Check:
+
+1. Use the ARM64 experimental image tag: `ghcr.io/justamply/asa-linux-server:arm64-experimental`
+2. Keep `ASA_TRANSLATOR_MODE=auto` (or set `fex` explicitly)
+3. Increase `ASA_TRANSLATOR_PROBE_TIMEOUT` (for example `60`) on very slow hosts
+4. If Proton crashes early, set `ASA_PROTON_PROFILE=safe`
+
+### **Q: Why is ARM64 marked experimental?**
+
+**A:** ARM64 currently depends on translated execution (FEX + Proton + SteamCMD), which can vary by kernel/host profile and may perform differently than native AMD64 hosts. Experimental tags let us improve compatibility without destabilizing `latest`.
+
 ## 🎮 Gameplay Questions
 
 ### **Q: How do I add mods?**
