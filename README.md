@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="ARK: Survival Ascended Linux Server logo" width="240">
+</p>
+
 # ARK: Survival Ascended Linux Server
 
 🦕 **Easy-to-use Docker container for running ARK: Survival Ascended dedicated servers on Linux**
