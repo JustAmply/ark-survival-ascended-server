@@ -9,7 +9,19 @@ import urllib.request
 from pathlib import Path
 
 from .archive_utils import safe_extract_tar
-from .constants import SERVER_FILES_DIR, STEAM_APP_ID, STEAMCMD_DIR
+from .constants import (
+    DEFAULT_PROTON_PROFILE,
+    DEFAULT_TRANSLATOR_PROBE_TIMEOUT,
+    SERVER_FILES_DIR,
+    STEAM_APP_ID,
+    STEAMCMD_DIR,
+)
+from .translation import (
+    ExecutionContext,
+    format_execution_error,
+    run_probe_command,
+    wrap_command,
+)
 
 
 def ensure_steamcmd(logger: logging.Logger) -> None:
@@ -35,12 +47,48 @@ def ensure_steamcmd(logger: logging.Logger) -> None:
     archive_path.unlink(missing_ok=True)
 
 
-def update_server_files(logger: logging.Logger) -> None:
+def _steamcmd_script_path() -> Path:
+    return Path(STEAMCMD_DIR) / "steamcmd.sh"
+
+
+def _steamcmd_binary_path() -> Path:
+    return Path(STEAMCMD_DIR) / "linux32" / "steamcmd"
+
+
+def probe_steamcmd_translation(execution_context: ExecutionContext, logger: logging.Logger) -> None:
+    """Run a quick SteamCMD probe through the translator on ARM64."""
+    if not execution_context.translation_enabled:
+        return
+
+    steamcmd_binary = _steamcmd_binary_path()
+    if not steamcmd_binary.is_file():
+        raise RuntimeError(
+            f"SteamCMD translation probe cannot run because '{steamcmd_binary}' is missing."
+        )
+
+    run_probe_command(
+        execution_context,
+        [str(steamcmd_binary), "+quit"],
+        STEAMCMD_DIR,
+        logger,
+        "SteamCMD",
+    )
+
+
+def update_server_files(
+    logger: logging.Logger,
+    execution_context: ExecutionContext | None = None,
+) -> None:
     """Run SteamCMD update/validate for ASA server files."""
     logger.info("Updating/validating ASA server files...")
-    steamcmd = str(Path(STEAMCMD_DIR) / "steamcmd.sh")
+
+    if execution_context and execution_context.translation_enabled:
+        steamcmd_path = _steamcmd_binary_path()
+    else:
+        steamcmd_path = _steamcmd_script_path()
+
     command = [
-        steamcmd,
+        str(steamcmd_path),
         "+force_install_dir",
         SERVER_FILES_DIR,
         "+login",
@@ -50,4 +98,19 @@ def update_server_files(logger: logging.Logger) -> None:
         "validate",
         "+quit",
     ]
-    subprocess.run(command, cwd=STEAMCMD_DIR, check=True)
+
+    if execution_context:
+        command = wrap_command(execution_context, command)
+
+    try:
+        subprocess.run(command, cwd=STEAMCMD_DIR, check=True)
+    except OSError as exc:
+        context = execution_context or ExecutionContext(
+            architecture="unknown",
+            translator_mode="none",
+            runner_prefix=(),
+            wraps_with_shell=False,
+            probe_timeout=DEFAULT_TRANSLATOR_PROBE_TIMEOUT,
+            proton_profile=DEFAULT_PROTON_PROFILE,
+        )
+        raise RuntimeError(format_execution_error("SteamCMD update", exc, context)) from exc

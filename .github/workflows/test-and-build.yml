@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   test-and-build:
-    name: Run tests and build Docker image
+    name: Run tests and build AMD64 Docker image
     runs-on: ubuntu-latest
     env:
       REGISTRY: ghcr.io
@@ -107,15 +107,82 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and push AMD64 Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
+          platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
           tags: ${{ steps.metadata.outputs.tags }}
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.run_id }}
+            TARGETARCH=amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-arm64-experimental:
+    name: Build ARM64 experimental Docker image
+    runs-on: ubuntu-latest
+    needs: test-and-build
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_BASENAME: ${{ github.repository_owner }}/asa-linux-server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate ARM64 experimental image metadata
+        id: arm64-metadata
+        run: |
+          IMAGE_BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
+          VERSION="${{ needs.test-and-build.outputs.version }}"
+
+          TAGS="${IMAGE_BASE}:${VERSION}-arm64-experimental"
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            PR_SHA="${{ github.event.pull_request.head.sha }}"
+            PR_SHA_SHORT="${PR_SHA:0:7}"
+            TAGS="${TAGS}"$'\n'"${IMAGE_BASE}:pr-${PR_NUMBER}-arm64-experimental"
+            TAGS="${TAGS}"$'\n'"${IMAGE_BASE}:pr-${PR_NUMBER}-${PR_SHA_SHORT}-arm64-experimental"
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            TAGS="${TAGS}"$'\n'"${IMAGE_BASE}:arm64-experimental"
+          fi
+
+          {
+            echo "tags<<__EOF__"
+            echo "${TAGS}"
+            echo "__EOF__"
+          } >> "$GITHUB_OUTPUT"
+          echo "Generated ARM64 tags: ${TAGS//$'\n'/, }"
+
+      - name: Build and push ARM64 experimental Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/arm64
+          push: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
+          tags: ${{ steps.arm64-metadata.outputs.tags }}
+          build-args: |
+            VERSION=${{ needs.test-and-build.outputs.version }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.run_id }}
+            TARGETARCH=arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max

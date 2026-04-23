@@ -30,6 +30,12 @@ DEFAULT_START_PARAMS = (
     "TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?"
     "ServerAdminPassword=changeme"
 )
+DEFAULT_TRANSLATOR_MODE = "auto"
+DEFAULT_TRANSLATOR_PROBE_TIMEOUT = 20
+DEFAULT_PROTON_PROFILE = "balanced"
+EARLY_CRASH_THRESHOLD_SECONDS = 120
+VALID_TRANSLATOR_MODES = ("auto", "fex", "none")
+VALID_PROTON_PROFILES = ("balanced", "safe")
 
 PID_FILE = "/home/gameserver/.asa-server.pid"
 SUPERVISOR_PID_FILE = "/home/gameserver/.asa-supervisor.pid"

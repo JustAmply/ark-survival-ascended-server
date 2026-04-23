@@ -26,6 +26,8 @@ docker compose up -d
 docker logs -f asa-server-1
 ```
 
+On ARM64 hosts, use the experimental image tag first: `ghcr.io/justamply/asa-linux-server:arm64-experimental`.
+
 Your server will be discoverable in the "Unofficial" server browser once setup is complete (~5-10 minutes).
 
 ## ✨ Key Features
@@ -44,7 +46,7 @@ Your server will be discoverable in the "Unofficial" server browser once setup i
 - **RAM**: ~13 GB per server instance
 - **Storage**: ~31 GB (server files only)
 - **OS**: Linux with Docker support
-- **Tested on**: Ubuntu 24.04, Debian 12, Docker Desktop on Windows
+- **Tested on**: Ubuntu 24.04, Debian 12, Docker Desktop on Windows, ARM64 cloud hosts (experimental tag)
 
 ## 🎯 Main Use Cases
 
@@ -82,6 +84,18 @@ environment:
 - **Change ports**: Modify `Port=7777` and `RCONPort=27020`
 - **Player limit**: Adjust `-WinLiveMaxPlayers=50`
 - **Timezone**: Add `TZ=Europe/Berlin` (or your region) to keep server logs and saves in local time (default: `UTC`)
+- **Translator mode**: `ASA_TRANSLATOR_MODE=auto|fex|none` (default: `auto`; on ARM64 this resolves to `fex`)
+- **Translator probe timeout**: `ASA_TRANSLATOR_PROBE_TIMEOUT=20` seconds for SteamCMD x86 probe
+- **Proton profile**: `ASA_PROTON_PROFILE=balanced|safe` (safe disables esync/fsync for stability)
+
+## 🧪 ARM64 (Experimental)
+
+ARM64 support is published separately as experimental tags to avoid impacting stable AMD64 users:
+
+- `ghcr.io/justamply/asa-linux-server:arm64-experimental`
+- `ghcr.io/justamply/asa-linux-server:<version>-arm64-experimental`
+
+The ARM64 image uses FEX translation for SteamCMD/Proton execution. The runtime performs a translator probe before full startup and fails early with actionable logs if translation is unavailable.
 
 ## 🎮 Server Management
 
