@@ -3,7 +3,7 @@
 Focus: Maintain a lean Dockerized ARK: Survival Ascended server image with a zero third‑party Python dependency control tool (`asa_ctrl`). Optimize for clarity, reproducibility, and minimal image growth.
 
 ### 1. Big Picture Architecture
-* Runtime is a Docker image (`Dockerfile`) based on `ubuntu:24.04` with only core OS + Python stdlib.
+* Runtime is a Docker image built from `Dockerfile`; its current `FROM` line is the source of truth for the base OS and Python version. Inspect it before making base-specific changes.
 * Entry point: standalone Python runtime package `server_runtime` (`python -m server_runtime`) – handles timezone sync (`TZ`), optional debug sleep, permission fix (runs as root first, then drops to UID/GID 25000), SteamCMD validation, Proton install/version resolution, default admin password enforcement / start param fallback, dynamic mods injection, forced `-nosteam`, optional plugin loader, log streaming, and supervised server launch via Proton (with restart scheduler support).
 * Control/utility layer: Python package `asa_ctrl` (mounted at `/usr/share/asa_ctrl`, executed via wrapper `/usr/local/bin/asa-ctrl`). Provides:
   * RCON execution (`rcon.py`) – auto-detects password & port from `ASA_START_PARAMS` or INI files.
@@ -32,19 +32,21 @@ Focus: Maintain a lean Dockerized ARK: Survival Ascended server image with a zer
 * Concurrency: `ModDatabase` uses an `RLock`; keep state mutations inside the lock and persist via `_write_database()`.
 
 ### 4. Startup Runtime Critical Steps (in order)
-1. (Root) Optional timezone configuration via `TZ`, then debug hold (sleep) if requested.
+1. (Root) Optional timezone configuration via `TZ`, ensure machine ID compatibility, then debug hold (sleep) if requested.
 2. Permission normalization + privilege drop to UID/GID 25000.
-3. Register supervisor PID, start restart scheduler when `SERVER_RESTART_CRON` is set, ensure SteamCMD is present.
-4. Update/validate app `2430930` server files via SteamCMD.
-5. Enforce `ServerAdminPassword` presence (append default or full default start params) before launch args.
-6. Proton version resolution → download → checksum validation (unless skipped) → compat data prep.
-7. Mod string injection (`asa-ctrl mods-string`) appended to `ASA_START_PARAMS` then force `-nosteam`.
-8. Runtime prep (XDG paths + compat exports), plugin loader detection (zip starting with `AsaApi_` → unzip; choose `AsaApiLoader.exe`).
-9. Start log tailer and launch via Proton wrapper under `compatibilitytools.d` (supervisor handles crash/USR1 restarts with configured delay).
+3. Ensure SteamCMD is present.
+4. Register supervisor PID and start restart scheduler when `SERVER_RESTART_CRON` is set.
+5. Update/validate app `2430930` server files via SteamCMD.
+6. Enforce `ServerAdminPassword` presence (append default or full default start params) before launch args.
+7. Proton version resolution → download → checksum validation (unless skipped) → compat data prep.
+8. Mod string injection (`asa-ctrl mods-string`) appended to `ASA_START_PARAMS` then force `-nosteam`.
+9. Runtime prep (XDG paths + compat exports), plugin loader detection (zip starting with `AsaApi_` → unzip; choose `AsaApiLoader.exe`).
+10. Start log tailer and launch via Proton wrapper under `compatibilitytools.d` (supervisor handles crash/USR1 restarts with configured delay).
 Changing ordering can break cold start expectations; keep this sequence.
 
 ### 5. Testing & Local Dev
-* Run tests (pure stdlib): `python -m tests.test_asa_ctrl` (Windows: `py -m tests.test_asa_ctrl`).
+* Install dev tooling in a virtual environment with `python -m pip install -e ".[dev]"`, then run the complete suite with `python -m pytest -q`.
+* After changing `pyproject.toml`, package layout, or console entry points, install the project non-editably in a clean environment, then run `python -I scripts/verify_installed_package.py`; source-tree tests alone do not validate the installed distribution.
 * Build image locally: `docker build -t asa-linux-server:dev .`
 * Compose up (example): `docker compose up -d` then follow logs `docker logs -f asa-server-1`.
 * For iterative Python changes without rebuild, you must rebuild the image (no volume mount overlays are configured for source code).
