@@ -14,6 +14,7 @@ from server_runtime import params as runtime_params
 from server_runtime import permissions as runtime_permissions
 from server_runtime import proton as runtime_proton
 from server_runtime import steamcmd as runtime_steamcmd
+from server_runtime import supervisor as runtime_supervisor
 from server_runtime.archive_utils import safe_extract_tar
 from server_runtime.constants import RuntimeSettings
 from server_runtime.supervisor import ServerSupervisor
@@ -30,6 +31,74 @@ def test_runtime_settings_defaults(monkeypatch):
     assert settings.server_restart_delay == 15
     assert settings.shutdown_saveworld_delay == 15
     assert settings.shutdown_timeout == 180
+
+
+def test_main_preserves_startup_order_and_cleans_up_after_failure(monkeypatch):
+    events = []
+    logger = logging.getLogger("test-main-lifecycle")
+
+    monkeypatch.setattr(runtime_supervisor, "configure_runtime_logging", lambda: logger)
+    monkeypatch.setattr(runtime_supervisor.os, "geteuid", lambda: 0, raising=False)
+    monkeypatch.setattr(
+        runtime_supervisor,
+        "configure_timezone",
+        lambda _logger: events.append("configure_timezone"),
+    )
+    monkeypatch.setattr(
+        runtime_supervisor,
+        "ensure_machine_id",
+        lambda _logger: events.append("ensure_machine_id"),
+    )
+    monkeypatch.setattr(
+        runtime_supervisor,
+        "maybe_debug_hold",
+        lambda _enabled, _logger: events.append("maybe_debug_hold"),
+    )
+    monkeypatch.setattr(
+        runtime_supervisor,
+        "ensure_permissions_and_drop_privileges",
+        lambda _logger: events.append("drop_privileges"),
+    )
+    monkeypatch.setattr(
+        runtime_supervisor,
+        "ensure_steamcmd",
+        lambda _logger: events.append("ensure_steamcmd"),
+    )
+
+    class RecordingSupervisor:
+        def __init__(self, _settings, _logger):
+            events.append("create_supervisor")
+
+        def register_supervisor_pid(self):
+            events.append("register_supervisor_pid")
+
+        def start_restart_scheduler(self):
+            events.append("start_restart_scheduler")
+
+        def run(self):
+            events.append("run_supervisor")
+            raise RuntimeError("launch failed")
+
+        def cleanup(self):
+            events.append("cleanup")
+
+    monkeypatch.setattr(runtime_supervisor, "ServerSupervisor", RecordingSupervisor)
+
+    with pytest.raises(RuntimeError, match="launch failed"):
+        runtime_supervisor.main()
+
+    assert events == [
+        "configure_timezone",
+        "ensure_machine_id",
+        "maybe_debug_hold",
+        "drop_privileges",
+        "ensure_steamcmd",
+        "create_supervisor",
+        "register_supervisor_pid",
+        "start_restart_scheduler",
+        "run_supervisor",
+        "cleanup",
+    ]
 
 
 def test_server_admin_password_fallback_when_missing(monkeypatch):
