@@ -172,10 +172,12 @@ Set up a local development environment with an editable installation so that CLI
 ```bash
 git clone https://github.com/JustAmply/ark-survival-ascended-server.git
 cd ark-survival-ascended-server
-pip install -e .
+python -m pip install -e ".[dev]"
+pytest -q
+python -I scripts/verify_installed_package.py
 ```
 
-This registers the `asa-ctrl` command on your PATH while allowing you to modify the source code in-place.
+This registers the `asa-ctrl` command on your PATH while allowing you to modify the source code in-place. The isolated smoke test verifies that the installed distribution contains the CLI's required subpackages instead of accidentally importing them from the repository root.
 
 ## 📞 Support
 
