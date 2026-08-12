@@ -25,7 +25,7 @@ from .constants import (
     RuntimeSettings,
 )
 from .logging_utils import configure_runtime_logging
-from .params import ensure_nosteam_flag, ensure_server_admin_password, inject_mods_param
+from .params import prepare_start_params
 from .permissions import ensure_permissions_and_drop_privileges, safe_kill_process
 from .plugins import resolve_launch_binary
 from .proton import ensure_proton_compat_data, install_proton_if_needed, resolve_proton_version
@@ -128,12 +128,10 @@ class ServerSupervisor:
 
     def _launch_server_once(self) -> int:
         update_server_files(self.logger)
-        params = ensure_server_admin_password(self.logger)
+        params = prepare_start_params(self.logger)
         version = resolve_proton_version(self.logger)
         proton_dir_name = install_proton_if_needed(version, self.logger)
         ensure_proton_compat_data(proton_dir_name, self.logger)
-        params = inject_mods_param(params, self.logger)
-        params = ensure_nosteam_flag(params)
         self._prepare_runtime_env()
         launch_binary = resolve_launch_binary(self.logger)
         self._start_log_streamer()

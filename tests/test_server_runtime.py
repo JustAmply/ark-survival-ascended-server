@@ -101,52 +101,63 @@ def test_main_preserves_startup_order_and_cleans_up_after_failure(monkeypatch):
     ]
 
 
-def test_server_admin_password_fallback_when_missing(monkeypatch):
+def test_prepare_start_params_applies_complete_contract(monkeypatch, tmp_path):
+    mods_path = tmp_path / "mods.json"
+    mods_path.write_text(
+        '[{"mod_id": 1, "enabled": true}, {"mod_id": 2, "enabled": true}]',
+        encoding="utf-8",
+    )
     monkeypatch.setenv("ASA_START_PARAMS", "TheIsland_WP?listen?Port=7777")
-    monkeypatch.setattr(runtime_params, "server_admin_password_in_ini", lambda: False)
+    monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(mods_path))
+    monkeypatch.setenv("ASA_GAME_USER_SETTINGS_PATH", str(tmp_path / "missing.ini"))
     logger = logging.getLogger("test")
 
-    params = runtime_params.ensure_server_admin_password(logger)
+    params = runtime_params.prepare_start_params(logger)
+
     assert "ServerAdminPassword=changeme" in params
-    assert "ServerAdminPassword=changeme" in os.environ["ASA_START_PARAMS"]
+    assert params.endswith("-mods=1,2 -nosteam")
+    assert os.environ["ASA_START_PARAMS"] == params
 
 
-def test_server_admin_password_default_payload_when_empty(monkeypatch):
+def test_prepare_start_params_uses_default_payload_when_empty(monkeypatch, tmp_path):
     monkeypatch.delenv("ASA_START_PARAMS", raising=False)
-    monkeypatch.setattr(runtime_params, "server_admin_password_in_ini", lambda: False)
+    monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(tmp_path / "mods.json"))
+    monkeypatch.setenv("ASA_GAME_USER_SETTINGS_PATH", str(tmp_path / "missing.ini"))
     logger = logging.getLogger("test")
 
-    params = runtime_params.ensure_server_admin_password(logger)
+    params = runtime_params.prepare_start_params(logger)
+
     assert params.startswith("TheIsland_WP?")
     assert "ServerAdminPassword=changeme" in params
+    assert params.endswith("-nosteam")
 
 
-def test_ensure_nosteam_flag_idempotent(monkeypatch):
-    monkeypatch.setenv("ASA_START_PARAMS", "Map?listen -flag")
-    first = runtime_params.ensure_nosteam_flag(os.environ["ASA_START_PARAMS"])
-    second = runtime_params.ensure_nosteam_flag(first)
-
-    assert first.endswith("-nosteam")
-    assert second == first
-    assert second.count("-nosteam") == 1
-
-
-def test_inject_mods_param(monkeypatch):
+def test_prepare_start_params_preserves_ini_password_and_nosteam(monkeypatch, tmp_path):
+    ini_path = tmp_path / "GameUserSettings.ini"
+    ini_path.write_text("[ServerSettings]\nServerAdminPassword=secret\n", encoding="utf-8")
+    monkeypatch.setenv("ASA_GAME_USER_SETTINGS_PATH", str(ini_path))
+    monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(tmp_path / "mods.json"))
+    monkeypatch.setenv("ASA_START_PARAMS", "Map?listen -nosteam")
     logger = logging.getLogger("test")
-    result = Mock(returncode=0, stdout="-mods=1,2", stderr="")
-    monkeypatch.setattr(runtime_params.subprocess, "run", lambda *args, **kwargs: result)
 
-    merged = runtime_params.inject_mods_param("Map?listen", logger)
-    assert merged.endswith("-mods=1,2")
+    params = runtime_params.prepare_start_params(logger)
+
+    assert "ServerAdminPassword=changeme" not in params
+    assert params.count("-nosteam") == 1
 
 
-def test_inject_mods_param_empty(monkeypatch):
+def test_prepare_start_params_skips_corrupt_mod_database(monkeypatch, tmp_path, caplog):
+    mods_path = tmp_path / "mods.json"
+    mods_path.write_text("not-json", encoding="utf-8")
+    monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(mods_path))
+    monkeypatch.setenv("ASA_GAME_USER_SETTINGS_PATH", str(tmp_path / "missing.ini"))
+    monkeypatch.setenv("ASA_START_PARAMS", "Map?listen?ServerAdminPassword=secret")
     logger = logging.getLogger("test")
-    result = Mock(returncode=0, stdout="", stderr="")
-    monkeypatch.setattr(runtime_params.subprocess, "run", lambda *args, **kwargs: result)
 
-    merged = runtime_params.inject_mods_param("Map?listen", logger)
-    assert merged == "Map?listen"
+    params = runtime_params.prepare_start_params(logger)
+
+    assert params == "Map?listen?ServerAdminPassword=secret -nosteam"
+    assert "skipping mods injection" in caplog.text
 
 
 def test_resolve_proton_version_detected_latest(monkeypatch):
@@ -186,10 +197,9 @@ def test_verify_sha512_ok(tmp_path):
     assert runtime_proton._verify_sha512(archive, checksum) is True
 
 
-def test_scheduler_contract_exports_env(monkeypatch, tmp_path):
+def test_scheduler_contract_exports_env(monkeypatch):
     monkeypatch.setenv("SERVER_RESTART_CRON", "0 4 * * *")
     monkeypatch.delenv("SERVER_RESTART_WARNINGS", raising=False)
-    monkeypatch.setattr(runtime_params, "GAME_USER_SETTINGS_PATH", str(tmp_path / "GameUserSettings.ini"))
     logger = logging.getLogger("test")
     settings = RuntimeSettings.from_env()
     supervisor = ServerSupervisor(settings, logger)
@@ -450,18 +460,6 @@ def test_ensure_steamcmd_reinstalls_when_linux32_is_file(monkeypatch, tmp_path):
 
     assert "steamcmd_linux.tar.gz" in calls["url"]
     assert calls["extract"] == 1
-
-
-def test_inject_mods_param_ignores_nonzero_exit(monkeypatch):
-    logger = logging.getLogger("test")
-    monkeypatch.setenv("ASA_START_PARAMS", "Map?listen")
-    result = Mock(returncode=1, stdout="-mods=1,2", stderr="error")
-    monkeypatch.setattr(runtime_params.subprocess, "run", lambda *args, **kwargs: result)
-
-    merged = runtime_params.inject_mods_param("Map?listen", logger)
-
-    assert merged == "Map?listen"
-    assert os.environ["ASA_START_PARAMS"] == "Map?listen"
 
 
 def test_verify_sha512_requires_exact_filename_match(tmp_path):

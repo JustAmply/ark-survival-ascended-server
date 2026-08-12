@@ -85,7 +85,7 @@ class AsaSettings:
     """Resolve environment and INI-backed configuration for asa-ctrl."""
 
     def __init__(self, environ: Optional[Mapping[str, str]] = None) -> None:
-        self._environ = environ or os.environ
+        self._environ = environ if environ is not None else os.environ
 
     def get(self, key: str, default: Optional[str] = None) -> Optional[str]:
         return self._environ.get(key, default)
