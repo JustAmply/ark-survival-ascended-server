@@ -26,10 +26,9 @@ from .constants import (
 )
 from .logging_utils import configure_runtime_logging
 from .params import prepare_start_params
-from .permissions import ensure_permissions_and_drop_privileges, safe_kill_process
+from .permissions import ensure_permissions_and_drop_privileges
 from .plugins import resolve_launch_binary
 from .proton import ensure_proton_compat_data, install_proton_if_needed, resolve_proton_version
-from .shutdown import send_saveworld, signal_name, stop_server_process
 from .steamcmd import ensure_steamcmd, update_server_files
 
 
@@ -145,12 +144,12 @@ class ServerSupervisor:
 
     def _perform_shutdown_sequence(self, sig: int, purpose: str) -> None:
         if self.shutdown_in_progress:
-            self.logger.info("Signal %s received but shutdown already in progress.", signal_name(sig))
+            self.logger.info("Signal %s received but shutdown already in progress.", self._signal_name(sig))
             return
         self.shutdown_in_progress = True
         self.logger.info(
             "Received signal %s for %s; initiating graceful shutdown.",
-            signal_name(sig),
+            self._signal_name(sig),
             purpose,
         )
 
@@ -158,10 +157,69 @@ class ServerSupervisor:
             self.logger.info("Shutdown requested before launch or after stop; no server process to stop.")
             return
 
-        saveworld_sent = send_saveworld(self.logger)
+        saveworld_sent = self._send_saveworld()
         if saveworld_sent:
             time.sleep(max(self.settings.shutdown_saveworld_delay, 0))
-        stop_server_process(self.server_process, self.settings.shutdown_timeout, self.logger)
+        self._stop_server_process(self.server_process)
+
+    def _send_saveworld(self) -> bool:
+        try:
+            result = subprocess.run(
+                [ASA_CTRL_BIN, "rcon", "--exec", "saveworld"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            ok = result.returncode == 0
+        except OSError:
+            ok = False
+
+        if ok:
+            self.logger.info("saveworld command sent successfully.")
+        else:
+            self.logger.warning("Failed to execute saveworld command via RCON.")
+        return ok
+
+    def _stop_server_process(self, process: Optional[subprocess.Popen]) -> None:
+        if process is None or process.poll() is not None:
+            self.logger.info("Server process already stopped.")
+            return
+
+        self.logger.info("Sending SIGTERM to server process PID %s", process.pid)
+        process.terminate()
+        timeout = self.settings.shutdown_timeout
+        deadline = time.time() + max(timeout, 1)
+        while process.poll() is None and time.time() < deadline:
+            time.sleep(1)
+
+        if process.poll() is None:
+            self.logger.warning(
+                "Server did not stop within %ss; sending SIGKILL to PID %s",
+                timeout,
+                process.pid,
+            )
+            process.kill()
+
+    @staticmethod
+    def _signal_name(sig: int) -> str:
+        try:
+            return signal.Signals(sig).name
+        except ValueError:
+            return str(sig)
+
+    @staticmethod
+    def _terminate_process(process: Optional[subprocess.Popen]) -> None:
+        if process is None or process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
 
     def _handle_shutdown_signal(self, sig: int, _frame) -> None:
         self.supervisor_exit_requested = True
@@ -172,14 +230,14 @@ class ServerSupervisor:
         self._perform_shutdown_sequence(sig, "scheduled restart")
 
     def _cleanup_after_run(self) -> None:
-        safe_kill_process(self.server_process)
+        self._terminate_process(self.server_process)
         Path(PID_FILE).unlink(missing_ok=True)
         self.server_process = None
 
     def cleanup(self) -> None:
-        safe_kill_process(self.server_process)
-        safe_kill_process(self.log_streamer_process)
-        safe_kill_process(self.restart_scheduler_process)
+        self._terminate_process(self.server_process)
+        self._terminate_process(self.log_streamer_process)
+        self._terminate_process(self.restart_scheduler_process)
         Path(PID_FILE).unlink(missing_ok=True)
         Path(SUPERVISOR_PID_FILE).unlink(missing_ok=True)
 

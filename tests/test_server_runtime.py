@@ -266,20 +266,31 @@ def test_shutdown_sequence_skips_delay_when_saveworld_fails(monkeypatch):
     class DummyProcess:
         pid = 4242
 
-        @staticmethod
-        def poll():
-            return None
+        def __init__(self):
+            self.running = True
+            self.terminated = False
 
-    supervisor.server_process = DummyProcess()
+        def poll(self):
+            return None if self.running else 0
+
+        def terminate(self):
+            self.terminated = True
+            self.running = False
+
+    process = DummyProcess()
+    supervisor.server_process = process
     sleep_calls = []
 
-    monkeypatch.setattr("server_runtime.supervisor.send_saveworld", lambda _logger: False)
+    monkeypatch.setattr(
+        "server_runtime.supervisor.subprocess.run",
+        lambda *_args, **_kwargs: Mock(returncode=1),
+    )
     monkeypatch.setattr("server_runtime.supervisor.time.sleep", lambda seconds: sleep_calls.append(seconds))
-    monkeypatch.setattr("server_runtime.supervisor.stop_server_process", lambda *_args, **_kwargs: None)
 
     supervisor._perform_shutdown_sequence(signal.SIGTERM, "container shutdown")
 
     assert sleep_calls == []
+    assert process.terminated is True
 
 
 def test_supervisor_run_restarts_after_launch_exception(monkeypatch, caplog):
@@ -341,20 +352,20 @@ def test_configure_runtime_logging_warn_alias(monkeypatch):
     logger.warning.assert_not_called()
 
 
-def test_cleanup_after_run_terminates_server_process(monkeypatch):
+def test_cleanup_terminates_all_owned_processes():
     logger = logging.getLogger("test-cleanup")
     settings = RuntimeSettings.from_env()
     supervisor = ServerSupervisor(settings, logger)
-    process = Mock()
-    supervisor.server_process = process
+    processes = [Mock(), Mock(), Mock()]
+    for process in processes:
+        process.poll.return_value = None
+    supervisor.server_process, supervisor.log_streamer_process, supervisor.restart_scheduler_process = processes
 
-    kill_calls = []
-    monkeypatch.setattr("server_runtime.supervisor.safe_kill_process", lambda proc: kill_calls.append(proc))
+    supervisor.cleanup()
 
-    supervisor._cleanup_after_run()
-
-    assert kill_calls == [process]
-    assert supervisor.server_process is None
+    for process in processes:
+        process.terminate.assert_called_once_with()
+        process.wait.assert_called_once_with(timeout=5)
 
 
 def test_safe_extract_tar_allows_symlink_targets_within_destination(tmp_path):
