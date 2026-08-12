@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import stat
 import tarfile
+import zipfile
 from unittest.mock import Mock
 
 import pytest
@@ -15,7 +17,7 @@ from server_runtime import permissions as runtime_permissions
 from server_runtime import proton as runtime_proton
 from server_runtime import steamcmd as runtime_steamcmd
 from server_runtime import supervisor as runtime_supervisor
-from server_runtime.archive_utils import safe_extract_tar
+from server_runtime.archive_utils import safe_extract_archive
 from server_runtime.constants import RuntimeSettings
 from server_runtime.supervisor import ServerSupervisor
 
@@ -317,7 +319,7 @@ def test_supervisor_run_restarts_after_launch_exception(monkeypatch, caplog):
     assert "Unhandled exception during server run" in caplog.text
 
 
-def test_safe_extract_tar_rejects_link_targets_outside_destination(tmp_path):
+def test_safe_extract_archive_rejects_tar_link_targets_outside_destination(tmp_path):
     archive = tmp_path / "archive.tar"
     with tarfile.open(archive, "w") as tar:
         link = tarfile.TarInfo("link")
@@ -327,7 +329,7 @@ def test_safe_extract_tar_rejects_link_targets_outside_destination(tmp_path):
 
     with tarfile.open(archive, "r") as tar:
         with pytest.raises(RuntimeError, match="Unsafe tar link target detected"):
-            safe_extract_tar(tar, tmp_path / "extract")
+            safe_extract_archive(tar, tmp_path / "extract")
 
 
 def test_configure_runtime_logging_warn_alias(monkeypatch):
@@ -368,29 +370,27 @@ def test_cleanup_terminates_all_owned_processes():
         process.wait.assert_called_once_with(timeout=5)
 
 
-def test_safe_extract_tar_allows_symlink_targets_within_destination(tmp_path):
-    class DummyTar:
-        def __init__(self, members):
-            self._members = members
-            self.extract_calls = []
+def test_safe_extract_archive_allows_tar_symlink_targets_within_destination(tmp_path, monkeypatch):
+    archive_path = tmp_path / "archive.tar"
+    with tarfile.open(archive_path, "w") as archive:
+        link = tarfile.TarInfo("plugins/link")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "../target.dll"
+        archive.addfile(link)
 
-        def getmembers(self):
-            return self._members
+    with tarfile.open(archive_path, "r") as archive:
+        extract_calls = []
+        monkeypatch.setattr(
+            archive,
+            "extractall",
+            lambda destination, members: extract_calls.append((destination, members)),
+        )
+        safe_extract_archive(archive, tmp_path / "extract")
 
-        def extractall(self, destination, members):
-            self.extract_calls.append((destination, members))
-
-    link = tarfile.TarInfo("plugins/link")
-    link.type = tarfile.SYMTYPE
-    link.linkname = "../target.dll"
-
-    archive = DummyTar([link])
-    safe_extract_tar(archive, tmp_path / "extract")
-
-    assert len(archive.extract_calls) == 1
+    assert len(extract_calls) == 1
 
 
-def test_safe_extract_tar_rejects_hardlink_targets_outside_destination(tmp_path):
+def test_safe_extract_archive_rejects_tar_hardlink_targets_outside_destination(tmp_path):
     archive = tmp_path / "archive-hardlink.tar"
     with tarfile.open(archive, "w") as tar:
         hardlink = tarfile.TarInfo("hardlink")
@@ -400,7 +400,42 @@ def test_safe_extract_tar_rejects_hardlink_targets_outside_destination(tmp_path)
 
     with tarfile.open(archive, "r") as tar:
         with pytest.raises(RuntimeError, match="Unsafe tar link target detected"):
-            safe_extract_tar(tar, tmp_path / "extract")
+            safe_extract_archive(tar, tmp_path / "extract")
+
+
+def test_safe_extract_archive_rejects_zip_path_traversal(tmp_path):
+    archive_path = tmp_path / "archive.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("../outside.txt", "unsafe")
+
+    with zipfile.ZipFile(archive_path, "r") as archive:
+        with pytest.raises(RuntimeError, match="Unsafe zip member path detected"):
+            safe_extract_archive(archive, tmp_path / "extract")
+
+
+def test_safe_extract_archive_extracts_regular_zip_members(tmp_path):
+    archive_path = tmp_path / "archive.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("plugins/readme.txt", "safe")
+
+    with zipfile.ZipFile(archive_path, "r") as archive:
+        safe_extract_archive(archive, tmp_path / "extract")
+
+    extracted = tmp_path / "extract" / "plugins" / "readme.txt"
+    assert extracted.read_text(encoding="utf-8") == "safe"
+
+
+def test_safe_extract_archive_rejects_zip_symlinks(tmp_path):
+    archive_path = tmp_path / "archive.zip"
+    link = zipfile.ZipInfo("plugins/link")
+    link.create_system = 3
+    link.external_attr = (stat.S_IFLNK | 0o777) << 16
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr(link, "../outside")
+
+    with zipfile.ZipFile(archive_path, "r") as archive:
+        with pytest.raises(RuntimeError, match="Unsupported zip special member detected"):
+            safe_extract_archive(archive, tmp_path / "extract")
 
 
 def test_prepare_runtime_env_falls_back_when_xdg_runtime_dir_is_file(monkeypatch, tmp_path):
@@ -465,7 +500,7 @@ def test_ensure_steamcmd_reinstalls_when_linux32_is_file(monkeypatch, tmp_path):
     monkeypatch.setattr(runtime_steamcmd, "STEAMCMD_DIR", str(steamcmd_dir))
     monkeypatch.setattr(runtime_steamcmd.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(runtime_steamcmd.tarfile, "open", lambda *_args, **_kwargs: DummyTar())
-    monkeypatch.setattr(runtime_steamcmd, "safe_extract_tar", fake_extract)
+    monkeypatch.setattr(runtime_steamcmd, "safe_extract_archive", fake_extract)
 
     runtime_steamcmd.ensure_steamcmd(logging.getLogger("test-steamcmd"))
 

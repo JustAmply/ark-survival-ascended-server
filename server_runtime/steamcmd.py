@@ -8,7 +8,7 @@ import tarfile
 import urllib.request
 from pathlib import Path
 
-from .archive_utils import safe_extract_tar
+from .archive_utils import safe_extract_archive
 from .constants import SERVER_FILES_DIR, STEAM_APP_ID, STEAMCMD_DIR
 
 
@@ -31,7 +31,7 @@ def ensure_steamcmd(logger: logging.Logger) -> None:
                 break
             out_file.write(chunk)
     with tarfile.open(archive_path, "r:gz") as tar:
-        safe_extract_tar(tar, Path(STEAMCMD_DIR))
+        safe_extract_archive(tar, Path(STEAMCMD_DIR))
     archive_path.unlink(missing_ok=True)
 
 

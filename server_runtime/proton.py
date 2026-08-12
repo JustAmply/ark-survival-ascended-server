@@ -15,7 +15,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-from .archive_utils import safe_extract_tar
+from .archive_utils import safe_extract_archive
 from .constants import (
     ASA_COMPAT_DATA,
     FALLBACK_PROTON_VERSION,
@@ -185,7 +185,7 @@ def install_proton_if_needed(version: str, logger: logging.Logger) -> str:
             logger.warning("Skipping Proton checksum verification (PROTON_SKIP_CHECKSUM=1).")
 
         with tarfile.open(archive, "r:gz") as tar:
-            safe_extract_tar(tar, proton_dir.parent)
+            safe_extract_archive(tar, proton_dir.parent)
 
     return proton_dir_name
 
