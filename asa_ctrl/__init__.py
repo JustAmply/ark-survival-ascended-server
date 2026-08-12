@@ -26,6 +26,7 @@ __all__ = [
 	"ModDatabase",
 	"format_mod_list_for_server",
 	"execute_rcon_command",
+	"RconClient",
 	"AsaSettings",
 	"StartParamsHelper",
 	"IniConfigHelper",

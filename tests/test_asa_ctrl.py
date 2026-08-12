@@ -573,7 +573,7 @@ def test_execute_rcon_command_uses_client(monkeypatch):
 
 
 def test_rcon_client_root_export_has_compatibility_path():
-    assert "RconClient" not in asa_ctrl_package.__all__
+    assert "RconClient" in asa_ctrl_package.__all__
     with pytest.warns(DeprecationWarning, match="asa_ctrl.RconClient is deprecated"):
         assert asa_ctrl_package.RconClient is RconClient
 
