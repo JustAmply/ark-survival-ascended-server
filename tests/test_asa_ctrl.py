@@ -24,6 +24,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+import asa_ctrl as asa_ctrl_package  # noqa: E402
 from asa_ctrl.core.mods import ModDatabase, ModRecord, format_mod_list_for_server  # noqa: E402
 from asa_ctrl.common.config import AsaSettings, StartParamsHelper, parse_start_params  # noqa: E402
 from asa_ctrl.common.constants import ExitCodes, get_mod_database_path  # noqa: E402
@@ -357,9 +358,7 @@ def test_rcon_validation():
     """Test RCON client validation functions."""
     print("Testing RCON validation...")
 
-    # Create client instance without initialization to test individual methods
-    client = RconClient.__new__(RconClient)
-    client.MAX_COMMAND_LENGTH = 1000
+    client = RconClient(port=27020, password="secret", retry_count=0)
 
     # Test IP validation
     assert client._validate_ip('127.0.0.1') == '127.0.0.1'
@@ -413,27 +412,6 @@ def test_rcon_validation():
         pass  # Expected
 
     print("OK RCON validation tests passed")
-
-
-def test_rcon_authenticate_failure_propagates_error():
-    """Ensure _authenticate raises when the server reports a failure."""
-
-    client = RconClient.__new__(RconClient)
-    client.password = "test"
-    client._authenticated = False
-    client._connected = True
-
-    def fake_send_packet(self, data, packet_type):
-        assert packet_type == RconPacketTypes.AUTH
-        return RconPacket(10, -1, RconPacketTypes.AUTH_RESPONSE, "")
-
-    client._send_packet = MethodType(fake_send_packet, client)
-
-    try:
-        client._authenticate()
-        assert False, "_authenticate should raise RconAuthenticationError on -1 response ID"
-    except RconAuthenticationError:
-        assert client._authenticated is False
 
 
 def test_rcon_connect_propagates_auth_failure():
@@ -538,12 +516,9 @@ def test_rcon_identify_port_from_ini(tmp_path):
 
 
 def test_rcon_with_retry_resets_state(monkeypatch):
-    client = RconClient.__new__(RconClient)
-    client.retry_count = 1
-    client.retry_delay = 0.01
+    client = RconClient(port=27020, password="secret", retry_count=1, retry_delay=0.01)
     client._connected = True
     client._authenticated = True
-    client.socket = None
 
     def fail_once():
         raise RconTimeoutError("nope")
@@ -557,7 +532,7 @@ def test_rcon_with_retry_resets_state(monkeypatch):
 
 def test_rcon_receive_exact_reads_full_buffer():
     from unittest.mock import Mock
-    client = RconClient.__new__(RconClient)
+    client = RconClient(port=27020, password="secret", retry_count=0)
 
     mock_socket = Mock()
     mock_socket.recv.side_effect = [b"ab", b"cd"]
@@ -567,17 +542,18 @@ def test_rcon_receive_exact_reads_full_buffer():
 
 
 def test_rcon_execute_command_raises_on_invalid_command():
-    client = RconClient.__new__(RconClient)
     with pytest.raises(ValueError):
-        client.execute_command("")
+        execute_rcon_command("")
 
 
 def test_execute_rcon_command_uses_client(monkeypatch):
     responses = []
+    captured = {}
 
     class DummyClient:
-        def __init__(self, *_args, **_kwargs):
-            pass
+        def __init__(self, server_ip, *, settings=None):
+            captured["server_ip"] = server_ip
+            captured["settings"] = settings
 
         def __enter__(self):
             return self
@@ -590,8 +566,16 @@ def test_execute_rcon_command_uses_client(monkeypatch):
             return "ok"
 
     monkeypatch.setattr("asa_ctrl.core.rcon.RconClient", DummyClient)
-    assert execute_rcon_command("listplayers") == "ok"
+    settings = AsaSettings({})
+    assert execute_rcon_command("listplayers", "ark.local", settings=settings) == "ok"
     assert responses == ["listplayers"]
+    assert captured == {"server_ip": "ark.local", "settings": settings}
+
+
+def test_rcon_client_root_export_has_compatibility_path():
+    assert "RconClient" not in asa_ctrl_package.__all__
+    with pytest.warns(DeprecationWarning, match="asa_ctrl.RconClient is deprecated"):
+        assert asa_ctrl_package.RconClient is RconClient
 
 
 def test_cli_main_no_args_shows_help(capsys):
@@ -660,6 +644,14 @@ def test_ini_config_helper_missing_file_returns_none(tmp_path):
     from asa_ctrl.common.config import IniConfigHelper
 
     assert IniConfigHelper.parse_ini(str(missing)) is None
+
+
+def test_ini_config_helper_invalid_file_returns_none(tmp_path):
+    invalid = tmp_path / "invalid.ini"
+    invalid.write_text("missing section header", encoding="utf-8")
+    from asa_ctrl.common.config import IniConfigHelper
+
+    assert IniConfigHelper.parse_ini(str(invalid)) is None
 
 
 def main():  # pragma: no cover - simple runner

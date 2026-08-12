@@ -284,8 +284,8 @@ def test_shutdown_sequence_skips_delay_when_saveworld_fails(monkeypatch):
     sleep_calls = []
 
     monkeypatch.setattr(
-        "server_runtime.supervisor.subprocess.run",
-        lambda *_args, **_kwargs: Mock(returncode=1),
+        "server_runtime.supervisor.execute_rcon_command",
+        lambda _command: (_ for _ in ()).throw(runtime_supervisor.AsaCtrlError("offline")),
     )
     monkeypatch.setattr("server_runtime.supervisor.time.sleep", lambda seconds: sleep_calls.append(seconds))
 

@@ -49,7 +49,10 @@ class IniConfigHelper:
             return None
             
         config = configparser.ConfigParser(strict=False)
-        config.read(file_path)
+        try:
+            config.read(file_path)
+        except (OSError, configparser.Error):
+            return None
         return config
     
     @staticmethod

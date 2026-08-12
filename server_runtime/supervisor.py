@@ -12,6 +12,9 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from asa_ctrl.common.errors import AsaCtrlError
+from asa_ctrl.core.rcon import execute_rcon_command
+
 from .bootstrap import configure_timezone, ensure_machine_id, maybe_debug_hold
 from .constants import (
     ASA_BINARY_DIR,
@@ -164,14 +167,10 @@ class ServerSupervisor:
 
     def _send_saveworld(self) -> bool:
         try:
-            result = subprocess.run(
-                [ASA_CTRL_BIN, "rcon", "--exec", "saveworld"],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            ok = result.returncode == 0
-        except OSError:
+            execute_rcon_command("saveworld")
+            ok = True
+        except (AsaCtrlError, ValueError) as exc:
+            self.logger.debug("saveworld RCON failure: %s", exc)
             ok = False
 
         if ok:

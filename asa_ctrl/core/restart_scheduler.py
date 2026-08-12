@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import signal
-import subprocess
 import time
 import os
 from datetime import datetime, timedelta
@@ -11,7 +10,9 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
 from asa_ctrl.common.config import AsaSettings
+from asa_ctrl.common.errors import AsaCtrlError
 from asa_ctrl.common.logging_config import configure_logging, get_logger
+from asa_ctrl.core.rcon import execute_rcon_command
 
 
 MAX_SLEEP_INTERVAL_SECONDS = 30
@@ -226,16 +227,10 @@ def _is_process_alive(pid: Optional[int]) -> bool:
 
 
 def _run_rcon_command(command: str, logger, settings: AsaSettings) -> bool:
-    exe = settings.asa_ctrl_bin()
-    result = subprocess.run(
-        [exe, "rcon", "--exec", command],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        check=False,
-        text=True,
-    )
-    if result.returncode != 0:
-        logger.warning("Failed to execute RCON command '%s': %s", command, result.stderr.strip())
+    try:
+        execute_rcon_command(command, settings=settings)
+    except (AsaCtrlError, ValueError) as exc:
+        logger.warning("Failed to execute RCON command '%s': %s", command, exc)
         return False
     return True
 

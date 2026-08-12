@@ -115,6 +115,20 @@ def test_announce_helpers(monkeypatch):
     assert any("restarting now" in command for command in calls)
 
 
+def test_run_rcon_command_uses_command_interface(monkeypatch):
+    calls = []
+    settings = scheduler.AsaSettings({})
+
+    def fake_execute(command, *, settings):
+        calls.append((command, settings))
+        return "ok"
+
+    monkeypatch.setattr(scheduler, "execute_rcon_command", fake_execute)
+
+    assert scheduler._run_rcon_command("saveworld", scheduler.get_logger(__name__), settings) is True
+    assert calls == [("saveworld", settings)]
+
+
 def test_run_scheduler_no_cron_exits_quickly(monkeypatch):
     # Ensure the scheduler returns immediately when no cron is configured
     monkeypatch.setenv("SERVER_RESTART_CRON", "")
