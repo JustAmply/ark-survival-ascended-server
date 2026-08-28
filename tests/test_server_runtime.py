@@ -10,6 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from asa_ctrl.common import launch_config
 from server_runtime import bootstrap as runtime_bootstrap
 from server_runtime import logging_utils as runtime_logging
 from server_runtime import native_libs as runtime_native_libs
@@ -161,6 +162,98 @@ def test_prepare_start_params_skips_corrupt_mod_database(monkeypatch, tmp_path, 
 
     assert params == "Map?listen?ServerAdminPassword=secret -nosteam"
     assert "skipping mods injection" in caplog.text
+
+
+def test_prepare_start_params_merges_mods_into_an_existing_flag(monkeypatch, tmp_path):
+    """A -mods= flag in the start params must not be duplicated by mods.json."""
+    mods_path = tmp_path / "mods.json"
+    mods_path.write_text('[{"mod_id": 900, "enabled": true}]', encoding="utf-8")
+    monkeypatch.setenv("ASA_START_PARAMS", "Map?listen?ServerAdminPassword=x -mods=100,200")
+    monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(mods_path))
+    monkeypatch.setenv("ASA_GAME_USER_SETTINGS_PATH", str(tmp_path / "missing.ini"))
+    logger = logging.getLogger("test")
+
+    params = runtime_params.prepare_start_params(logger)
+
+    assert params == "Map?listen?ServerAdminPassword=x -mods=100,200,900 -nosteam"
+    assert params.count("-mods=") == 1
+
+
+def _clear_launch_env(monkeypatch):
+    for name in launch_config.LAUNCH_ENV_VARS + ("ASA_START_PARAMS",):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_prepare_start_params_from_discrete_env_only(monkeypatch, tmp_path):
+    _clear_launch_env(monkeypatch)
+    monkeypatch.setenv("ASA_MAP", "Ragnarok_WP")
+    monkeypatch.setenv("ASA_PORT", "7778")
+    monkeypatch.setenv("ASA_RCON_PORT", "27021")
+    monkeypatch.setenv("ASA_SERVER_ADMIN_PASSWORD", "s3cret")
+    monkeypatch.setenv("ASA_MAX_PLAYERS", "70")
+    monkeypatch.setenv("ASA_CLUSTER_ID", "mycluster")
+    monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(tmp_path / "mods.json"))
+    monkeypatch.setenv("ASA_GAME_USER_SETTINGS_PATH", str(tmp_path / "missing.ini"))
+    logger = logging.getLogger("test")
+
+    params = runtime_params.prepare_start_params(logger)
+
+    assert params == (
+        "Ragnarok_WP?listen?Port=7778?RCONPort=27021?RCONEnabled=True"
+        "?ServerAdminPassword=s3cret -WinLiveMaxPlayers=70 -clusterid=mycluster -nosteam"
+    )
+
+
+def test_prepare_start_params_discrete_env_overlays_legacy_line(monkeypatch, tmp_path):
+    """Existing stacks keep their line; a single knob can still be overridden."""
+    _clear_launch_env(monkeypatch)
+    monkeypatch.setenv(
+        "ASA_START_PARAMS",
+        "TheIsland_WP?listen?Port=7777?RCONPort=27020?ServerAdminPassword=old "
+        "-WinLiveMaxPlayers=50",
+    )
+    monkeypatch.setenv("ASA_SERVER_ADMIN_PASSWORD", "rotated")
+    monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(tmp_path / "mods.json"))
+    monkeypatch.setenv("ASA_GAME_USER_SETTINGS_PATH", str(tmp_path / "missing.ini"))
+    logger = logging.getLogger("test")
+
+    params = runtime_params.prepare_start_params(logger)
+
+    assert params == (
+        "TheIsland_WP?listen?Port=7777?RCONPort=27020?ServerAdminPassword=rotated "
+        "-WinLiveMaxPlayers=50 -nosteam"
+    )
+
+
+def test_prepare_start_params_leaves_legacy_line_untouched(monkeypatch, tmp_path):
+    """No discrete variable set - the launch line must survive verbatim."""
+    _clear_launch_env(monkeypatch)
+    legacy = (
+        "TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True"
+        "?ServerAdminPassword=change_this_password -WinLiveMaxPlayers=50 "
+        '-clusterid=default -ClusterDirOverride="/home/gameserver/cluster-shared" '
+        "-nosteam"
+    )
+    monkeypatch.setenv("ASA_START_PARAMS", legacy)
+    monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(tmp_path / "mods.json"))
+    monkeypatch.setenv("ASA_GAME_USER_SETTINGS_PATH", str(tmp_path / "missing.ini"))
+    logger = logging.getLogger("test")
+
+    assert runtime_params.prepare_start_params(logger) == legacy
+
+
+def test_prepare_start_params_extra_flags_escape_hatch(monkeypatch, tmp_path):
+    _clear_launch_env(monkeypatch)
+    monkeypatch.setenv("ASA_START_PARAMS", "Map?listen?ServerAdminPassword=x")
+    monkeypatch.setenv("ASA_EXTRA_FLAGS", "-servergamelog")
+    monkeypatch.setenv("ASA_BATTLEYE", "false")
+    monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(tmp_path / "mods.json"))
+    monkeypatch.setenv("ASA_GAME_USER_SETTINGS_PATH", str(tmp_path / "missing.ini"))
+    logger = logging.getLogger("test")
+
+    params = runtime_params.prepare_start_params(logger)
+
+    assert params == "Map?listen?ServerAdminPassword=x -NoBattlEye -servergamelog -nosteam"
 
 
 def test_resolve_proton_version_detected_latest(monkeypatch):

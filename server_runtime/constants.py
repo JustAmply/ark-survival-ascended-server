@@ -5,6 +5,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from asa_ctrl.common.constants import (
+    DEFAULT_LAUNCH_BASE,  # noqa: F401  (re-exported for runtime consumers)
+    DEFAULT_START_PARAMS,  # noqa: F401  (re-exported for runtime consumers)
+)
+from asa_ctrl.common.launch_config import coerce_bool, coerce_int
+
 
 TARGET_UID = 25000
 TARGET_GID = 25000
@@ -26,10 +32,6 @@ STEAM_COMPAT_DIR = f"{STEAM_HOME_DIR}/compatibilitytools.d"
 ASA_BINARY_NAME = "ArkAscendedServer.exe"
 ASA_PLUGIN_BINARY_NAME = "AsaApiLoader.exe"
 FALLBACK_PROTON_VERSION = "10-34"
-DEFAULT_START_PARAMS = (
-    "TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?"
-    "ServerAdminPassword=changeme"
-)
 
 PID_FILE = "/home/gameserver/.asa-server.pid"
 SUPERVISOR_PID_FILE = "/home/gameserver/.asa-supervisor.pid"
@@ -40,20 +42,13 @@ PROTON_REPO = "GloriousEggroll/proton-ge-custom"
 
 
 def env_bool(key: str, default: bool = False) -> bool:
-    value = os.environ.get(key)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    """Read a boolean runtime switch from the process environment."""
+    return coerce_bool(os.environ.get(key), default)
 
 
 def env_int(key: str, default: int) -> int:
-    value = os.environ.get(key)
-    if not value:
-        return default
-    try:
-        return int(value)
-    except ValueError:
-        return default
+    """Read an integer runtime setting from the process environment."""
+    return coerce_int(os.environ.get(key), default)
 
 
 @dataclass
