@@ -6,15 +6,17 @@ Focus: Maintain a lean Dockerized ARK: Survival Ascended server image with a zer
 * Runtime is a Docker image built from `Dockerfile`; its current `FROM` line is the source of truth for the base OS and Python version. Inspect it before making base-specific changes.
 * Entry point: standalone Python runtime package `server_runtime` (`python -m server_runtime`) – handles timezone sync (`TZ`), optional debug sleep, permission fix (runs as root first, then drops to UID/GID 25000), SteamCMD validation, Proton install/version resolution, default admin password enforcement / start param fallback, dynamic mods injection, forced `-nosteam`, optional plugin loader, log streaming, and supervised server launch via Proton (with restart scheduler support).
 * Control/utility layer: Python package `asa_ctrl` (mounted at `/usr/share/asa_ctrl`, executed via wrapper `/usr/local/bin/asa-ctrl`). Provides:
-  * RCON execution (`rcon.py`) – auto-detects password & port from `ASA_START_PARAMS` or INI files.
+  * RCON execution (`rcon.py`) – auto-detects password & port through `AsaSettings`, i.e. discrete `ASA_*` variables, then `ASA_START_PARAMS`, then INI files.
   * Mod management (`mods.py`) – JSON database at `/home/gameserver/server-files/mods.json` enabling dynamic `-mods=` string injection (`asa-ctrl mods-string`).
-  * Config parsing (`config.py`) for start params + INI helpers; start params env var is `ASA_START_PARAMS`.
+  * Launch line ownership (`common/launch_config.py`) – `LaunchConfiguration` parses, overlays and renders the server launch line; the single owner of that contract. See `CONTEXT.md` for the vocabulary and `docs/adr/0001-*` for the design decision.
+  * Config seam (`common/config.py`) – `AsaSettings` is the only place asa_ctrl reads the environment; launch-line questions delegate to `LaunchConfiguration`.
   * Restart scheduler (`core/restart_scheduler.py`) – cron-based warnings + supervisor signalling (`restart-scheduler` CLI) governed by server PID files + env.
   * Lightweight logging (`logging_config.py`) controlled by `ASA_LOG_LEVEL`.
-* `docker-compose.yml` supplies environment (`ASA_START_PARAMS`, `ENABLE_DEBUG`, cluster + ports) and named volumes (Steam, steamcmd, server-files, cluster-shared).
+* `docker-compose.yml` supplies environment (discrete `ASA_*` launch variables, `ENABLE_DEBUG`, cluster + ports) and named volumes (Steam, steamcmd, server-files, cluster-shared). `docker-compose.dev.yml` deliberately stays on the legacy `ASA_START_PARAMS` string so the backward-compatible path keeps being exercised.
 
 ### 2. Key Environment & Behavior Switches
-* `ASA_START_PARAMS` – authoritative launch flags; runtime appends dynamic mods, enforces `-nosteam`, and injects a default `ServerAdminPassword` (or a full default map payload) when absent.
+* `ASA_START_PARAMS` – the *base* launch line; runtime merges dynamic mods, enforces `-nosteam`, and injects a default `ServerAdminPassword` (or a full default map payload) when absent.
+* Discrete launch variables – `ASA_MAP`, `ASA_SESSION_NAME`, `ASA_PORT`, `ASA_RCON_PORT`, `ASA_RCON_ENABLED`, `ASA_SERVER_ADMIN_PASSWORD`, `ASA_SERVER_PASSWORD`, `ASA_SPECTATOR_PASSWORD`, `ASA_MAX_PLAYERS`, `ASA_CLUSTER_ID`, `ASA_CLUSTER_DIR`, `ASA_MODS`, `ASA_BATTLEYE`, plus the `ASA_EXTRA_QUERY_PARAMS` / `ASA_EXTRA_FLAGS` escape hatches. They overlay `ASA_START_PARAMS` entry by entry. Precedence: extras > named vars > `ASA_START_PARAMS` > defaults.
 * `ENABLE_DEBUG=1` – container sleeps (no server launch) for interactive troubleshooting.
 * `PROTON_VERSION` – pin GE-Proton; omitted → auto-detect GitHub latest → fallback default (`10-34`).
 * `PROTON_SKIP_CHECKSUM=1` – bypass Proton archive hash verification (temporary / last resort).
@@ -27,6 +29,9 @@ Focus: Maintain a lean Dockerized ARK: Survival Ascended server image with a zer
 ### 3. Modification Guidelines
 * Maintain zero external Python deps; tests & features must rely only on stdlib (image size + simplicity guarantee).
 * When adding CLI subcommands: update `cli.py` (argparse), reuse `ExitCodes` in `constants.py`, raise custom errors from `errors.py` for consistent mapping, and export new public helpers in `__init__.py` if intended for programmatic use.
+* When adding a launch setting: add one entry to `QUERY_ENV_OVERRIDES` or `FLAG_ENV_OVERRIDES` in `common/launch_config.py`. The launcher, the CLI and RCON discovery pick it up automatically – do not parse `ASA_START_PARAMS` anywhere else.
+* When adding a runtime switch (not part of the launch line): add a field to `RuntimeSettings` in `server_runtime/constants.py` and read it from there rather than calling `os.environ` in the consuming module.
+* `LaunchConfiguration.parse(line).render() == line` is the backward-compatibility guarantee for existing stacks. Keep parsing structure preserving; anything that reorders or drops unknown tokens breaks it.
 * Preserve idempotent logging setup (`configure_logging()` can be safely called multiple times).
 * Avoid changing hard-coded filesystem layout constants unless also adjusting `server_runtime/constants.py` (paths tightly coupled with container dirs & volume mounts).
 * Restart scheduler is invoked via `asa-ctrl restart-scheduler` and relies on PID files + env wiring from the runtime supervisor; keep its interfaces stable.
@@ -40,7 +45,7 @@ Focus: Maintain a lean Dockerized ARK: Survival Ascended server image with a zer
 5. Update/validate app `2430930` server files via SteamCMD.
 6. Enforce `ServerAdminPassword` presence (append default or full default start params) before launch args.
 7. Proton version resolution → download (per-architecture release assets) → checksum validation (unless skipped) → launchability preflight with fallback to `FALLBACK_PROTON_VERSION` → compat data prep.
-8. Mod string injection (`asa-ctrl mods-string`) appended to `ASA_START_PARAMS` then force `-nosteam`.
+8. Launch line resolution (`LaunchConfiguration.from_env`): `ASA_START_PARAMS` as base, discrete `ASA_*` variables overlaid, `mods.json` ids merged into `-mods=`, then force `-nosteam`. The result is written back to `ASA_START_PARAMS` for child processes.
 9. Runtime prep (XDG paths + compat exports), plugin loader detection (zip starting with `AsaApi_` → unzip; choose `AsaApiLoader.exe`).
 10. Start log tailer and launch via Proton wrapper under `compatibilitytools.d` (supervisor handles crash/USR1 restarts with configured delay).
 Changing ordering can break cold start expectations; keep this sequence.
@@ -61,6 +66,7 @@ Changing ordering can break cold start expectations; keep this sequence.
 * Avoid printing extraneous stdout in `mods-string` (consumer expects raw token only).
 * Keep restart scheduler contract intact (env variables, PID files, `restart-scheduler` command) so scheduled restarts can signal the supervisor.
 * Preserve automatic `ServerAdminPassword` fallback and `-nosteam` injection; downstream logic assumes these guarantees.
+* Mods from `mods.json` are merged into a single `-mods=` flag; never append a second one.
 * Changing exit codes breaks existing automation relying on numeric values (cron / scripts). Add new codes only at the end.
 * Ensure any new environment variable feature has a sensible fallback so cold starts succeed with default `docker-compose.yml`.
 * Native libraries GE-Proton dlopens are declared in `server_runtime/native_libs.py`; add new ones there **and** to the `Dockerfile` apt list, since CI smoke-tests the built image against that list.
@@ -71,6 +77,7 @@ Changing ordering can break cold start expectations; keep this sequence.
 * Shutdown path triggers `saveworld` via RCON with configurable delays/timeouts; keep this graceful sequence intact.
 
 ### 9. Documentation Sync
-* If modifying user-facing behavior (env vars, CLI commands, start param construction), update `README.md` + `SETUP.md` (and FAQ if relevant) in the same PR to keep guidance accurate.
+* If modifying user-facing behavior (env vars, CLI commands, launch line construction), update `README.md` + `SETUP.md` (and FAQ if relevant) in the same PR to keep guidance accurate.
+* If you introduce or sharpen a domain term, add it to `CONTEXT.md` in the same change. Record load-bearing architectural decisions as an ADR in `docs/adr/`.
 
 Use these rules to stay aligned with the lean, dependency-free design and predictable container lifecycle.

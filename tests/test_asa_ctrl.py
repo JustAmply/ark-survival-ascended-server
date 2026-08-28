@@ -485,6 +485,34 @@ def test_rcon_identify_password_from_start_params():
     assert client.password == "fromparams"
 
 
+def test_rcon_identify_password_from_discrete_env():
+    """asa-ctrl rcon must find the password when the stack uses ASA_SERVER_ADMIN_PASSWORD."""
+    settings = AsaSettings({"ASA_SERVER_ADMIN_PASSWORD": "fromenv"})
+    client = RconClient(port=27020, settings=settings)
+    assert client.password == "fromenv"
+
+
+def test_rcon_discrete_env_overrides_legacy_start_params():
+    settings = AsaSettings(
+        {
+            "ASA_START_PARAMS": "TheIsland_WP?listen?ServerAdminPassword=old?RCONPort=27020",
+            "ASA_SERVER_ADMIN_PASSWORD": "new",
+            "ASA_RCON_PORT": "27030",
+        }
+    )
+    client = RconClient(settings=settings)
+    assert client.password == "new"
+    assert client.port == 27030
+
+
+def test_rcon_identify_port_from_discrete_env():
+    settings = AsaSettings(
+        {"ASA_RCON_PORT": "27021", "ASA_SERVER_ADMIN_PASSWORD": "secret"}
+    )
+    client = RconClient(settings=settings)
+    assert client.port == 27021
+
+
 def test_rcon_identify_password_from_ini(tmp_path):
     ini_path = tmp_path / "GameUserSettings.ini"
     ini_path.write_text(

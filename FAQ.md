@@ -118,7 +118,7 @@ Find mod IDs on the mod's CurseForge page!
 
 ### **Q: How do I change the map?**
 
-**A:** Edit `ASA_START_PARAMS` in your `docker-compose.yml`:
+**A:** Set `ASA_MAP` in your `docker-compose.yml`:
 
 - **The Island**: `TheIsland_WP`
 - **Scorched Earth**: `ScorchedEarth_WP` 
@@ -130,7 +130,11 @@ Then restart: `docker compose up -d`
 
 ### **Q: How do I increase player limit?**
 
-**A:** Change `-WinLiveMaxPlayers=50` to your desired number in `ASA_START_PARAMS`, then restart.
+**A:** Set `ASA_MAX_PLAYERS` to your desired number, then restart.
+
+If your stack still uses the single-string `ASA_START_PARAMS`, either change
+`-WinLiveMaxPlayers=50` inside it or add `ASA_MAX_PLAYERS` alongside it - the
+variable overrides the value in the string.
 
 ### **Q: How do I use admin commands?**
 

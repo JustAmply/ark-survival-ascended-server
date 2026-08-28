@@ -67,17 +67,67 @@ This shows something like `SessionName=ARK #334850`. Search for that number in t
 
 ### 🎮 Customize Your Server
 
-Edit your `docker-compose.yml` file to customize:
+Set one environment variable per setting in your `docker-compose.yml`:
 
 ```yaml
 environment:
-  - ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50
+  ASA_MAP: TheIsland_WP
+  ASA_PORT: "7777"
+  ASA_RCON_PORT: "27020"
+  ASA_SERVER_ADMIN_PASSWORD: change_this_password
+  ASA_MAX_PLAYERS: "50"
 ```
 
-**Popular Changes:**
-- **🗺️ Change map**: Replace `TheIsland_WP` with `ScorchedEarth_WP`, `TheCenter_WP`, `Aberration_WP`, `Extinction_WP`
-- **🔢 Change ports**: Modify `Port=7777` and `RCONPort=27020`
-- **👥 Player limit**: Adjust `-WinLiveMaxPlayers=50`
+#### 🧩 Launch settings
+
+| Variable | Launch line entry | Default |
+| --- | --- | --- |
+| `ASA_MAP` | map name | `TheIsland_WP` |
+| `ASA_SESSION_NAME` | `?SessionName=` | – |
+| `ASA_PORT` | `?Port=` | `7777` |
+| `ASA_RCON_PORT` | `?RCONPort=` | `27020` |
+| `ASA_RCON_ENABLED` | `?RCONEnabled=` | `True` |
+| `ASA_SERVER_ADMIN_PASSWORD` | `?ServerAdminPassword=` | `changeme` |
+| `ASA_SERVER_PASSWORD` | `?ServerPassword=` | – |
+| `ASA_SPECTATOR_PASSWORD` | `?SpectatorPassword=` | – |
+| `ASA_MAX_PLAYERS` | `-WinLiveMaxPlayers=` | – |
+| `ASA_CLUSTER_ID` | `-clusterid=` | – |
+| `ASA_CLUSTER_DIR` | `-ClusterDirOverride=` | – |
+| `ASA_MODS` | `-mods=` | – |
+| `ASA_BATTLEYE` | adds `-NoBattlEye` when `false` | – |
+| `ASA_EXTRA_QUERY_PARAMS` | raw `?Key=Value?…` appended | – |
+| `ASA_EXTRA_FLAGS` | raw `-flag …` appended | – |
+
+Anything without a dedicated variable goes through the escape hatches:
+
+```yaml
+environment:
+  ASA_EXTRA_QUERY_PARAMS: "AllowFlyerCarry=True?ForceRespawnDinos=True"
+  ASA_EXTRA_FLAGS: "-servergamelog -NoTransferFromFiltering"
+```
+
+#### 🧵 Using `ASA_START_PARAMS` (still supported)
+
+The single-string launch line keeps working exactly as before:
+
+```yaml
+environment:
+  ASA_START_PARAMS: TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50
+```
+
+It can also be combined with the variables above. `ASA_START_PARAMS` provides
+the base launch line and each variable replaces the matching entry in place,
+leaving everything else untouched — handy for rotating a password or moving one
+cluster member to a new port.
+
+**Precedence**, highest first:
+
+1. `ASA_EXTRA_QUERY_PARAMS` / `ASA_EXTRA_FLAGS`
+2. the named `ASA_*` variables
+3. `ASA_START_PARAMS`
+4. built-in defaults
+
+**Other options:**
 - **🕒 Timezone**: Set `TZ=Europe/Berlin` (or your region) so server logs follow your local time (default: `UTC`)
 
 ### 📂 File Locations
@@ -131,12 +181,13 @@ docker restart asa-server-1
 ```
 
 **⚡ Static Method:**
-Add `-mods=12345,67891` to your `ASA_START_PARAMS` in `docker-compose.yml`.
+Set `ASA_MODS=12345,67891` in `docker-compose.yml`. Ids from `mods.json` are
+merged into the same `-mods=` flag, duplicates dropped.
 
 ### 🗺️ Custom Maps
 1. Find the mod ID on CurseForge
 2. Enable the map mod: `docker exec asa-server-1 asa-ctrl mods enable MOD_ID`
-3. Change map name in `ASA_START_PARAMS`: `MapName_WP?listen...`
+3. Set the map name: `ASA_MAP=MapName_WP`
 4. Restart server
 
 ### 🎯 RCON Commands
@@ -157,7 +208,7 @@ Want multiple servers where players can transfer characters and dinos?
 
 1. **Uncomment the second server** in your `docker-compose.yml`
 2. **Start both servers**: `docker compose up -d`
-3. **Different cluster ID**: Change `-clusterid=default` to something unique like `-clusterid=MySecretCluster`
+3. **Different cluster ID**: Change `ASA_CLUSTER_ID: default` to something unique like `ASA_CLUSTER_ID: MySecretCluster`
 
 Each additional server gets its own ports (7778, 7779, etc.) and storage volumes.
 

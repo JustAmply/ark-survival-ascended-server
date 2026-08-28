@@ -68,28 +68,51 @@ Ideal for modded gameplay:
 
 ## 🔧 Basic Configuration
 
-Before starting your server, you can customize it by editing the `docker-compose.yml` file:
+Configure the server with one environment variable per setting in your `docker-compose.yml`:
 
 ```yaml
 environment:
-  # Change map, ports, and player limit
-  - ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50
+  ASA_MAP: TheIsland_WP
+  ASA_PORT: "7777"
+  ASA_RCON_PORT: "27020"
+  ASA_SERVER_ADMIN_PASSWORD: change_this_password
+  ASA_MAX_PLAYERS: "50"
+  TZ: Europe/Berlin
 ```
 
 ### Popular Configuration Changes
 
-- **Change map**: Replace `TheIsland_WP` with `ScorchedEarth_WP`, `TheCenter_WP`, etc.
-- **Change ports**: Modify `Port=7777` and `RCONPort=27020`
-- **Player limit**: Adjust `-WinLiveMaxPlayers=50`
-- **Timezone**: Add `TZ=Europe/Berlin` (or your region) to keep server logs and saves in local time (default: `UTC`)
+- **Change map**: `ASA_MAP=ScorchedEarth_WP` (or `TheCenter_WP`, `Aberration_WP`, `Extinction_WP`, …)
+- **Change ports**: `ASA_PORT=7777`, `ASA_RCON_PORT=27020`
+- **Player limit**: `ASA_MAX_PLAYERS=50`
+- **Admin password**: `ASA_SERVER_ADMIN_PASSWORD=…` — keep it out of the compose file with an `.env` file
+- **Timezone**: `TZ=Europe/Berlin` (or your region) to keep server logs and saves in local time (default: `UTC`)
+
+See [SETUP.md](SETUP.md#-server-configuration) for the full list.
+
+### Already using `ASA_START_PARAMS`?
+
+Nothing changes — keep it. The single-string launch line is still fully
+supported and stays the way to express the long tail of ARK launch options:
+
+```yaml
+environment:
+  ASA_START_PARAMS: TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50
+```
+
+You can also mix the two: `ASA_START_PARAMS` provides the base launch line and
+any `ASA_*` variable you set overrides the matching entry. That makes it easy to
+rotate just the admin password, or move one server in a cluster to a new port,
+without touching the rest of the string.
 
 ## 🎮 Server Management
 
 ### Add Mods
 
-Simple modify the `ASA_START_PARAMS` in the `docker-compose.yml` to include mods `-mods=12345,67891`:
+Set `ASA_MODS` in the `docker-compose.yml`:
 ```yaml
-- ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50 -mods=12345,67891
+environment:
+  ASA_MODS: "12345,67891"
 ```
 
 Changing this list requires editing the compose file and recreating/restarting the container.
@@ -110,7 +133,7 @@ docker exec asa-server-1 asa-ctrl mods remove 12345
 docker restart asa-server-1
 ```
 
-Mixing both methods is safe: statically defined mods are merged with dynamically enabled ones (duplicates are ignored by the game server).
+Mixing both methods is safe: statically defined mods are merged with dynamically enabled ones into a single `-mods=` flag, and duplicates are dropped.
 
 ### RCON Commands
 ```bash
