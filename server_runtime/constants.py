@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Mapping, Optional
 
 from asa_ctrl.common.constants import (
-    DEFAULT_LAUNCH_BASE,  # noqa: F401  (re-exported for runtime consumers)
     DEFAULT_START_PARAMS,  # noqa: F401  (re-exported for runtime consumers)
 )
 from asa_ctrl.common.launch_config import coerce_bool, coerce_int
@@ -40,16 +39,6 @@ ASA_CTRL_BIN = "/usr/local/bin/asa-ctrl"
 PRIVS_DROPPED_ENV = "START_SERVER_PRIVS_DROPPED"
 
 PROTON_REPO = "GloriousEggroll/proton-ge-custom"
-
-
-def env_bool(key: str, default: bool = False) -> bool:
-    """Read a boolean runtime switch from the process environment."""
-    return coerce_bool(os.environ.get(key), default)
-
-
-def env_int(key: str, default: int) -> int:
-    """Read an integer runtime setting from the process environment."""
-    return coerce_int(os.environ.get(key), default)
 
 
 DEFAULT_RESTART_WARNINGS = "30,5,1"
