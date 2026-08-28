@@ -26,65 +26,66 @@ from .launch_config import LaunchConfiguration
 
 def get_game_user_settings_path() -> str:
     """Resolve the GameUserSettings.ini path with env overrides."""
-    return os.environ.get("ASA_GAME_USER_SETTINGS_PATH", DEFAULT_GAME_USER_SETTINGS_PATH)
+    return AsaSettings().game_user_settings_path()
 
 
 def get_game_ini_path() -> str:
     """Resolve the Game.ini path with env overrides."""
-    return os.environ.get("ASA_GAME_INI_PATH", DEFAULT_GAME_INI_PATH)
+    return AsaSettings().game_ini_path()
 
 
 class IniConfigHelper:
-    """Helper for parsing INI configuration files."""
-    
+    """Helper for parsing INI configuration files.
+
+    `parse_ini` is the real work; the convenience lookups delegate to
+    `AsaSettings` so that path resolution and the ServerSettings lookup have a
+    single implementation.
+    """
+
     @staticmethod
     def parse_ini(file_path: str) -> Optional[configparser.ConfigParser]:
         """
         Parse an INI file and return a ConfigParser object.
-        
+
         Args:
             file_path: Path to the INI file
-            
+
         Returns:
             ConfigParser object or None if file doesn't exist
         """
         if not Path(file_path).exists():
             return None
-            
+
         config = configparser.ConfigParser(strict=False)
         try:
             config.read(file_path)
         except (OSError, configparser.Error):
             return None
         return config
-    
+
     @staticmethod
     def get_game_user_settings() -> Optional[configparser.ConfigParser]:
         """Get the GameUserSettings.ini configuration."""
-        return IniConfigHelper.parse_ini(get_game_user_settings_path())
-    
+        return IniConfigHelper.parse_ini(AsaSettings().game_user_settings_path())
+
     @staticmethod
     def get_game_ini() -> Optional[configparser.ConfigParser]:
         """Get the Game.ini configuration."""
-        return IniConfigHelper.parse_ini(get_game_ini_path())
-    
+        return IniConfigHelper.parse_ini(AsaSettings().game_ini_path())
+
     @staticmethod
     def get_server_setting(key: str, default: Optional[str] = None) -> Optional[str]:
         """
         Get a server setting from GameUserSettings.ini.
-        
+
         Args:
             key: The setting key to retrieve
             default: Default value if setting not found
-            
+
         Returns:
             The setting value or default
         """
-        config = IniConfigHelper.get_game_user_settings()
-        if not config or 'ServerSettings' not in config:
-            return default
-            
-        return config['ServerSettings'].get(key, default)
+        return AsaSettings().get_server_setting(key, default)
 
 
 class AsaSettings:
