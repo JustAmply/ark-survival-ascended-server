@@ -3,11 +3,23 @@ services:
     container_name: asa-server-1
     image: ghcr.io/justamply/asa-linux-server:latest
     environment:
-      ASA_START_PARAMS: >
-        TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?ServerAdminPassword=change_this_password
-        -WinLiveMaxPlayers=50 
-        -clusterid=default 
-        -ClusterDirOverride="/home/gameserver/cluster-shared"
+      # One variable per setting. See SETUP.md for the full list.
+      ASA_MAP: TheIsland_WP
+      ASA_PORT: "7777"
+      ASA_RCON_PORT: "27020"
+      ASA_SERVER_ADMIN_PASSWORD: change_this_password
+      ASA_MAX_PLAYERS: "50"
+      ASA_CLUSTER_ID: default
+      ASA_CLUSTER_DIR: /home/gameserver/cluster-shared
+      # Alternatively, keep using the single launch-line string. It is still
+      # fully supported and can be combined with the variables above, which
+      # override the matching entries:
+      #
+      # ASA_START_PARAMS: >
+      #   TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?ServerAdminPassword=change_this_password
+      #   -WinLiveMaxPlayers=50
+      #   -clusterid=default
+      #   -ClusterDirOverride="/home/gameserver/cluster-shared"
       ENABLE_DEBUG: "0"
       SERVER_RESTART_CRON: "0 4 * * *"
       TZ: "Europe/Berlin"
@@ -25,10 +37,16 @@ services:
 #    container_name: asa-server-2
 #    image: ghcr.io/justamply/asa-linux-server:latest
 #    environment:
-#      - ASA_START_PARAMS=ScorchedEarth_WP?listen?Port=7778?RCONPort=27021?RCONEnabled=True -WinLiveMaxPlayers=50 -clusterid=default -ClusterDirOverride="/home/gameserver/cluster-shared"
-#      - ENABLE_DEBUG=0
-#      - SERVER_RESTART_CRON=0 4 * * *
-#      - TZ=Europe/Berlin
+#      ASA_MAP: ScorchedEarth_WP
+#      ASA_PORT: "7778"
+#      ASA_RCON_PORT: "27021"
+#      ASA_SERVER_ADMIN_PASSWORD: change_this_password
+#      ASA_MAX_PLAYERS: "50"
+#      ASA_CLUSTER_ID: default
+#      ASA_CLUSTER_DIR: /home/gameserver/cluster-shared
+#      ENABLE_DEBUG: "0"
+#      SERVER_RESTART_CRON: "0 4 * * *"
+#      TZ: "Europe/Berlin"
 #    ports:
 #      # Game port for player connections through the server browser
 #      - 7778:7778/udp
