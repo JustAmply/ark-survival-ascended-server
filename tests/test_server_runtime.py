@@ -12,6 +12,7 @@ import pytest
 
 from server_runtime import bootstrap as runtime_bootstrap
 from server_runtime import logging_utils as runtime_logging
+from server_runtime import native_libs as runtime_native_libs
 from server_runtime import params as runtime_params
 from server_runtime import permissions as runtime_permissions
 from server_runtime import proton as runtime_proton
@@ -636,3 +637,253 @@ def test_ensure_machine_id_write_error_is_non_fatal(monkeypatch, tmp_path, caplo
     runtime_bootstrap.ensure_machine_id(logging.getLogger("test-machine-id-error"))
 
     assert "Failed to initialize /etc/machine-id" in caplog.text
+
+
+def _proton_env(monkeypatch):
+    monkeypatch.delenv("PROTON_VERSION", raising=False)
+    monkeypatch.delenv(runtime_proton.PROTON_VERSION_SOURCE_ENV, raising=False)
+    monkeypatch.delenv("PROTON_SKIP_PREFLIGHT", raising=False)
+
+
+def _write_proton_script(tmp_path, proton_dir_name):
+    proton_dir = tmp_path / proton_dir_name
+    proton_dir.mkdir(parents=True, exist_ok=True)
+    script = proton_dir / "proton"
+    script.write_text("stub", encoding="utf-8")
+    return script
+
+
+def test_asset_bases_prefer_plain_then_architecture(monkeypatch):
+    monkeypatch.setattr(runtime_proton.platform, "machine", lambda: "x86_64")
+    assert runtime_proton._asset_bases("11-5") == ["GE-Proton11-5", "GE-Proton11-5-x86_64"]
+
+    monkeypatch.setattr(runtime_proton.platform, "machine", lambda: "aarch64")
+    assert runtime_proton._asset_bases("11-5") == ["GE-Proton11-5", "GE-Proton11-5-aarch64"]
+
+
+def test_find_release_archive_falls_back_to_architecture_asset(monkeypatch):
+    monkeypatch.setattr(runtime_proton.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(
+        runtime_proton,
+        "_asset_exists",
+        lambda url: "GE-Proton11-5-x86_64" in url,
+    )
+
+    release = runtime_proton.find_release_archive("11-5")
+
+    assert release is not None
+    assert release.asset_base == "GE-Proton11-5-x86_64"
+    assert release.archive_url.endswith("/GE-Proton11-5-x86_64.tar.gz")
+    assert release.checksum_url.endswith("/GE-Proton11-5-x86_64.sha512sum")
+
+
+def test_find_release_archive_without_matching_assets(monkeypatch):
+    monkeypatch.setattr(runtime_proton, "_asset_exists", lambda _url: False)
+    assert runtime_proton.find_release_archive("11-5") is None
+
+
+def test_canonicalize_install_dir_renames_architecture_directory(tmp_path):
+    (tmp_path / "GE-Proton11-5-x86_64").mkdir()
+    release = runtime_proton.ReleaseArchive(
+        version="11-5",
+        asset_base="GE-Proton11-5-x86_64",
+        archive_url="https://example.invalid/a.tar.gz",
+        checksum_url="https://example.invalid/a.sha512sum",
+    )
+
+    runtime_proton._canonicalize_install_dir(tmp_path / "GE-Proton11-5", release)
+
+    assert (tmp_path / "GE-Proton11-5").is_dir()
+    assert not (tmp_path / "GE-Proton11-5-x86_64").exists()
+
+
+def test_canonicalize_install_dir_rejects_unexpected_layout(tmp_path):
+    release = runtime_proton.ReleaseArchive(
+        version="11-5",
+        asset_base="GE-Proton11-5-x86_64",
+        archive_url="https://example.invalid/a.tar.gz",
+        checksum_url="https://example.invalid/a.sha512sum",
+    )
+
+    with pytest.raises(RuntimeError, match="did not contain the expected"):
+        runtime_proton._canonicalize_install_dir(tmp_path / "GE-Proton11-5", release)
+
+
+def test_find_missing_proton_library_detects_missing_shared_object(monkeypatch, tmp_path):
+    _proton_env(monkeypatch)
+    _write_proton_script(tmp_path, "GE-Proton11-3")
+    monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(tmp_path))
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["env"] = kwargs["env"]
+        return Mock(
+            stdout="",
+            stderr="OSError: libvulkan.so.1: cannot open shared object file: No such file",
+        )
+
+    monkeypatch.setenv("STEAM_COMPAT_DATA_PATH", "/should/be/dropped")
+    monkeypatch.setattr(runtime_proton.subprocess, "run", fake_run)
+
+    missing = runtime_proton.find_missing_proton_library(
+        "GE-Proton11-3", logging.getLogger("test-preflight")
+    )
+
+    assert missing == "libvulkan.so.1"
+    assert "STEAM_COMPAT_DATA_PATH" not in captured["env"]
+
+
+def test_find_missing_proton_library_ignores_unrelated_failure(monkeypatch, tmp_path):
+    _proton_env(monkeypatch)
+    _write_proton_script(tmp_path, "GE-Proton11-3")
+    monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        runtime_proton.subprocess,
+        "run",
+        lambda command, **kwargs: Mock(stdout="Proton: No compat data path?", stderr=""),
+    )
+
+    assert (
+        runtime_proton.find_missing_proton_library(
+            "GE-Proton11-3", logging.getLogger("test-preflight")
+        )
+        is None
+    )
+
+
+def test_find_missing_proton_library_fails_open(monkeypatch, tmp_path):
+    _proton_env(monkeypatch)
+    _write_proton_script(tmp_path, "GE-Proton11-3")
+    monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(tmp_path))
+
+    def explode(command, **kwargs):
+        raise OSError("cannot spawn")
+
+    monkeypatch.setattr(runtime_proton.subprocess, "run", explode)
+
+    assert (
+        runtime_proton.find_missing_proton_library(
+            "GE-Proton11-3", logging.getLogger("test-preflight")
+        )
+        is None
+    )
+
+
+def test_find_missing_proton_library_can_be_skipped(monkeypatch, tmp_path):
+    _proton_env(monkeypatch)
+    _write_proton_script(tmp_path, "GE-Proton11-3")
+    monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(tmp_path))
+    monkeypatch.setenv("PROTON_SKIP_PREFLIGHT", "1")
+
+    def explode(command, **kwargs):  # pragma: no cover - must not be reached
+        raise AssertionError("preflight should be skipped")
+
+    monkeypatch.setattr(runtime_proton.subprocess, "run", explode)
+
+    assert (
+        runtime_proton.find_missing_proton_library(
+            "GE-Proton11-3", logging.getLogger("test-preflight")
+        )
+        is None
+    )
+
+
+def test_prepare_proton_returns_verified_install(monkeypatch):
+    _proton_env(monkeypatch)
+    monkeypatch.setattr(runtime_proton, "resolve_proton_version", lambda _logger: "11-3")
+    monkeypatch.setattr(
+        runtime_proton, "install_proton_if_needed", lambda version, _logger: f"GE-Proton{version}"
+    )
+    monkeypatch.setattr(runtime_proton, "find_missing_proton_library", lambda _name, _logger: None)
+
+    assert runtime_proton.prepare_proton(logging.getLogger("test-prepare")) == "GE-Proton11-3"
+
+
+def test_prepare_proton_falls_back_when_detected_build_is_unsupported(monkeypatch, caplog):
+    _proton_env(monkeypatch)
+    installed = []
+    monkeypatch.setattr(runtime_proton, "resolve_proton_version", lambda _logger: "11-3")
+
+    def fake_install(version, _logger):
+        installed.append(version)
+        return f"GE-Proton{version}"
+
+    def fake_missing(proton_dir_name, _logger):
+        return "libvulkan.so.1" if proton_dir_name == "GE-Proton11-3" else None
+
+    monkeypatch.setattr(runtime_proton, "install_proton_if_needed", fake_install)
+    monkeypatch.setattr(runtime_proton, "find_missing_proton_library", fake_missing)
+    caplog.set_level(logging.WARNING)
+
+    proton_dir_name = runtime_proton.prepare_proton(logging.getLogger("test-prepare"))
+
+    assert proton_dir_name == f"GE-Proton{runtime_proton.FALLBACK_PROTON_VERSION}"
+    assert installed == ["11-3", runtime_proton.FALLBACK_PROTON_VERSION]
+    assert os.environ["PROTON_VERSION"] == runtime_proton.FALLBACK_PROTON_VERSION
+    assert "libvulkan.so.1" in caplog.text
+
+
+def test_prepare_proton_does_not_swap_pinned_version(monkeypatch):
+    _proton_env(monkeypatch)
+    monkeypatch.setenv("PROTON_VERSION", "11-3")
+    monkeypatch.setattr(runtime_proton, "resolve_proton_version", lambda _logger: "11-3")
+    monkeypatch.setattr(
+        runtime_proton, "install_proton_if_needed", lambda version, _logger: f"GE-Proton{version}"
+    )
+    monkeypatch.setattr(
+        runtime_proton, "find_missing_proton_library", lambda _name, _logger: "libvulkan.so.1"
+    )
+
+    with pytest.raises(RuntimeError, match="Pinned GE-Proton11-3"):
+        runtime_proton.prepare_proton(logging.getLogger("test-prepare"))
+
+
+def test_resolve_proton_version_reuses_auto_detected_value(monkeypatch):
+    _proton_env(monkeypatch)
+    calls = []
+
+    def fake_fetch(url):
+        calls.append(url)
+        return {"tag_name": "GE-Proton11-3"}
+
+    monkeypatch.setattr(runtime_proton, "_fetch_json", fake_fetch)
+    monkeypatch.setattr(runtime_proton, "_check_release_assets", lambda _version: True)
+    logger = logging.getLogger("test-resolve")
+
+    assert runtime_proton.resolve_proton_version(logger) == "11-3"
+    assert os.environ[runtime_proton.PROTON_VERSION_SOURCE_ENV] == "auto"
+
+    assert runtime_proton.resolve_proton_version(logger) == "11-3"
+    assert len(calls) == 1
+
+
+def test_resolve_proton_version_marks_pinned_value(monkeypatch):
+    _proton_env(monkeypatch)
+    monkeypatch.setenv("PROTON_VERSION", "10-34")
+
+    version = runtime_proton.resolve_proton_version(logging.getLogger("test-resolve"))
+
+    assert version == "10-34"
+    assert os.environ[runtime_proton.PROTON_VERSION_SOURCE_ENV] == "pinned"
+
+
+def test_missing_native_libraries_reports_unloadable_entries(monkeypatch, caplog):
+    library = runtime_native_libs.NativeLibrary(
+        soname="libnot-there.so.1",
+        package="libnot-there1",
+        reason="test only",
+    )
+    monkeypatch.setattr(runtime_native_libs, "REQUIRED_NATIVE_LIBRARIES", (library,))
+    caplog.set_level(logging.WARNING)
+
+    missing = runtime_native_libs.warn_about_missing_native_libraries(
+        logging.getLogger("test-native-libs")
+    )
+
+    assert missing == [library]
+    assert "libnot-there1" in caplog.text
+
+
+def test_missing_native_libraries_accepts_loadable_entries(monkeypatch):
+    monkeypatch.setattr(runtime_native_libs, "_is_loadable", lambda _soname: True)
+    assert runtime_native_libs.missing_native_libraries() == []
