@@ -52,7 +52,7 @@ class ServerSupervisor:
         Path(SUPERVISOR_PID_FILE).write_text(f"{os.getpid()}\n", encoding="utf-8")
 
     def start_restart_scheduler(self) -> None:
-        cron = (os.environ.get("SERVER_RESTART_CRON") or "").strip()
+        cron = self.settings.server_restart_cron
         if not cron:
             return
         if not os.path.isfile(ASA_CTRL_BIN):
@@ -70,8 +70,9 @@ class ServerSupervisor:
         if self.restart_scheduler_process and self.restart_scheduler_process.poll() is None:
             return
 
-        warnings = (os.environ.get("SERVER_RESTART_WARNINGS") or "").strip()
-        os.environ["SERVER_RESTART_WARNINGS"] = warnings or "30,5,1"
+        # The scheduler runs as a child process and reads its own configuration
+        # from the environment, so the resolved values are exported here.
+        os.environ["SERVER_RESTART_WARNINGS"] = self.settings.restart_warnings_or_default()
         os.environ["ASA_SUPERVISOR_PID_FILE"] = SUPERVISOR_PID_FILE
         os.environ["ASA_SERVER_PID_FILE"] = PID_FILE
         self.restart_scheduler_process = subprocess.Popen([ASA_CTRL_BIN, "restart-scheduler"])
@@ -131,7 +132,7 @@ class ServerSupervisor:
     def _launch_server_once(self) -> int:
         update_server_files(self.logger)
         params = prepare_start_params(self.logger)
-        proton_dir_name = prepare_proton(self.logger)
+        proton_dir_name = prepare_proton(self.logger, self.settings)
         ensure_proton_compat_data(proton_dir_name, self.logger)
         self._prepare_runtime_env()
         launch_binary = resolve_launch_binary(self.logger)
@@ -278,8 +279,8 @@ class ServerSupervisor:
 
 
 def main() -> None:
-    logger = configure_runtime_logging()
     settings = RuntimeSettings.from_env()
+    logger = configure_runtime_logging(settings)
 
     if os.geteuid() == 0:
         configure_timezone(logger)

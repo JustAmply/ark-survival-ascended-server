@@ -26,6 +26,7 @@ from .constants import (
     PROTON_REPO,
     STEAM_COMPAT_DATA,
     STEAM_COMPAT_DIR,
+    RuntimeSettings,
 )
 from .native_libs import warn_about_missing_native_libraries
 
@@ -221,8 +222,13 @@ def _verify_sha512(archive_path: Path, checksum_path: Path) -> bool:
     return digest.hexdigest().lower() == expected.lower()
 
 
-def install_proton_if_needed(version: str, logger: logging.Logger) -> str:
+def install_proton_if_needed(
+    version: str,
+    logger: logging.Logger,
+    settings: Optional[RuntimeSettings] = None,
+) -> str:
     """Install Proton if missing and return installed directory name."""
+    settings = settings or RuntimeSettings.from_env()
     proton_dir_name = f"GE-Proton{version}"
     proton_dir = Path(STEAM_COMPAT_DIR) / proton_dir_name
     if proton_dir.exists():
@@ -255,7 +261,7 @@ def install_proton_if_needed(version: str, logger: logging.Logger) -> str:
         except urllib.error.URLError:
             checksum_ok = False
 
-        if not checksum_ok and os.environ.get("PROTON_SKIP_CHECKSUM") != "1":
+        if not checksum_ok and not settings.proton_skip_checksum:
             raise RuntimeError("Proton checksum verification failed")
         if not checksum_ok:
             logger.warning("Skipping Proton checksum verification (PROTON_SKIP_CHECKSUM=1).")
@@ -330,7 +336,9 @@ def find_missing_proton_library(proton_dir_name: str, logger: logging.Logger) ->
     return match.group(1) if match else None
 
 
-def prepare_proton(logger: logging.Logger) -> str:
+def prepare_proton(
+    logger: logging.Logger, settings: Optional[RuntimeSettings] = None
+) -> str:
     """Resolve, install and validate Proton; return the usable install directory.
 
     A newly published GE-Proton build may need host libraries this image does
@@ -339,9 +347,10 @@ def prepare_proton(logger: logging.Logger) -> str:
     fallback version.  An explicitly pinned ``PROTON_VERSION`` is never
     silently swapped.
     """
+    settings = settings or RuntimeSettings.from_env()
     pinned = _pinned_proton_version()
     version = resolve_proton_version(logger)
-    proton_dir_name = install_proton_if_needed(version, logger)
+    proton_dir_name = install_proton_if_needed(version, logger, settings)
 
     missing = find_missing_proton_library(proton_dir_name, logger)
     if not missing:
@@ -369,7 +378,9 @@ def prepare_proton(logger: logging.Logger) -> str:
         "Falling back to known good GE-Proton%s; set PROTON_VERSION to override.",
         FALLBACK_PROTON_VERSION,
     )
-    fallback_dir_name = install_proton_if_needed(FALLBACK_PROTON_VERSION, logger)
+    fallback_dir_name = install_proton_if_needed(
+        FALLBACK_PROTON_VERSION, logger, settings
+    )
     fallback_missing = find_missing_proton_library(fallback_dir_name, logger)
     if fallback_missing:
         raise RuntimeError(

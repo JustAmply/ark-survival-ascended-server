@@ -37,11 +37,46 @@ def test_runtime_settings_defaults(monkeypatch):
     assert settings.shutdown_timeout == 180
 
 
+def test_runtime_settings_read_from_a_plain_mapping():
+    """The whole runtime contract resolves without touching os.environ."""
+    settings = RuntimeSettings.from_env(
+        {
+            "ENABLE_DEBUG": "yes",
+            "SERVER_RESTART_CRON": " 0 4 * * * ",
+            "SERVER_RESTART_WARNINGS": "60,10",
+            "SERVER_RESTART_DELAY": "30",
+            "ASA_SHUTDOWN_SAVEWORLD_DELAY": "5",
+            "ASA_SHUTDOWN_TIMEOUT": "not-a-number",
+            "PROTON_VERSION": "9-20",
+            "PROTON_SKIP_CHECKSUM": "1",
+            "ASA_LOG_LEVEL": "debug",
+            "TZ": "Europe/Berlin",
+        }
+    )
+
+    assert settings.enable_debug is True
+    assert settings.server_restart_cron == "0 4 * * *"
+    assert settings.restart_warnings_or_default() == "60,10"
+    assert settings.server_restart_delay == 30
+    assert settings.shutdown_saveworld_delay == 5
+    assert settings.shutdown_timeout == 180  # falls back on garbage
+    assert settings.proton_version == "9-20"
+    assert settings.proton_skip_checksum is True
+    assert settings.log_level == "DEBUG"
+    assert settings.timezone == "Europe/Berlin"
+
+
+def test_runtime_settings_restart_warnings_default():
+    assert RuntimeSettings.from_env({}).restart_warnings_or_default() == "30,5,1"
+
+
 def test_main_preserves_startup_order_and_cleans_up_after_failure(monkeypatch):
     events = []
     logger = logging.getLogger("test-main-lifecycle")
 
-    monkeypatch.setattr(runtime_supervisor, "configure_runtime_logging", lambda: logger)
+    monkeypatch.setattr(
+        runtime_supervisor, "configure_runtime_logging", lambda settings=None: logger
+    )
     monkeypatch.setattr(runtime_supervisor.os, "geteuid", lambda: 0, raising=False)
     monkeypatch.setattr(
         runtime_supervisor,
