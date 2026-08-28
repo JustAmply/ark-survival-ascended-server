@@ -920,7 +920,9 @@ def test_prepare_proton_returns_verified_install(monkeypatch):
     _proton_env(monkeypatch)
     monkeypatch.setattr(runtime_proton, "resolve_proton_version", lambda _logger: "11-3")
     monkeypatch.setattr(
-        runtime_proton, "install_proton_if_needed", lambda version, _logger: f"GE-Proton{version}"
+        runtime_proton,
+        "install_proton_if_needed",
+        lambda version, _logger, _settings=None: f"GE-Proton{version}",
     )
     monkeypatch.setattr(runtime_proton, "find_missing_proton_library", lambda _name, _logger: None)
 
@@ -932,7 +934,7 @@ def test_prepare_proton_falls_back_when_detected_build_is_unsupported(monkeypatc
     installed = []
     monkeypatch.setattr(runtime_proton, "resolve_proton_version", lambda _logger: "11-3")
 
-    def fake_install(version, _logger):
+    def fake_install(version, _logger, _settings=None):
         installed.append(version)
         return f"GE-Proton{version}"
 
@@ -956,7 +958,9 @@ def test_prepare_proton_does_not_swap_pinned_version(monkeypatch):
     monkeypatch.setenv("PROTON_VERSION", "11-3")
     monkeypatch.setattr(runtime_proton, "resolve_proton_version", lambda _logger: "11-3")
     monkeypatch.setattr(
-        runtime_proton, "install_proton_if_needed", lambda version, _logger: f"GE-Proton{version}"
+        runtime_proton,
+        "install_proton_if_needed",
+        lambda version, _logger, _settings=None: f"GE-Proton{version}",
     )
     monkeypatch.setattr(
         runtime_proton, "find_missing_proton_library", lambda _name, _logger: "libvulkan.so.1"
