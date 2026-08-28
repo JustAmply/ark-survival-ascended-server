@@ -35,6 +35,17 @@ MOD_DATABASE_PATH = DEFAULT_MOD_DATABASE_PATH
 GAME_USER_SETTINGS_PATH = '/home/gameserver/server-files/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini'
 GAME_INI_PATH = '/home/gameserver/server-files/ShooterGame/Saved/Config/WindowsServer/Game.ini'
 
+# Launch line defaults. DEFAULT_LAUNCH_BASE is the seed used when a stack
+# configures the server purely through discrete ASA_* variables; the admin
+# password is appended separately so the "missing password" warning still fires.
+DEFAULT_ADMIN_PASSWORD = "changeme"
+DEFAULT_LAUNCH_BASE = (
+    "TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True"
+)
+DEFAULT_START_PARAMS = (
+    f"{DEFAULT_LAUNCH_BASE}?ServerAdminPassword={DEFAULT_ADMIN_PASSWORD}"
+)
+
 
 def get_mod_database_path():
     """
