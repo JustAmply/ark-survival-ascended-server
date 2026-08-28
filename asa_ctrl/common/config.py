@@ -1,11 +1,13 @@
 """Configuration parsing utilities for ASA Control.
 
-Enhancements in refactor:
-* Added `parse_start_params` returning a structured mapping of key/values
-* Added environment variable overrides for INI lookup paths:
+`AsaSettings` is the seam between the process environment and the rest of the
+package: every environment lookup that asa-ctrl performs goes through it, and
+every question about the server's launch line is delegated to
+`asa_ctrl.common.launch_config.LaunchConfiguration`.
+
+Environment variable overrides for INI lookup paths:
     - `ASA_GAME_USER_SETTINGS_PATH`
     - `ASA_GAME_INI_PATH`
-* Defensive parsing + minimal caching (can be expanded if needed)
 """
 
 import os
@@ -19,6 +21,7 @@ from .constants import (
     GAME_INI_PATH as DEFAULT_GAME_INI_PATH,
     GAME_USER_SETTINGS_PATH as DEFAULT_GAME_USER_SETTINGS_PATH,
 )
+from .launch_config import LaunchConfiguration
 
 
 def get_game_user_settings_path() -> str:
@@ -126,57 +129,27 @@ class AsaSettings:
             return default
         return config['ServerSettings'].get(key, default)
 
+    def launch_configuration(self) -> LaunchConfiguration:
+        """Resolve the effective launch line for this environment.
+
+        The legacy `ASA_START_PARAMS` string forms the base; discrete `ASA_*`
+        variables are overlaid on top of it.
+        """
+        return LaunchConfiguration.from_env(self._environ)
+
     def get_start_param_value(self, key: str) -> Optional[str]:
-        return self._get_start_param_value(self.start_params(), key)
+        return self.launch_configuration().value(key)
 
     def parse_start_params(self) -> Dict[str, str]:
-        return self._parse_start_params(self.start_params())
+        return self.launch_configuration().as_mapping()
 
     @staticmethod
     def _get_start_param_value(start_params: Optional[str], key: str) -> Optional[str]:
-        if not start_params:
-            return None
-
-        key_pattern = f"{key}="
-        offset = start_params.find(key_pattern)
-
-        if offset == -1:
-            return None
-
-        offset += len(key_pattern)
-        value = ""
-
-        for char in start_params[offset:]:
-            if char in [' ', '?']:
-                break
-            value += char
-
-        return value
+        return LaunchConfiguration.parse(start_params).value(key)
 
     @staticmethod
     def _parse_start_params(start_params: Optional[str]) -> Dict[str, str]:
-        result: Dict[str, str] = {}
-        if not start_params:
-            return result
-
-        space_tokens = start_params.split()
-        if not space_tokens:
-            return result
-
-        first = space_tokens[0]
-        parts = first.split('?')
-        if parts:
-            result['_map'] = parts[0]
-            for seg in parts[1:]:
-                if '=' in seg:
-                    k, v = seg.split('=', 1)
-                    result[k] = v
-
-        for token in space_tokens[1:]:
-            if token.startswith('-') and '=' in token:
-                k, v = token[1:].split('=', 1)
-                result[k] = v.strip('"')
-        return result
+        return LaunchConfiguration.parse(start_params).as_mapping()
 
 
 class StartParamsHelper:
@@ -184,9 +157,9 @@ class StartParamsHelper:
 
     @staticmethod
     def get_value(start_params: Optional[str], key: str) -> Optional[str]:
-        return AsaSettings._get_start_param_value(start_params, key)
+        return LaunchConfiguration.parse(start_params).value(key)
 
 
 def parse_start_params(start_params: Optional[str]) -> Dict[str, str]:
     """Compatibility wrapper for start parameter parsing."""
-    return AsaSettings._parse_start_params(start_params)
+    return LaunchConfiguration.parse(start_params).as_mapping()

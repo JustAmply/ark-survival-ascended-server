@@ -246,6 +246,8 @@ class LaunchConfiguration:
 
     def as_mapping(self) -> Dict[str, str]:
         """Flatten into a plain mapping (map name under the ``_map`` key)."""
+        if self.is_empty():
+            return {}
         result: Dict[str, str] = {"_map": self.map_name}
         for entry in self.query:
             if entry.value is not None:
