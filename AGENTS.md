@@ -18,6 +18,7 @@ Focus: Maintain a lean Dockerized ARK: Survival Ascended server image with a zer
 * `ENABLE_DEBUG=1` – container sleeps (no server launch) for interactive troubleshooting.
 * `PROTON_VERSION` – pin GE-Proton; omitted → auto-detect GitHub latest → fallback default (`8-21`).
 * `PROTON_SKIP_CHECKSUM=1` – bypass Proton archive hash verification (temporary / last resort).
+* `PROTON_SKIP_PREFLIGHT=1` – skip the pre-launch check that the installed Proton build can load its host libraries.
 * `SERVER_RESTART_CRON` / `SERVER_RESTART_WARNINGS` / `SERVER_RESTART_DELAY` – enable built-in scheduler, warning cadence, and relaunch delay.
 * `ASA_SHUTDOWN_SAVEWORLD_DELAY` / `ASA_SHUTDOWN_TIMEOUT` – graceful shutdown timing when stopping the container.
 * `TZ` – optional timezone sync; updates `/etc/localtime` when running as root.
@@ -38,7 +39,7 @@ Focus: Maintain a lean Dockerized ARK: Survival Ascended server image with a zer
 4. Register supervisor PID and start restart scheduler when `SERVER_RESTART_CRON` is set.
 5. Update/validate app `2430930` server files via SteamCMD.
 6. Enforce `ServerAdminPassword` presence (append default or full default start params) before launch args.
-7. Proton version resolution → download → checksum validation (unless skipped) → compat data prep.
+7. Proton version resolution → download (per-architecture release assets) → checksum validation (unless skipped) → launchability preflight with fallback to `FALLBACK_PROTON_VERSION` → compat data prep.
 8. Mod string injection (`asa-ctrl mods-string`) appended to `ASA_START_PARAMS` then force `-nosteam`.
 9. Runtime prep (XDG paths + compat exports), plugin loader detection (zip starting with `AsaApi_` → unzip; choose `AsaApiLoader.exe`).
 10. Start log tailer and launch via Proton wrapper under `compatibilitytools.d` (supervisor handles crash/USR1 restarts with configured delay).
@@ -62,6 +63,7 @@ Changing ordering can break cold start expectations; keep this sequence.
 * Preserve automatic `ServerAdminPassword` fallback and `-nosteam` injection; downstream logic assumes these guarantees.
 * Changing exit codes breaks existing automation relying on numeric values (cron / scripts). Add new codes only at the end.
 * Ensure any new environment variable feature has a sensible fallback so cold starts succeed with default `docker-compose.yml`.
+* Native libraries GE-Proton dlopens are declared in `server_runtime/native_libs.py`; add new ones there **and** to the `Dockerfile` apt list, since CI smoke-tests the built image against that list.
 
 ### 8. Security / Stability Notes
 * Container runs final process as non-root `gameserver` (UID/GID 25000); any new file operations before privilege drop must chown accordingly or occur after drop.

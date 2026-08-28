@@ -185,6 +185,25 @@ The cron expression follows the standard five-field format (`minute hour day mon
 
 Customize the warning cadence with `SERVER_RESTART_WARNINGS=60,15,5,1` (comma-separated minutes) and adjust the relaunch delay with `SERVER_RESTART_DELAY=15` (seconds to wait before booting again). Omit `SERVER_RESTART_CRON` to disable the scheduler entirely.
 
+## 🍷 GE-Proton Compatibility Layer
+
+The container downloads the GE-Proton build that runs the Windows server binary. By default it picks the latest release that publishes assets for your architecture.
+
+| Variable | Purpose |
+| --- | --- |
+| `PROTON_VERSION` | Pin a specific build, for example `10-34`. Omit it to auto-detect. |
+| `PROTON_SKIP_CHECKSUM` | Set to `1` to bypass archive hash verification (last resort). |
+| `PROTON_SKIP_PREFLIGHT` | Set to `1` to skip the startup check described below. |
+
+Before each launch the runtime starts the downloaded Proton launcher once to confirm the container can actually load the host libraries it needs. If an auto-detected build fails that check, the missing library is logged by name and the runtime falls back to a known good GE-Proton version instead of restarting in a loop:
+
+```
+ERROR | GE-Proton11-5 cannot start: shared library 'libvulkan.so.1' is missing from this container.
+WARNING | Falling back to known good GE-Proton8-21; set PROTON_VERSION to override.
+```
+
+Seeing this means the image should be updated (`docker compose pull`). A `PROTON_VERSION` you pinned yourself is never swapped silently — startup fails with the same message so the pin stays meaningful.
+
 ## 🔧 Debug Mode
 
 For troubleshooting, enable debug mode:
