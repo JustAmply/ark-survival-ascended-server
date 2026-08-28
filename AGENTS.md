@@ -16,7 +16,7 @@ Focus: Maintain a lean Dockerized ARK: Survival Ascended server image with a zer
 ### 2. Key Environment & Behavior Switches
 * `ASA_START_PARAMS` – authoritative launch flags; runtime appends dynamic mods, enforces `-nosteam`, and injects a default `ServerAdminPassword` (or a full default map payload) when absent.
 * `ENABLE_DEBUG=1` – container sleeps (no server launch) for interactive troubleshooting.
-* `PROTON_VERSION` – pin GE-Proton; omitted → auto-detect GitHub latest → fallback default (`8-21`).
+* `PROTON_VERSION` – pin GE-Proton; omitted → auto-detect GitHub latest → fallback default (`10-34`).
 * `PROTON_SKIP_CHECKSUM=1` – bypass Proton archive hash verification (temporary / last resort).
 * `PROTON_SKIP_PREFLIGHT=1` – skip the pre-launch check that the installed Proton build can load its host libraries.
 * `SERVER_RESTART_CRON` / `SERVER_RESTART_WARNINGS` / `SERVER_RESTART_DELAY` – enable built-in scheduler, warning cadence, and relaunch delay.

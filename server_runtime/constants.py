@@ -25,7 +25,7 @@ STEAM_COMPAT_DIR = f"{STEAM_HOME_DIR}/compatibilitytools.d"
 
 ASA_BINARY_NAME = "ArkAscendedServer.exe"
 ASA_PLUGIN_BINARY_NAME = "AsaApiLoader.exe"
-FALLBACK_PROTON_VERSION = "8-21"
+FALLBACK_PROTON_VERSION = "10-34"
 DEFAULT_START_PARAMS = (
     "TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?"
     "ServerAdminPassword=changeme"

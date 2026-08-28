@@ -199,7 +199,7 @@ Before each launch the runtime starts the downloaded Proton launcher once to con
 
 ```
 ERROR | GE-Proton11-5 cannot start: shared library 'libvulkan.so.1' is missing from this container.
-WARNING | Falling back to known good GE-Proton8-21; set PROTON_VERSION to override.
+WARNING | Falling back to known good GE-Proton10-34; set PROTON_VERSION to override.
 ```
 
 Seeing this means the image should be updated (`docker compose pull`). A `PROTON_VERSION` you pinned yourself is never swapped silently — startup fails with the same message so the pin stays meaningful.
