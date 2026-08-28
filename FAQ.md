@@ -70,6 +70,25 @@ free -h
 netstat -tlnp | grep :7777
 ```
 
+### **Q: The log shows `libvulkan.so.1: cannot open shared object file`**
+
+**A:** Your container image is older than the GE-Proton build it downloaded. GE-Proton 11 and newer load the Vulkan loader while their launcher starts, so an image without it exits before the game binary runs and the supervisor keeps restarting.
+
+```bash
+# Pull the current image and recreate the container
+docker compose pull
+docker compose up -d
+```
+
+Current images ship the library and additionally verify the downloaded GE-Proton build before every launch. If a brand-new GE-Proton release ever needs something the image does not have yet, the runtime logs the missing library by name and automatically falls back to a known good version instead of crash-looping. You can also pin a specific build yourself:
+
+```yaml
+    environment:
+      PROTON_VERSION: "10-34"
+```
+
+A pinned version is never swapped automatically — if it cannot run, the startup fails with a message naming the missing library.
+
 ### **Q: How do I completely reset my server?**
 
 **A:** ⚠️ **This deletes everything!**
