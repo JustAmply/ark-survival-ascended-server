@@ -219,6 +219,24 @@ Stopping the container (e.g., `docker stop`) triggers a `saveworld` via RCON bef
 - `ASA_SHUTDOWN_SAVEWORLD_DELAY=15` – wait time (seconds) after saving before signalling shutdown
 - `ASA_SHUTDOWN_TIMEOUT=180` – graceful shutdown timeout (seconds) before the process is force-killed
 
+## 🚀 Startup and Restart Speed
+
+SteamCMD can checksum every installed file before launch. That reads the whole
+~20 GB installation, so doing it on each supervised relaunch would add minutes
+of downtime to every crash recovery and every scheduled restart. The runtime
+therefore validates only when it has to:
+
+| `ASA_VALIDATE` | Behavior |
+| --- | --- |
+| `first` (default) | Validate the initial install, then plain `app_update` on later starts. New builds are still picked up. |
+| `always` | Validate on every start. Use after a suspected corrupted install. |
+| `never` | Never validate, not even on the first install. |
+
+If files ever do look damaged, one run with `ASA_VALIDATE=always` repairs them.
+
+The Proton preflight check (see below) is likewise cached per image build, so it
+costs a subprocess launch once rather than on every relaunch.
+
 ## 🔁 Scheduled Restarts
 
 Enable automated maintenance windows with the built-in scheduler:
@@ -254,6 +272,46 @@ WARNING | Falling back to known good GE-Proton10-34; set PROTON_VERSION to overr
 ```
 
 Seeing this means the image should be updated (`docker compose pull`). A `PROTON_VERSION` you pinned yourself is never swapped silently — startup fails with the same message so the pin stays meaningful.
+
+## 🧮 Memory and CPU Tuning
+
+The ARK server process itself dominates the container's footprint; everything
+the image adds around it stays well under 100 MB.
+
+**File descriptors.** Wine runs ASA on several hundred threads and implements
+Windows synchronisation objects with *fsync* (Linux 5.16+) or *esync*, which
+needs roughly one descriptor per object. On a small descriptor budget Wine
+silently drops to a much slower path. The runtime raises the soft limit to the
+hard limit on start and logs the mode it ended up with:
+
+```
+INFO | Wine synchronisation: fsync (kernel 6.8).
+```
+
+If you see the `slow server path` warning instead, raise the limit in
+`docker-compose.yml`:
+
+```yaml
+ulimits:
+  nofile:
+    soft: 524288
+    hard: 524288
+```
+
+**Memory.** ARK touches a large amount of memory while loading the world and
+then leaves much of it cold. Giving the container a limit plus swap lets the
+kernel page the cold part out instead of forcing the host to keep it resident:
+
+```yaml
+mem_limit: 16g
+memswap_limit: 24g
+mem_swappiness: 10
+```
+
+Size these to your host and map — a modded map needs noticeably more than a
+vanilla `TheIsland_WP`. The single most effective way to keep memory in check
+over time remains the scheduled restart, since the server process grows the
+longer it runs.
 
 ## 🔧 Debug Mode
 

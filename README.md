@@ -35,6 +35,7 @@ Your server will be discoverable in the "Unofficial" server browser once setup i
 - **🎮 Mod Support**: Simple mod management via console
 - **🌐 Cluster Ready**: Multi-server setups with character/dino transfer
 - **🔄 Auto-Updates**: Automatic game updates on container restart
+- **⚡ Fast Restarts**: Full file validation only on the first install, so scheduled restarts come back in seconds instead of minutes
 - **⏰ Scheduled Restarts**: Built-in cron scheduler with in-game warnings
 - **📊 Monitoring**: Debug mode and comprehensive logging
 - **🔌 Plugin Support**: ServerAPI plugin loader integration

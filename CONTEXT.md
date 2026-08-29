@@ -54,6 +54,22 @@ It registers PID files, starts the restart scheduler and the log streamer,
 launches the server through Proton, and handles the graceful shutdown sequence
 (`saveworld` over RCON, then SIGTERM, then SIGKILL).
 
+## Wine synchronisation backend
+
+How Wine implements Windows synchronisation objects for the server process
+(`server_runtime.wine_sync`): *fsync* (`futex_waitv`, Linux 5.16+), *esync* (one
+file descriptor per object) or the slow in-process *server* path. ASA runs
+several hundred Wine threads, so the backend dominates its CPU cost. The runtime
+raises the soft descriptor limit to the hard limit before launch so esync stays
+available, and logs the resulting backend.
+
+## Validation cadence
+
+How often SteamCMD is asked to checksum the whole installation (`ASA_VALIDATE`,
+`RuntimeSettings.validate_mode`). Validation reads every installed file, so the
+default `first` pays that cost only for the initial install; the [Supervisor](#supervisor)
+relaunch loop otherwise runs a plain `app_update`.
+
 ## Restart scheduler
 
 The cron-driven companion process (`asa-ctrl restart-scheduler`). It announces

@@ -43,6 +43,14 @@ PROTON_REPO = "GloriousEggroll/proton-ge-custom"
 
 DEFAULT_RESTART_WARNINGS = "30,5,1"
 
+# How often SteamCMD is asked to checksum the whole installation. Validation
+# reads every installed file, so doing it on each supervised relaunch turns a
+# routine restart into minutes of downtime.
+VALIDATE_FIRST = "first"
+VALIDATE_ALWAYS = "always"
+VALIDATE_NEVER = "never"
+VALIDATE_MODES = (VALIDATE_FIRST, VALIDATE_ALWAYS, VALIDATE_NEVER)
+
 
 @dataclass
 class RuntimeSettings:
@@ -61,6 +69,7 @@ class RuntimeSettings:
     shutdown_saveworld_delay: int
     shutdown_timeout: int
     proton_version: str
+    validate_mode: str
     proton_skip_checksum: bool
     log_level: str
     timezone: str
@@ -82,6 +91,7 @@ class RuntimeSettings:
             ),
             shutdown_timeout=coerce_int(source.get("ASA_SHUTDOWN_TIMEOUT"), 180),
             proton_version=text("PROTON_VERSION"),
+            validate_mode=text("ASA_VALIDATE", VALIDATE_FIRST).lower(),
             proton_skip_checksum=source.get("PROTON_SKIP_CHECKSUM") == "1",
             log_level=text("ASA_LOG_LEVEL", "INFO").upper(),
             timezone=text("TZ"),
@@ -90,3 +100,7 @@ class RuntimeSettings:
     def restart_warnings_or_default(self) -> str:
         """Warning cadence for the restart scheduler, never empty."""
         return self.server_restart_warnings or DEFAULT_RESTART_WARNINGS
+
+    def validate_mode_or_default(self) -> str:
+        """Validation cadence, falling back on the default for unknown values."""
+        return self.validate_mode if self.validate_mode in VALIDATE_MODES else VALIDATE_FIRST

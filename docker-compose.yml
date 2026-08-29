@@ -23,6 +23,22 @@ services:
       ENABLE_DEBUG: "0"
       SERVER_RESTART_CRON: "0 4 * * *"
       TZ: "Europe/Berlin"
+      # Checksum every installed file on start: "first" (default, initial
+      # install only), "always" or "never". Validation reads the whole ~20 GB
+      # installation, so "always" adds minutes to every restart.
+      ASA_VALIDATE: "first"
+    # Wine needs a large descriptor budget for esync; without it the server
+    # falls back to a markedly slower synchronisation path.
+    ulimits:
+      nofile:
+        soft: 524288
+        hard: 524288
+    # ARK touches a lot of memory while loading the world and then leaves much
+    # of it cold. A limit plus swap lets the kernel page the cold part out
+    # instead of forcing the host to hold it in RAM. Tune to your host.
+    # mem_limit: 16g
+    # memswap_limit: 24g
+    # mem_swappiness: 10
     ports:
       # Game port for player connections through the server browser
       - 7777:7777/udp
@@ -47,6 +63,11 @@ services:
 #      ENABLE_DEBUG: "0"
 #      SERVER_RESTART_CRON: "0 4 * * *"
 #      TZ: "Europe/Berlin"
+#      ASA_VALIDATE: "first"
+#    ulimits:
+#      nofile:
+#        soft: 524288
+#        hard: 524288
 #    ports:
 #      # Game port for player connections through the server browser
 #      - 7778:7778/udp

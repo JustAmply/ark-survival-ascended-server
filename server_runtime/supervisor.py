@@ -33,6 +33,7 @@ from .permissions import ensure_permissions_and_drop_privileges
 from .plugins import resolve_launch_binary
 from .proton import ensure_proton_compat_data, prepare_proton
 from .steamcmd import ensure_steamcmd, update_server_files
+from .wine_sync import configure_wine_sync
 
 
 class ServerSupervisor:
@@ -108,6 +109,9 @@ class ServerSupervisor:
         os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
         os.environ.setdefault("XDG_SESSION_TYPE", "headless")
 
+        # The server inherits the raised limit, which is what esync needs.
+        configure_wine_sync(self.logger)
+
     def _start_log_streamer(self) -> None:
         log_dir = Path(LOG_DIR)
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -130,7 +134,7 @@ class ServerSupervisor:
         return command
 
     def _launch_server_once(self) -> int:
-        update_server_files(self.logger)
+        update_server_files(self.logger, self.settings)
         params = prepare_start_params(self.logger)
         proton_dir_name = prepare_proton(self.logger, self.settings)
         ensure_proton_compat_data(proton_dir_name, self.logger)

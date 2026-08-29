@@ -20,7 +20,8 @@ Focus: Maintain a lean Dockerized ARK: Survival Ascended server image with a zer
 * `ENABLE_DEBUG=1` – container sleeps (no server launch) for interactive troubleshooting.
 * `PROTON_VERSION` – pin GE-Proton; omitted → auto-detect GitHub latest → fallback default (`10-34`).
 * `PROTON_SKIP_CHECKSUM=1` – bypass Proton archive hash verification (temporary / last resort).
-* `PROTON_SKIP_PREFLIGHT=1` – skip the pre-launch check that the installed Proton build can load its host libraries.
+* `PROTON_SKIP_PREFLIGHT=1` – skip the pre-launch check that the installed Proton build can load its host libraries. The check's verdict is cached per `ASA_IMAGE_VERSION` next to the Proton install, so the restart loop does not pay for the subprocess repeatedly.
+* `ASA_VALIDATE=first|always|never` – how often SteamCMD checksums the installation. Defaults to `first` (initial install only); `always` restores the old behavior of validating on every supervised relaunch.
 * `SERVER_RESTART_CRON` / `SERVER_RESTART_WARNINGS` / `SERVER_RESTART_DELAY` – enable built-in scheduler, warning cadence, and relaunch delay.
 * `ASA_SHUTDOWN_SAVEWORLD_DELAY` / `ASA_SHUTDOWN_TIMEOUT` – graceful shutdown timing when stopping the container.
 * `TZ` – optional timezone sync; updates `/etc/localtime` when running as root.
@@ -42,11 +43,11 @@ Focus: Maintain a lean Dockerized ARK: Survival Ascended server image with a zer
 2. Permission normalization + privilege drop to UID/GID 25000.
 3. Ensure SteamCMD is present.
 4. Register supervisor PID and start restart scheduler when `SERVER_RESTART_CRON` is set.
-5. Update/validate app `2430930` server files via SteamCMD.
+5. Update app `2430930` server files via SteamCMD, validating according to `ASA_VALIDATE`.
 6. Enforce `ServerAdminPassword` presence (append default or full default start params) before launch args.
 7. Proton version resolution → download (per-architecture release assets) → checksum validation (unless skipped) → launchability preflight with fallback to `FALLBACK_PROTON_VERSION` → compat data prep.
 8. Launch line resolution (`LaunchConfiguration.from_env`): `ASA_START_PARAMS` as base, discrete `ASA_*` variables overlaid, `mods.json` ids merged into `-mods=`, then force `-nosteam`. The result is written back to `ASA_START_PARAMS` for child processes.
-9. Runtime prep (XDG paths + compat exports), plugin loader detection (zip starting with `AsaApi_` → unzip; choose `AsaApiLoader.exe`).
+9. Runtime prep (XDG paths + compat exports, raise the descriptor limit and report the Wine sync backend), plugin loader detection (zip starting with `AsaApi_` → unzip; choose `AsaApiLoader.exe`).
 10. Start log tailer and launch via Proton wrapper under `compatibilitytools.d` (supervisor handles crash/USR1 restarts with configured delay).
 Changing ordering can break cold start expectations; keep this sequence.
 
