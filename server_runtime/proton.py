@@ -23,6 +23,7 @@ from .archive_utils import safe_extract_archive
 from .constants import (
     ASA_COMPAT_DATA,
     FALLBACK_PROTON_VERSION,
+    IMAGE_VERSION_ENV,  # noqa: F401  (re-exported for callers keyed on the image)
     PROTON_REPO,
     STEAM_COMPAT_DATA,
     STEAM_COMPAT_DIR,
@@ -35,11 +36,35 @@ _MISSING_LIBRARY_PATTERN = re.compile(
     r"([A-Za-z0-9_.+-]+\.so(?:\.[0-9]+)*): cannot open shared object file"
 )
 PROTON_PREFLIGHT_TIMEOUT = 60
-PROTON_VERSION_SOURCE_ENV = "ASA_PROTON_VERSION_SOURCE"
-IMAGE_VERSION_ENV = "ASA_IMAGE_VERSION"
 # Build metadata that cannot identify a rebuild, so results keyed on it are
 # never reused.
 UNCACHEABLE_IMAGE_VERSIONS = frozenset({"", "unknown"})
+
+# How a version was arrived at. The origin decides what may happen to it: a
+# pinned build is never silently swapped, and a build already fallen back to is
+# never re-detected.
+ORIGIN_PINNED = "pinned"
+ORIGIN_AUTO = "auto"
+ORIGIN_FALLBACK = "fallback"
+
+
+@dataclass(frozen=True)
+class ProtonSelection:
+    """Which GE-Proton build this container runs, and why.
+
+    Resolution is expensive - it can cost a GitHub round trip, a download and a
+    preflight subprocess - and the supervisor relaunches the server in a loop.
+    The selection is therefore carried from one launch to the next as a value
+    rather than parked in the process environment.
+    """
+
+    version: str
+    origin: str
+
+    @property
+    def directory_name(self) -> str:
+        """The install directory `install_proton_if_needed` guarantees."""
+        return f"GE-Proton{self.version}"
 
 
 def _fetch_json(url: str) -> Optional[Any]:
@@ -143,58 +168,68 @@ def find_latest_release_with_assets(skip_version: Optional[str] = None) -> Optio
     return None
 
 
-def _pinned_proton_version() -> str:
-    """Return the user supplied PROTON_VERSION, ignoring values we cached ourselves."""
-    if os.environ.get(PROTON_VERSION_SOURCE_ENV) == "auto":
-        return ""
-    configured = (os.environ.get("PROTON_VERSION") or "").strip()
+def _pinned_proton_version(settings: RuntimeSettings) -> str:
+    """Return the user supplied PROTON_VERSION, when it is usable."""
+    configured = (settings.proton_version or "").strip()
     return configured if _SAFE_VERSION_PATTERN.match(configured) else ""
 
 
-def _cached_proton_version() -> str:
-    """Return the version an earlier auto-detection in this process settled on."""
-    if os.environ.get(PROTON_VERSION_SOURCE_ENV) != "auto":
-        return ""
-    cached = (os.environ.get("PROTON_VERSION") or "").strip()
-    return cached if _SAFE_VERSION_PATTERN.match(cached) else ""
+def _export_proton_version(version: str) -> None:
+    """Publish the resolved version for anyone inspecting the container.
+
+    Nothing reads this back: resolution is driven by `RuntimeSettings` and the
+    `ProtonSelection` the supervisor carries between launches. It is written so
+    that `docker exec ... env` still reports the build actually in use.
+    """
+    os.environ["PROTON_VERSION"] = version
 
 
-def resolve_proton_version(logger: logging.Logger) -> str:
-    """Resolve a Proton version and export PROTON_VERSION."""
-    pinned = _pinned_proton_version()
-    configured = (os.environ.get("PROTON_VERSION") or "").strip()
+def resolve_proton_version(
+    logger: logging.Logger,
+    settings: RuntimeSettings,
+    previous: Optional[ProtonSelection] = None,
+) -> ProtonSelection:
+    """Decide which GE-Proton build to run.
+
+    A pinned version always wins. Otherwise an earlier selection is reused as
+    is, so the supervisor's relaunch loop neither re-queries GitHub nor retries
+    a build that already failed its preflight.
+    """
+    pinned = _pinned_proton_version(settings)
     if pinned:
-        version = pinned
-    elif _cached_proton_version():
-        version = _cached_proton_version()
+        return ProtonSelection(version=pinned, origin=ORIGIN_PINNED)
+
+    if previous is not None:
+        logger.debug("Reusing the %s GE-Proton selection %s.", previous.origin, previous.version)
+        return previous
+
+    configured = (settings.proton_version or "").strip()
+    if configured:
+        logger.warning("Ignoring invalid PROTON_VERSION value: %r", configured)
+
+    version = ""
+    payload = _fetch_json(f"https://api.github.com/repos/{PROTON_REPO}/releases/latest")
+    detected = ""
+    if isinstance(payload, dict):
+        tag = str(payload.get("tag_name", ""))
+        detected = tag.removeprefix("GE-Proton")
+    if detected and _check_release_assets(detected):
+        version = detected
+        logger.info("Detected latest GE-Proton version: %s", version)
+    elif detected:
+        logger.info(
+            "Latest GE-Proton tag '%s' missing required assets, searching previous releases.",
+            detected,
+        )
+        version = find_latest_release_with_assets(skip_version=detected) or ""
     else:
-        if configured:
-            logger.warning("Ignoring invalid PROTON_VERSION value: %r", configured)
-        version = ""
-        payload = _fetch_json(f"https://api.github.com/repos/{PROTON_REPO}/releases/latest")
-        detected = ""
-        if isinstance(payload, dict):
-            tag = str(payload.get("tag_name", ""))
-            detected = tag.removeprefix("GE-Proton")
-        if detected and _check_release_assets(detected):
-            version = detected
-            logger.info("Detected latest GE-Proton version: %s", version)
-        elif detected:
-            logger.info(
-                "Latest GE-Proton tag '%s' missing required assets, searching previous releases.",
-                detected,
-            )
-            version = find_latest_release_with_assets(skip_version=detected) or ""
-        else:
-            version = find_latest_release_with_assets() or ""
+        version = find_latest_release_with_assets() or ""
 
     if not version:
         version = FALLBACK_PROTON_VERSION
         logger.info("Falling back to default GE-Proton version: %s", version)
 
-    os.environ["PROTON_VERSION"] = version
-    os.environ[PROTON_VERSION_SOURCE_ENV] = "pinned" if pinned else "auto"
-    return version
+    return ProtonSelection(version=version, origin=ORIGIN_AUTO)
 
 
 def _download_file(url: str, destination: Path) -> None:
@@ -229,10 +264,9 @@ def _verify_sha512(archive_path: Path, checksum_path: Path) -> bool:
 def install_proton_if_needed(
     version: str,
     logger: logging.Logger,
-    settings: Optional[RuntimeSettings] = None,
+    settings: RuntimeSettings,
 ) -> str:
     """Install Proton if missing and return installed directory name."""
-    settings = settings or RuntimeSettings.from_env()
     proton_dir_name = f"GE-Proton{version}"
     proton_dir = Path(STEAM_COMPAT_DIR) / proton_dir_name
     if proton_dir.exists():
@@ -309,7 +343,7 @@ def _preflight_cache_path(proton_dir_name: str) -> Path:
     return Path(STEAM_COMPAT_DIR) / f".preflight-{proton_dir_name}"
 
 
-def _cacheable_image_version() -> str:
+def _cacheable_image_version(settings: RuntimeSettings) -> str:
     """The image build this container runs, when it can identify a rebuild.
 
     A preflight verdict only changes when the image's host libraries change, so
@@ -317,7 +351,7 @@ def _cacheable_image_version() -> str:
     same placeholder, so they are treated as uncacheable rather than sharing a
     stale verdict across rebuilds.
     """
-    version = (os.environ.get(IMAGE_VERSION_ENV) or "").strip()
+    version = (settings.image_version or "").strip()
     return "" if version in UNCACHEABLE_IMAGE_VERSIONS else version
 
 
@@ -354,7 +388,9 @@ def _write_preflight_cache(
         pass
 
 
-def find_missing_proton_library(proton_dir_name: str, logger: logging.Logger) -> Optional[str]:
+def find_missing_proton_library(
+    proton_dir_name: str, logger: logging.Logger, settings: RuntimeSettings
+) -> Optional[str]:
     """Return a shared library GE-Proton needs but this container cannot load.
 
     The launcher is started without ``STEAM_COMPAT_DATA_PATH`` so it runs all
@@ -365,7 +401,7 @@ def find_missing_proton_library(proton_dir_name: str, logger: logging.Logger) ->
     so it is cached per image version: the supervisor calls this on every
     relaunch and the subprocess would otherwise be paid each time.
     """
-    if os.environ.get("PROTON_SKIP_PREFLIGHT") == "1":
+    if settings.proton_skip_preflight:
         logger.warning("Skipping Proton preflight check (PROTON_SKIP_PREFLIGHT=1).")
         return None
 
@@ -373,7 +409,7 @@ def find_missing_proton_library(proton_dir_name: str, logger: logging.Logger) ->
     if not script.is_file():
         return None
 
-    image_version = _cacheable_image_version()
+    image_version = _cacheable_image_version(settings)
     cached = _read_preflight_cache(proton_dir_name, image_version)
     if cached is not None:
         logger.debug("Reusing cached Proton preflight result for %s.", proton_dir_name)
@@ -402,40 +438,44 @@ def find_missing_proton_library(proton_dir_name: str, logger: logging.Logger) ->
 
 
 def prepare_proton(
-    logger: logging.Logger, settings: Optional[RuntimeSettings] = None
-) -> str:
-    """Resolve, install and validate Proton; return the usable install directory.
+    logger: logging.Logger,
+    settings: RuntimeSettings,
+    previous: Optional[ProtonSelection] = None,
+) -> ProtonSelection:
+    """Resolve, install and validate Proton; return the usable selection.
 
     A newly published GE-Proton build may need host libraries this image does
     not ship yet.  Rather than crash-looping on every container start, an
     auto-detected build that fails the preflight is replaced by the known good
     fallback version.  An explicitly pinned ``PROTON_VERSION`` is never
     silently swapped.
-    """
-    settings = settings or RuntimeSettings.from_env()
-    pinned = _pinned_proton_version()
-    version = resolve_proton_version(logger)
-    proton_dir_name = install_proton_if_needed(version, logger, settings)
 
-    missing = find_missing_proton_library(proton_dir_name, logger)
+    Pass the previous return value back on a relaunch: a selection already
+    settled on is reused rather than resolved again.
+    """
+    selection = resolve_proton_version(logger, settings, previous)
+    install_proton_if_needed(selection.version, logger, settings)
+    _export_proton_version(selection.version)
+
+    missing = find_missing_proton_library(selection.directory_name, logger, settings)
     if not missing:
-        return proton_dir_name
+        return selection
 
     logger.error(
         "GE-Proton%s cannot start: shared library '%s' is missing from this container.",
-        version,
+        selection.version,
         missing,
     )
     warn_about_missing_native_libraries(logger)
 
-    if pinned == version:
+    if selection.origin == ORIGIN_PINNED:
         raise RuntimeError(
-            f"Pinned GE-Proton{version} requires the missing shared library '{missing}'. "
-            "Update the container image or pin a PROTON_VERSION it supports."
+            f"Pinned GE-Proton{selection.version} requires the missing shared library "
+            f"'{missing}'. Update the container image or pin a PROTON_VERSION it supports."
         )
-    if version == FALLBACK_PROTON_VERSION:
+    if selection.version == FALLBACK_PROTON_VERSION:
         raise RuntimeError(
-            f"Fallback GE-Proton{version} requires the missing shared library "
+            f"Fallback GE-Proton{selection.version} requires the missing shared library "
             f"'{missing}'; the container image needs to be updated."
         )
 
@@ -443,16 +483,15 @@ def prepare_proton(
         "Falling back to known good GE-Proton%s; set PROTON_VERSION to override.",
         FALLBACK_PROTON_VERSION,
     )
-    fallback_dir_name = install_proton_if_needed(
-        FALLBACK_PROTON_VERSION, logger, settings
-    )
-    fallback_missing = find_missing_proton_library(fallback_dir_name, logger)
+    fallback = ProtonSelection(version=FALLBACK_PROTON_VERSION, origin=ORIGIN_FALLBACK)
+    install_proton_if_needed(fallback.version, logger, settings)
+    fallback_missing = find_missing_proton_library(fallback.directory_name, logger, settings)
     if fallback_missing:
         raise RuntimeError(
-            f"GE-Proton{version} and fallback GE-Proton{FALLBACK_PROTON_VERSION} both "
+            f"GE-Proton{selection.version} and fallback GE-Proton{FALLBACK_PROTON_VERSION} both "
             f"require the missing shared library '{fallback_missing}'; the container "
             "image needs to be updated."
         )
 
-    os.environ["PROTON_VERSION"] = FALLBACK_PROTON_VERSION
-    return fallback_dir_name
+    _export_proton_version(fallback.version)
+    return fallback

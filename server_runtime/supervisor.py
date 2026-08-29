@@ -31,7 +31,7 @@ from .logging_utils import configure_runtime_logging
 from .params import prepare_start_params
 from .permissions import ensure_permissions_and_drop_privileges
 from .plugins import resolve_launch_binary
-from .proton import ensure_proton_compat_data, prepare_proton
+from .proton import ProtonSelection, ensure_proton_compat_data, prepare_proton
 from .steamcmd import ensure_steamcmd, update_server_files
 from .wine_sync import configure_wine_sync
 
@@ -45,6 +45,9 @@ class ServerSupervisor:
         self.server_process: Optional[subprocess.Popen] = None
         self.log_streamer_process: Optional[subprocess.Popen] = None
         self.restart_scheduler_process: Optional[subprocess.Popen] = None
+        # Carried across relaunches so the loop resolves Proton once, not once
+        # per restart.
+        self.proton: Optional[ProtonSelection] = None
         self.shutdown_in_progress = False
         self.supervisor_exit_requested = False
         self.restart_requested = False
@@ -136,7 +139,8 @@ class ServerSupervisor:
     def _launch_server_once(self) -> int:
         update_server_files(self.logger, self.settings)
         params = prepare_start_params(self.logger)
-        proton_dir_name = prepare_proton(self.logger, self.settings)
+        self.proton = prepare_proton(self.logger, self.settings, self.proton)
+        proton_dir_name = self.proton.directory_name
         ensure_proton_compat_data(proton_dir_name, self.logger)
         self._prepare_runtime_env()
         launch_binary = resolve_launch_binary(self.logger)
