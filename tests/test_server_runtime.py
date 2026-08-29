@@ -4,6 +4,7 @@ import logging
 import os
 import signal
 import stat
+import subprocess
 import tarfile
 import zipfile
 from unittest.mock import Mock
@@ -19,6 +20,7 @@ from server_runtime import permissions as runtime_permissions
 from server_runtime import proton as runtime_proton
 from server_runtime import steamcmd as runtime_steamcmd
 from server_runtime import supervisor as runtime_supervisor
+from server_runtime import wine_sync as runtime_wine_sync
 from server_runtime.archive_utils import safe_extract_archive
 from server_runtime.constants import RuntimeSettings
 from server_runtime.supervisor import ServerSupervisor
@@ -1019,3 +1021,165 @@ def test_missing_native_libraries_reports_unloadable_entries(monkeypatch, caplog
 def test_missing_native_libraries_accepts_loadable_entries(monkeypatch):
     monkeypatch.setattr(runtime_native_libs, "_is_loadable", lambda _soname: True)
     assert runtime_native_libs.missing_native_libraries() == []
+
+
+def test_runtime_settings_validate_mode_defaults_to_first(monkeypatch):
+    monkeypatch.delenv("ASA_VALIDATE", raising=False)
+
+    assert RuntimeSettings.from_env().validate_mode_or_default() == "first"
+
+
+def test_runtime_settings_validate_mode_falls_back_on_garbage():
+    settings = RuntimeSettings.from_env({"ASA_VALIDATE": "Always"})
+    assert settings.validate_mode_or_default() == "always"
+
+    settings = RuntimeSettings.from_env({"ASA_VALIDATE": "sometimes"})
+    assert settings.validate_mode_or_default() == "first"
+
+
+def _steamcmd_run_recorder(monkeypatch, tmp_path, installed):
+    """Point steamcmd at a temp install and capture the command it would run."""
+    binary_dir = tmp_path / "ShooterGame" / "Binaries" / "Win64"
+    binary_dir.mkdir(parents=True, exist_ok=True)
+    if installed:
+        (binary_dir / "ArkAscendedServer.exe").write_text("stub", encoding="utf-8")
+
+    recorded = {}
+
+    def fake_run(command, **kwargs):
+        recorded["command"] = command
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(runtime_steamcmd, "ASA_BINARY_DIR", str(binary_dir))
+    monkeypatch.setattr(runtime_steamcmd.subprocess, "run", fake_run)
+    return recorded
+
+
+def test_update_server_files_validates_on_first_install(monkeypatch, tmp_path):
+    recorded = _steamcmd_run_recorder(monkeypatch, tmp_path, installed=False)
+
+    runtime_steamcmd.update_server_files(
+        logging.getLogger("test-validate-first"), RuntimeSettings.from_env({})
+    )
+
+    assert "validate" in recorded["command"]
+
+
+def test_update_server_files_skips_validation_once_installed(monkeypatch, tmp_path):
+    recorded = _steamcmd_run_recorder(monkeypatch, tmp_path, installed=True)
+
+    runtime_steamcmd.update_server_files(
+        logging.getLogger("test-validate-installed"), RuntimeSettings.from_env({})
+    )
+
+    assert "validate" not in recorded["command"]
+    # The update itself still runs, so new builds are still picked up.
+    assert "+app_update" in recorded["command"]
+    assert recorded["command"][-1] == "+quit"
+
+
+def test_update_server_files_honours_always_and_never(monkeypatch, tmp_path):
+    recorded = _steamcmd_run_recorder(monkeypatch, tmp_path, installed=True)
+    runtime_steamcmd.update_server_files(
+        logging.getLogger("test-validate-always"),
+        RuntimeSettings.from_env({"ASA_VALIDATE": "always"}),
+    )
+    assert "validate" in recorded["command"]
+
+    recorded = _steamcmd_run_recorder(monkeypatch, tmp_path, installed=False)
+    runtime_steamcmd.update_server_files(
+        logging.getLogger("test-validate-never"),
+        RuntimeSettings.from_env({"ASA_VALIDATE": "never"}),
+    )
+    assert "validate" not in recorded["command"]
+
+
+def _preflight_probe_counter(monkeypatch, tmp_path, stderr):
+    """Install a fake GE-Proton tree and count preflight subprocess launches."""
+    compat_dir = tmp_path / "compatibilitytools.d"
+    (compat_dir / "GE-Proton9-9").mkdir(parents=True, exist_ok=True)
+    (compat_dir / "GE-Proton9-9" / "proton").write_text("stub", encoding="utf-8")
+
+    calls = {"count": 0}
+
+    def fake_run(_command, **_kwargs):
+        calls["count"] += 1
+        return subprocess.CompletedProcess([], 0, stdout="", stderr=stderr)
+
+    monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(compat_dir))
+    monkeypatch.setattr(runtime_proton.subprocess, "run", fake_run)
+    monkeypatch.delenv("PROTON_SKIP_PREFLIGHT", raising=False)
+    return calls
+
+
+def test_preflight_result_is_cached_per_image_version(monkeypatch, tmp_path):
+    calls = _preflight_probe_counter(monkeypatch, tmp_path, stderr="")
+    monkeypatch.setenv("ASA_IMAGE_VERSION", "2.1.0")
+    logger = logging.getLogger("test-preflight-cache")
+
+    assert runtime_proton.find_missing_proton_library("GE-Proton9-9", logger) is None
+    assert runtime_proton.find_missing_proton_library("GE-Proton9-9", logger) is None
+    assert calls["count"] == 1
+
+
+def test_preflight_cache_remembers_a_missing_library(monkeypatch, tmp_path):
+    calls = _preflight_probe_counter(
+        monkeypatch, tmp_path, stderr="libvulkan.so.1: cannot open shared object file"
+    )
+    monkeypatch.setenv("ASA_IMAGE_VERSION", "2.1.0")
+    logger = logging.getLogger("test-preflight-cache-missing")
+
+    assert runtime_proton.find_missing_proton_library("GE-Proton9-9", logger) == "libvulkan.so.1"
+    assert runtime_proton.find_missing_proton_library("GE-Proton9-9", logger) == "libvulkan.so.1"
+    assert calls["count"] == 1
+
+
+def test_preflight_cache_is_invalidated_by_a_new_image(monkeypatch, tmp_path):
+    calls = _preflight_probe_counter(monkeypatch, tmp_path, stderr="")
+    logger = logging.getLogger("test-preflight-cache-invalidation")
+
+    monkeypatch.setenv("ASA_IMAGE_VERSION", "2.1.0")
+    runtime_proton.find_missing_proton_library("GE-Proton9-9", logger)
+    monkeypatch.setenv("ASA_IMAGE_VERSION", "2.2.0")
+    runtime_proton.find_missing_proton_library("GE-Proton9-9", logger)
+
+    assert calls["count"] == 2
+
+
+def test_preflight_is_never_cached_for_untagged_builds(monkeypatch, tmp_path):
+    calls = _preflight_probe_counter(monkeypatch, tmp_path, stderr="")
+    monkeypatch.setenv("ASA_IMAGE_VERSION", "unknown")
+    logger = logging.getLogger("test-preflight-cache-unknown")
+
+    runtime_proton.find_missing_proton_library("GE-Proton9-9", logger)
+    runtime_proton.find_missing_proton_library("GE-Proton9-9", logger)
+
+    assert calls["count"] == 2
+
+
+def test_log_sync_mode_prefers_fsync_on_a_modern_kernel(monkeypatch):
+    monkeypatch.delenv("PROTON_NO_FSYNC", raising=False)
+    monkeypatch.setattr(runtime_wine_sync.platform, "release", lambda: "6.8.0-generic")
+
+    assert runtime_wine_sync.log_sync_mode(logging.getLogger("test-fsync"), 1024) == "fsync"
+
+
+def test_log_sync_mode_falls_back_to_esync_when_descriptors_allow(monkeypatch):
+    monkeypatch.setenv("PROTON_NO_FSYNC", "1")
+    monkeypatch.delenv("PROTON_NO_ESYNC", raising=False)
+    monkeypatch.setattr(runtime_wine_sync.platform, "release", lambda: "5.10.0-generic")
+
+    mode = runtime_wine_sync.log_sync_mode(logging.getLogger("test-esync"), 1048576)
+    assert mode == "esync"
+
+
+def test_log_sync_mode_warns_when_only_the_slow_path_is_left(monkeypatch, caplog):
+    monkeypatch.delenv("PROTON_NO_FSYNC", raising=False)
+    monkeypatch.delenv("PROTON_NO_ESYNC", raising=False)
+    monkeypatch.setattr(runtime_wine_sync.platform, "release", lambda: "5.10.0-generic")
+
+    with caplog.at_level(logging.WARNING):
+        mode = runtime_wine_sync.log_sync_mode(logging.getLogger("test-slow-sync"), 1024)
+
+    assert mode == "server"
+    assert "slow server path" in caplog.text

@@ -20,9 +20,6 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     locales \
     tzdata \
-    wget \
-    unzip \
-    libc6-dev \
     lib32stdc++6 \
     lib32z1 \
     lib32gcc-s1 \
@@ -37,6 +34,14 @@ ENV LANG=en_US.UTF-8 \
     LANGUAGE=en_US:en \
     LC_ALL=en_US.UTF-8 \
     PYTHONPATH=/usr/share
+
+# Wine spawns several hundred threads for ASA; glibc would otherwise open up to
+# 8 malloc arenas per core and fragment the heap across all of them.
+ENV MALLOC_ARENA_MAX=2
+
+# Identifies the image build to the Proton preflight cache, so a rebuilt image
+# re-probes its host libraries instead of trusting the previous verdict.
+ENV ASA_IMAGE_VERSION=${VERSION}
 
 # Create gameserver user
 RUN groupadd -g 25000 gameserver && \

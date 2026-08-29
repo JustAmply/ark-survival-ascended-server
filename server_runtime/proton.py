@@ -36,6 +36,10 @@ _MISSING_LIBRARY_PATTERN = re.compile(
 )
 PROTON_PREFLIGHT_TIMEOUT = 60
 PROTON_VERSION_SOURCE_ENV = "ASA_PROTON_VERSION_SOURCE"
+IMAGE_VERSION_ENV = "ASA_IMAGE_VERSION"
+# Build metadata that cannot identify a rebuild, so results keyed on it are
+# never reused.
+UNCACHEABLE_IMAGE_VERSIONS = frozenset({"", "unknown"})
 
 
 def _fetch_json(url: str) -> Optional[Any]:
@@ -301,12 +305,65 @@ def ensure_proton_compat_data(proton_dir_name: str, logger: logging.Logger) -> N
     shutil.copytree(source, compat)
 
 
+def _preflight_cache_path(proton_dir_name: str) -> Path:
+    return Path(STEAM_COMPAT_DIR) / f".preflight-{proton_dir_name}"
+
+
+def _cacheable_image_version() -> str:
+    """The image build this container runs, when it can identify a rebuild.
+
+    A preflight verdict only changes when the image's host libraries change, so
+    the image version is the cache key. Untagged local builds all report the
+    same placeholder, so they are treated as uncacheable rather than sharing a
+    stale verdict across rebuilds.
+    """
+    version = (os.environ.get(IMAGE_VERSION_ENV) or "").strip()
+    return "" if version in UNCACHEABLE_IMAGE_VERSIONS else version
+
+
+def _read_preflight_cache(
+    proton_dir_name: str, image_version: str
+) -> Optional[tuple[Optional[str]]]:
+    """Return the cached verdict, or ``None`` when this run has to probe again.
+
+    A verdict is itself ``Optional[str]`` - ``None`` means nothing is missing -
+    so a hit is wrapped in a one element tuple to stay distinguishable from a
+    miss.
+    """
+    if not image_version:
+        return None
+    try:
+        lines = _preflight_cache_path(proton_dir_name).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    if len(lines) < 2 or lines[0] != image_version:
+        return None
+    return (lines[1] or None,)
+
+
+def _write_preflight_cache(
+    proton_dir_name: str, image_version: str, missing: Optional[str]
+) -> None:
+    if not image_version:
+        return
+    payload = "\n".join([image_version, missing or ""]) + "\n"
+    try:
+        _preflight_cache_path(proton_dir_name).write_text(payload, encoding="utf-8")
+    except OSError:
+        # A cache that cannot be written must never block a start.
+        pass
+
+
 def find_missing_proton_library(proton_dir_name: str, logger: logging.Logger) -> Optional[str]:
     """Return a shared library GE-Proton needs but this container cannot load.
 
     The launcher is started without ``STEAM_COMPAT_DATA_PATH`` so it runs all
     module level imports - including the ctypes based Vulkan probe - and then
     exits immediately without touching the wine prefix.
+
+    The verdict depends only on the Proton build and the image's host libraries,
+    so it is cached per image version: the supervisor calls this on every
+    relaunch and the subprocess would otherwise be paid each time.
     """
     if os.environ.get("PROTON_SKIP_PREFLIGHT") == "1":
         logger.warning("Skipping Proton preflight check (PROTON_SKIP_PREFLIGHT=1).")
@@ -315,6 +372,12 @@ def find_missing_proton_library(proton_dir_name: str, logger: logging.Logger) ->
     script = Path(STEAM_COMPAT_DIR) / proton_dir_name / "proton"
     if not script.is_file():
         return None
+
+    image_version = _cacheable_image_version()
+    cached = _read_preflight_cache(proton_dir_name, image_version)
+    if cached is not None:
+        logger.debug("Reusing cached Proton preflight result for %s.", proton_dir_name)
+        return cached[0]
 
     env = dict(os.environ)
     env.pop("STEAM_COMPAT_DATA_PATH", None)
@@ -333,7 +396,9 @@ def find_missing_proton_library(proton_dir_name: str, logger: logging.Logger) ->
         return None
 
     match = _MISSING_LIBRARY_PATTERN.search(f"{completed.stdout}\n{completed.stderr}")
-    return match.group(1) if match else None
+    missing = match.group(1) if match else None
+    _write_preflight_cache(proton_dir_name, image_version, missing)
+    return missing
 
 
 def prepare_proton(
