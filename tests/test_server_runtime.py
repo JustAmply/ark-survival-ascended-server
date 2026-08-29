@@ -23,6 +23,7 @@ from server_runtime import supervisor as runtime_supervisor
 from server_runtime import wine_sync as runtime_wine_sync
 from server_runtime.archive_utils import safe_extract_archive
 from server_runtime.constants import RuntimeSettings
+from server_runtime.launch_env import LaunchEnvironment
 from server_runtime.proton import ProtonSelection
 from server_runtime.supervisor import ServerSupervisor
 
@@ -167,7 +168,8 @@ def test_prepare_start_params_applies_complete_contract(monkeypatch, tmp_path):
 
     assert "ServerAdminPassword=changeme" in params
     assert params.endswith("-mods=1,2 -nosteam")
-    assert os.environ["ASA_START_PARAMS"] == params
+    # The resolved line is returned, never written back to the environment.
+    assert os.environ["ASA_START_PARAMS"] == "TheIsland_WP?listen?Port=7777"
 
 
 def test_prepare_start_params_uses_default_payload_when_empty(monkeypatch, tmp_path):
@@ -359,6 +361,7 @@ def test_scheduler_contract_exports_env(monkeypatch):
 
     def fake_popen(command, *args, **kwargs):
         calls["command"] = command
+        calls["env"] = kwargs["env"]
         return DummyProcess()
 
     monkeypatch.setattr(os.path, "isfile", lambda path: True)
@@ -368,9 +371,11 @@ def test_scheduler_contract_exports_env(monkeypatch):
     supervisor.start_restart_scheduler()
 
     assert calls["command"] == ["/usr/local/bin/asa-ctrl", "restart-scheduler"]
-    assert os.environ["ASA_SUPERVISOR_PID_FILE"]
-    assert os.environ["ASA_SERVER_PID_FILE"]
-    assert os.environ["SERVER_RESTART_WARNINGS"] == "30,5,1"
+    # The scheduler's contract is handed to it, not left in the supervisor's env.
+    assert calls["env"]["ASA_SUPERVISOR_PID_FILE"]
+    assert calls["env"]["ASA_SERVER_PID_FILE"]
+    assert calls["env"]["SERVER_RESTART_WARNINGS"] == "30,5,1"
+    assert "SERVER_RESTART_WARNINGS" not in os.environ
 
 
 def test_configure_runtime_logging_invalid_level_warns(monkeypatch, caplog):
@@ -427,7 +432,9 @@ def test_shutdown_sequence_skips_delay_when_saveworld_fails(monkeypatch):
 
     monkeypatch.setattr(
         "server_runtime.supervisor.execute_rcon_command",
-        lambda _command: (_ for _ in ()).throw(runtime_supervisor.AsaCtrlError("offline")),
+        lambda _command, settings=None: (_ for _ in ()).throw(
+            runtime_supervisor.AsaCtrlError("offline")
+        ),
     )
     monkeypatch.setattr("server_runtime.supervisor.time.sleep", lambda seconds: sleep_calls.append(seconds))
 
@@ -581,28 +588,29 @@ def test_safe_extract_archive_rejects_zip_symlinks(tmp_path):
 
 
 def test_prepare_runtime_env_falls_back_when_xdg_runtime_dir_is_file(monkeypatch, tmp_path):
-    logger = logging.getLogger("test-runtime-env")
-    supervisor = ServerSupervisor(RuntimeSettings.from_env(), logger)
     xdg_file = tmp_path / "xdg-runtime-file"
     xdg_file.write_text("broken", encoding="utf-8")
     mkdir_calls = []
 
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(xdg_file))
-    monkeypatch.setattr("server_runtime.supervisor.os.getuid", lambda: 12345, raising=False)
-    monkeypatch.setattr("server_runtime.supervisor.os.access", lambda _path, _mode: True)
+    monkeypatch.setattr("server_runtime.launch_env.os.getuid", lambda: 12345, raising=False)
+    monkeypatch.setattr("server_runtime.launch_env.os.access", lambda _path, _mode: True)
     monkeypatch.setattr(
-        "server_runtime.supervisor.Path.mkdir",
+        "server_runtime.launch_env.Path.mkdir",
         lambda self, parents=True, exist_ok=True: mkdir_calls.append(str(self)),
     )
-    monkeypatch.setattr("server_runtime.supervisor.os.chmod", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("server_runtime.launch_env.os.chmod", lambda *_args, **_kwargs: None)
 
-    supervisor._prepare_runtime_env()
+    env = LaunchEnvironment.from_process(
+        RuntimeSettings.from_env({}), {"XDG_RUNTIME_DIR": str(xdg_file)}
+    ).for_server()
 
-    assert os.environ["XDG_RUNTIME_DIR"] == "/tmp/xdg-runtime-12345"
+    assert env["XDG_RUNTIME_DIR"] == "/tmp/xdg-runtime-12345"
     assert any(path.replace("\\", "/") == "/tmp/xdg-runtime-12345" for path in mkdir_calls)
-    assert os.environ["SDL_VIDEODRIVER"] == "dummy"
-    assert os.environ["SDL_AUDIODRIVER"] == "dummy"
-    assert os.environ["XDG_SESSION_TYPE"] == "headless"
+    assert env["SDL_VIDEODRIVER"] == "dummy"
+    assert env["SDL_AUDIODRIVER"] == "dummy"
+    assert env["XDG_SESSION_TYPE"] == "headless"
+    # The supervisor's own environment is left alone.
+    assert "SDL_VIDEODRIVER" not in os.environ
 
 
 def test_ensure_steamcmd_reinstalls_when_linux32_is_file(monkeypatch, tmp_path):
@@ -676,14 +684,20 @@ def test_scheduler_contract_defaults_warnings_when_empty(monkeypatch):
         def poll():
             return None
 
+    captured = {}
+
+    def fake_popen(command, *args, **kwargs):
+        captured["env"] = kwargs["env"]
+        return DummyProcess()
+
     monkeypatch.setattr(os.path, "isfile", lambda path: True)
     monkeypatch.setattr(os, "access", lambda path, mode: True)
     monkeypatch.setattr("server_runtime.supervisor.ASA_CTRL_BIN", "/usr/local/bin/asa-ctrl")
-    monkeypatch.setattr("server_runtime.supervisor.subprocess.Popen", lambda *args, **kwargs: DummyProcess())
+    monkeypatch.setattr("server_runtime.supervisor.subprocess.Popen", fake_popen)
 
     supervisor.start_restart_scheduler()
 
-    assert os.environ["SERVER_RESTART_WARNINGS"] == "30,5,1"
+    assert captured["env"]["SERVER_RESTART_WARNINGS"] == "30,5,1"
 
 
 def test_chown_path_uses_no_symlink_follow(monkeypatch, tmp_path):
@@ -704,23 +718,98 @@ def test_chown_path_uses_no_symlink_follow(monkeypatch, tmp_path):
     assert calls[0]["follow_symlinks"] is False
 
 def test_prepare_runtime_env_preserves_headless_env_overrides(monkeypatch, tmp_path):
-    logger = logging.getLogger("test-runtime-env-overrides")
-    supervisor = ServerSupervisor(RuntimeSettings.from_env(), logger)
+    """An operator running the image with a real display keeps their own values."""
     runtime_dir = tmp_path / "xdg-runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime_dir))
-    monkeypatch.setenv("SDL_VIDEODRIVER", "wayland")
-    monkeypatch.setenv("SDL_AUDIODRIVER", "pulse")
-    monkeypatch.setenv("XDG_SESSION_TYPE", "tty")
-    monkeypatch.setattr("server_runtime.supervisor.os.getuid", lambda: 12345, raising=False)
-    monkeypatch.setattr("server_runtime.supervisor.os.chmod", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("server_runtime.launch_env.os.getuid", lambda: 12345, raising=False)
+    monkeypatch.setattr("server_runtime.launch_env.os.chmod", lambda *_args, **_kwargs: None)
 
-    supervisor._prepare_runtime_env()
+    env = LaunchEnvironment.from_process(
+        RuntimeSettings.from_env({}),
+        {
+            "XDG_RUNTIME_DIR": str(runtime_dir),
+            "SDL_VIDEODRIVER": "wayland",
+            "SDL_AUDIODRIVER": "pulse",
+            "XDG_SESSION_TYPE": "tty",
+        },
+    ).for_server()
 
-    assert os.environ["SDL_VIDEODRIVER"] == "wayland"
-    assert os.environ["SDL_AUDIODRIVER"] == "pulse"
-    assert os.environ["XDG_SESSION_TYPE"] == "tty"
+    assert env["SDL_VIDEODRIVER"] == "wayland"
+    assert env["SDL_AUDIODRIVER"] == "pulse"
+    assert env["XDG_SESSION_TYPE"] == "tty"
+    assert env["XDG_RUNTIME_DIR"] == str(runtime_dir)
+
+
+def _stub_runtime_dir(monkeypatch):
+    """Neutralise the XDG directory probing, which is Linux-only."""
+    monkeypatch.setattr("server_runtime.launch_env.os.getuid", lambda: 12345, raising=False)
+    monkeypatch.setattr("server_runtime.launch_env.os.access", lambda _path, _mode: True)
+    monkeypatch.setattr(
+        "server_runtime.launch_env.Path.mkdir",
+        lambda self, parents=True, exist_ok=True: None,
+    )
+    monkeypatch.setattr("server_runtime.launch_env.os.chmod", lambda *_args, **_kwargs: None)
+
+
+def test_launch_environment_gives_each_child_its_own_slice(monkeypatch):
+    """Neither child's environment is a superset of the other's."""
+    _stub_runtime_dir(monkeypatch)
+    settings = RuntimeSettings.from_env({"SERVER_RESTART_WARNINGS": "60,10"})
+    launch_env = LaunchEnvironment.from_process(settings, {"HOME": "/home/gameserver"})
+
+    scheduler = launch_env.for_scheduler()
+    server = launch_env.for_server("TheIsland_WP?listen")
+
+    # Both inherit the container's own environment.
+    assert scheduler["HOME"] == server["HOME"] == "/home/gameserver"
+
+    assert scheduler["SERVER_RESTART_WARNINGS"] == "60,10"
+    assert scheduler["ASA_SUPERVISOR_PID_FILE"]
+    assert scheduler["ASA_SERVER_PID_FILE"]
+    assert "STEAM_COMPAT_DATA_PATH" not in scheduler
+    assert "SDL_VIDEODRIVER" not in scheduler
+
+    assert server["STEAM_COMPAT_CLIENT_INSTALL_PATH"]
+    assert server["STEAM_COMPAT_DATA_PATH"]
+    assert server["ASA_START_PARAMS"] == "TheIsland_WP?listen"
+    assert "ASA_SUPERVISOR_PID_FILE" not in server
+
+
+def test_saveworld_discovers_rcon_from_the_launched_environment(monkeypatch):
+    """Shutdown must read the line the server was launched with, not a global."""
+    monkeypatch.delenv("ASA_START_PARAMS", raising=False)
+    monkeypatch.delenv("ASA_SERVER_ADMIN_PASSWORD", raising=False)
+    supervisor = ServerSupervisor(
+        RuntimeSettings.from_env({}), logging.getLogger("test-saveworld-env")
+    )
+    supervisor.server_env = {
+        "ASA_START_PARAMS": "TheIsland_WP?RCONPort=27020?ServerAdminPassword=from_launch"
+    }
+
+    captured = {}
+
+    def fake_rcon(command, settings=None):
+        captured["command"] = command
+        captured["password"] = settings.get_start_param_value("ServerAdminPassword")
+        captured["port"] = settings.get_start_param_value("RCONPort")
+        return "saved"
+
+    monkeypatch.setattr("server_runtime.supervisor.execute_rcon_command", fake_rcon)
+
+    assert supervisor._send_saveworld() is True
+    assert captured["command"] == "saveworld"
+    assert captured["password"] == "from_launch"
+    assert captured["port"] == "27020"
+
+
+def test_rcon_settings_fall_back_before_the_first_launch():
+    """A signal arriving before any launch leaves discovery on the process env."""
+    supervisor = ServerSupervisor(
+        RuntimeSettings.from_env({}), logging.getLogger("test-rcon-settings")
+    )
+
+    assert supervisor._rcon_settings() is None
 
 
 def test_ensure_machine_id_creates_files(monkeypatch, tmp_path):
