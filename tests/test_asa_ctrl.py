@@ -677,6 +677,17 @@ def test_cli_main_no_args_shows_help(capsys):
     assert "Available commands" in captured.out
 
 
+def test_cli_help_lists_only_public_commands(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli_main(["--help"])
+
+    assert exc.value.code == ExitCodes.OK
+    output = capsys.readouterr().out
+    assert "{rcon,mods}" in output
+    assert "mods-string" not in output
+    assert "restart-scheduler" not in output
+
+
 def test_cli_debug_log_hides_launch_password(monkeypatch, caplog):
     monkeypatch.setenv("ASA_LOG_LEVEL", "DEBUG")
     monkeypatch.setenv("ASA_START_PARAMS", "Map?ServerAdminPassword=cli-secret?Port=7777")
@@ -740,6 +751,20 @@ def test_rcon_command_errors_map_to_exit_codes(capsys, monkeypatch):
         RconCommand.execute(args)
     assert exc.value.code == ExitCodes.RCON_PASSWORD_NOT_FOUND
     assert "could not read rcon password" in capsys.readouterr().err.lower()
+
+
+def test_rcon_authentication_error_names_admin_password(capsys, monkeypatch):
+    def raise_auth_error(_command):
+        raise RconAuthenticationError("wrong password")
+
+    monkeypatch.setattr("asa_ctrl.cli_commands.rcon_command.execute_rcon_command", raise_auth_error)
+    args = type("Args", (), {"command": "listplayers"})
+
+    with pytest.raises(SystemExit) as exc:
+        RconCommand.execute(args)
+
+    assert exc.value.code == ExitCodes.RCON_PASSWORD_WRONG
+    assert "ServerAdminPassword" in capsys.readouterr().err
 
 
 def test_ini_config_helper_missing_file_returns_none(tmp_path):

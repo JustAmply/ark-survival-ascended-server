@@ -21,6 +21,14 @@ def create_parser() -> argparse.ArgumentParser:
     
     for command in COMMANDS:
         command.add_parser(subparsers)
+
+    # argparse still prints SUPPRESS as a literal subcommand description.
+    # Keep internal parsers callable while omitting them from public help.
+    subparsers._choices_actions = [
+        choice for choice in subparsers._choices_actions
+        if choice.help != argparse.SUPPRESS
+    ]
+    subparsers.metavar = "{" + ",".join(choice.dest for choice in subparsers._choices_actions) + "}"
     
     return parser
 

@@ -61,7 +61,7 @@ Startup is fully automatic through the container's Python runtime entrypoint; no
 
 ### 🔍 Find Your Server
 
-Once you see `"Starting the ARK: Survival Ascended dedicated server..."` in the logs, check your server name:
+Once you see `"Starting ASA dedicated server."` in the logs, check your server name:
 
 ```bash
 docker exec asa-server-1 cat server-files/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini | grep SessionName
