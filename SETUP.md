@@ -245,6 +245,11 @@ If files ever do look damaged, one run with `ASA_VALIDATE=always` repairs them.
 The Proton preflight check (see below) is likewise cached per image build, so it
 costs a subprocess launch once rather than on every relaunch.
 
+To diagnose a slow start, compare the `Initial ownership setup`, `Server file
+update completed`, and `Proton preparation completed` durations in the container
+logs. Ownership setup is expected only for a new volume. Compare a first launch
+with a restart on the same volumes before changing validation or Proton settings.
+
 ## 🔁 Scheduled Restarts
 
 Enable automated maintenance windows with the built-in scheduler:

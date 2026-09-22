@@ -135,10 +135,14 @@ class ServerSupervisor:
         return command
 
     def _launch_server_once(self) -> int:
+        started = time.monotonic()
         update_server_files(self.logger, self.settings)
+        self.logger.info("Server file update completed in %.1fs.", time.monotonic() - started)
         params = prepare_start_params(self.logger)
+        started = time.monotonic()
         proton_dir_name = prepare_proton(self.logger, self.settings)
         ensure_proton_compat_data(proton_dir_name, self.logger)
+        self.logger.info("Proton preparation completed in %.1fs.", time.monotonic() - started)
         self._prepare_runtime_env()
         launch_binary = resolve_launch_binary(self.logger)
         self._start_log_streamer()

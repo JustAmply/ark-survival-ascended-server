@@ -43,6 +43,7 @@ Your server will be discoverable in the "Unofficial" server browser once setup i
 - **⚡ Fast Restarts**: Full file validation only on the first install, so scheduled restarts come back in seconds instead of minutes
 - **⏰ Scheduled Restarts**: Built-in cron scheduler with in-game warnings
 - **📊 Monitoring**: Debug mode and comprehensive logging
+- **⏱️ Startup timing**: Logs show initial ownership, server update, and Proton preparation durations to help locate slow starts
 - **🔌 Plugin Support**: ServerAPI plugin loader integration
 
 ## 📋 System Requirements
