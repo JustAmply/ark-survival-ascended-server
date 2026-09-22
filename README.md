@@ -18,11 +18,16 @@ Get your ARK server running in minutes:
 # 1. Create server directory and download config
 mkdir asa-server && cd asa-server
 wget https://raw.githubusercontent.com/JustAmply/ark-survival-ascended-server/main/docker-compose.yml
+wget https://raw.githubusercontent.com/JustAmply/ark-survival-ascended-server/main/.env.example
 
-# 2. Start your server
+# 2. Set a unique admin password in the local, untracked .env file
+cp .env.example .env
+vi .env
+
+# 3. Start your server
 docker compose up -d
 
-# 3. Follow the logs to see progress
+# 4. Follow the logs to see progress
 docker logs -f asa-server-1
 ```
 
@@ -76,7 +81,7 @@ environment:
   ASA_MAP: TheIsland_WP
   ASA_PORT: "7777"
   ASA_RCON_PORT: "27020"
-  ASA_SERVER_ADMIN_PASSWORD: change_this_password
+  ASA_SERVER_ADMIN_PASSWORD: ${ASA_SERVER_ADMIN_PASSWORD:?Set ASA_SERVER_ADMIN_PASSWORD in .env before starting}
   ASA_MAX_PLAYERS: "50"
   TZ: Europe/Berlin
 ```
@@ -86,7 +91,7 @@ environment:
 - **Change map**: `ASA_MAP=ScorchedEarth_WP` (or `TheCenter_WP`, `Aberration_WP`, `Extinction_WP`, …)
 - **Change ports**: `ASA_PORT=7777`, `ASA_RCON_PORT=27020`
 - **Player limit**: `ASA_MAX_PLAYERS=50`
-- **Admin password**: `ASA_SERVER_ADMIN_PASSWORD=…` — keep it out of the compose file with an `.env` file
+- **Admin password**: Set `ASA_SERVER_ADMIN_PASSWORD` in `.env`. The supplied Compose file refuses to start when it is empty or missing. Keep `.env` private.
 - **Timezone**: `TZ=Europe/Berlin` (or your region) to keep server logs and saves in local time (default: `UTC`)
 
 See [SETUP.md](SETUP.md#-server-configuration) for the full list.
