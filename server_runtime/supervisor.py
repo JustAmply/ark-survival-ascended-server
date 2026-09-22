@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from asa_ctrl.common.errors import AsaCtrlError
+from asa_ctrl.common.launch_config import LaunchConfiguration
 from asa_ctrl.core.rcon import execute_rcon_command
 
 from .bootstrap import configure_timezone, ensure_machine_id, maybe_debug_hold
@@ -134,16 +135,20 @@ class ServerSupervisor:
         return command
 
     def _launch_server_once(self) -> int:
+        started = time.monotonic()
         update_server_files(self.logger, self.settings)
+        self.logger.info("Server file update completed in %.1fs.", time.monotonic() - started)
         params = prepare_start_params(self.logger)
+        started = time.monotonic()
         proton_dir_name = prepare_proton(self.logger, self.settings)
         ensure_proton_compat_data(proton_dir_name, self.logger)
+        self.logger.info("Proton preparation completed in %.1fs.", time.monotonic() - started)
         self._prepare_runtime_env()
         launch_binary = resolve_launch_binary(self.logger)
         self._start_log_streamer()
 
         self.logger.info("Starting ASA dedicated server.")
-        self.logger.info("Start parameters: %s", params)
+        self.logger.info("Start parameters: %s", LaunchConfiguration.parse(params).render_for_logging())
         command = self._build_launch_command(proton_dir_name, launch_binary, params)
         self.server_process = subprocess.Popen(command, cwd=ASA_BINARY_DIR)
         Path(PID_FILE).write_text(f"{self.server_process.pid}\n", encoding="utf-8")

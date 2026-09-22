@@ -7,7 +7,7 @@ services:
       ASA_MAP: TheIsland_WP
       ASA_PORT: "7777"
       ASA_RCON_PORT: "27020"
-      ASA_SERVER_ADMIN_PASSWORD: change_this_password
+      ASA_SERVER_ADMIN_PASSWORD: ${ASA_SERVER_ADMIN_PASSWORD:?Set ASA_SERVER_ADMIN_PASSWORD in .env before starting}
       ASA_MAX_PLAYERS: "50"
       ASA_CLUSTER_ID: default
       ASA_CLUSTER_DIR: /home/gameserver/cluster-shared
@@ -16,7 +16,7 @@ services:
       # override the matching entries:
       #
       # ASA_START_PARAMS: >
-      #   TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?ServerAdminPassword=change_this_password
+      #   TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True
       #   -WinLiveMaxPlayers=50
       #   -clusterid=default
       #   -ClusterDirOverride="/home/gameserver/cluster-shared"
@@ -56,7 +56,7 @@ services:
 #      ASA_MAP: ScorchedEarth_WP
 #      ASA_PORT: "7778"
 #      ASA_RCON_PORT: "27021"
-#      ASA_SERVER_ADMIN_PASSWORD: change_this_password
+#      ASA_SERVER_ADMIN_PASSWORD: ${ASA_SERVER_ADMIN_PASSWORD:?Set ASA_SERVER_ADMIN_PASSWORD in .env before starting}
 #      ASA_MAX_PLAYERS: "50"
 #      ASA_CLUSTER_ID: default
 #      ASA_CLUSTER_DIR: /home/gameserver/cluster-shared

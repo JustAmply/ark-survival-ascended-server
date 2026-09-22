@@ -32,7 +32,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: '3.14'
           cache: 'pip'
 
       - name: Install dependencies
@@ -118,6 +118,10 @@ jobs:
       - name: Verify native GE-Proton runtime dependencies
         run: |
           docker run --rm --entrypoint python asa-linux-server:smoke -c "from server_runtime.native_libs import main; raise SystemExit(main())"
+
+      - name: Verify image control wrapper
+        run: |
+          docker run --rm --entrypoint /usr/local/bin/asa-ctrl asa-linux-server:smoke --help
 
       - name: Log in to GHCR
         if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}

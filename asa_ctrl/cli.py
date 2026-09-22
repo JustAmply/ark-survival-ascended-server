@@ -21,6 +21,14 @@ def create_parser() -> argparse.ArgumentParser:
     
     for command in COMMANDS:
         command.add_parser(subparsers)
+
+    # argparse still prints SUPPRESS as a literal subcommand description.
+    # Keep internal parsers callable while omitting them from public help.
+    subparsers._choices_actions = [
+        choice for choice in subparsers._choices_actions
+        if choice.help != argparse.SUPPRESS
+    ]
+    subparsers.metavar = "{" + ",".join(choice.dest for choice in subparsers._choices_actions) + "}"
     
     return parser
 
@@ -50,7 +58,7 @@ def main(args: Optional[List[str]] = None) -> None:
     # Lazy debug output if user enabled verbose logging
     settings = parsed_args.settings
     if settings.start_params() and logger.isEnabledFor(10):  # DEBUG level
-        logger.debug("Parsed start params: %s", settings.parse_start_params())
+        logger.debug("Start params: %s", settings.launch_configuration().render_for_logging())
     
     # Execute the appropriate command
     if hasattr(parsed_args, 'func'):

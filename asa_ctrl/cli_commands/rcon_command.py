@@ -40,7 +40,7 @@ class RconCommand:
                     "[ServerSettings] section as ServerAdminPassword=mypass"
                 )
             elif isinstance(exc, RconAuthenticationError):
-                message = "Could not execute this RCON command. Authentication failed (wrong server password)."
+                message = "Could not execute this RCON command. Authentication failed (check ServerAdminPassword)."
             elif isinstance(exc, RconPortNotFoundError):
                 message = (
                     "Could not find RCON port. Make sure it is properly configured in start parameters "
