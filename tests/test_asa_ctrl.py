@@ -12,10 +12,11 @@ import os
 import sys
 import tempfile
 import logging
+import struct
 import time
 from pathlib import Path
 from types import MethodType
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -560,6 +561,24 @@ def test_rcon_receive_exact_reads_full_buffer():
     object.__setattr__(client, 'socket', mock_socket)
     data = client._receive_exact(4)
     assert data == b"abcd"
+
+
+@pytest.mark.parametrize(
+    ("chunks", "error"),
+    [
+        ([struct.pack("<I", 9)], "Invalid packet size"),
+        ([struct.pack("<I", 4093)], "Packet size too large"),
+        ([struct.pack("<I", 10), b"short", b""], "Connection closed"),
+        ([b"ab", b""], "Connection closed"),
+    ],
+)
+def test_rcon_receive_full_packet_rejects_bad_or_truncated_frames(chunks, error):
+    client = RconClient(port=27020, password="secret", retry_count=0)
+    client.socket = Mock()
+    client.socket.recv.side_effect = chunks
+
+    with pytest.raises((RconPacketError, RconConnectionError), match=error):
+        client._receive_full_packet()
 
 
 def test_rcon_execute_command_raises_on_invalid_command():

@@ -426,6 +426,42 @@ def test_shutdown_sequence_skips_delay_when_saveworld_fails(monkeypatch):
     assert process.terminated is True
 
 
+def test_shutdown_sequence_saves_waits_then_terminates(monkeypatch):
+    events = []
+    supervisor = ServerSupervisor(
+        RuntimeSettings.from_env({"ASA_SHUTDOWN_SAVEWORLD_DELAY": "3"}),
+        logging.getLogger("test-shutdown-success"),
+    )
+    process = Mock(pid=4242)
+    process.poll.return_value = None
+    supervisor.server_process = process
+
+    monkeypatch.setattr(runtime_supervisor, "execute_rcon_command", lambda command: events.append(command))
+    monkeypatch.setattr(runtime_supervisor.time, "sleep", lambda seconds: events.append(("sleep", seconds)))
+    monkeypatch.setattr(supervisor, "_stop_server_process", lambda current: events.append(("stop", current)))
+
+    supervisor._perform_shutdown_sequence(signal.SIGTERM, "container shutdown")
+
+    assert events == ["saveworld", ("sleep", 3), ("stop", process)]
+
+
+def test_shutdown_escalates_to_sigkill_after_timeout(monkeypatch):
+    supervisor = ServerSupervisor(
+        RuntimeSettings.from_env({"ASA_SHUTDOWN_TIMEOUT": "2"}),
+        logging.getLogger("test-shutdown-timeout"),
+    )
+    process = Mock(pid=4242)
+    process.poll.return_value = None
+    now = iter([0, 1, 2])
+    monkeypatch.setattr(runtime_supervisor.time, "time", lambda: next(now))
+    monkeypatch.setattr(runtime_supervisor.time, "sleep", lambda _: None)
+
+    supervisor._stop_server_process(process)
+
+    process.terminate.assert_called_once_with()
+    process.kill.assert_called_once_with()
+
+
 def test_supervisor_log_hides_password_but_launches_with_it(monkeypatch, tmp_path):
     params = "Map?ServerAdminPassword=runtime-secret?Port=7777 -nosteam"
     logger = Mock()
@@ -865,6 +901,39 @@ def test_canonicalize_install_dir_rejects_unexpected_layout(tmp_path):
 
     with pytest.raises(RuntimeError, match="did not contain the expected"):
         runtime_proton._canonicalize_install_dir(tmp_path / "GE-Proton11-5", release)
+
+
+@pytest.mark.parametrize("checksum_content", [None, "wrong checksum\n"])
+def test_proton_install_rejects_unverified_archive_before_extraction(
+    monkeypatch, tmp_path, checksum_content
+):
+    release = runtime_proton.ReleaseArchive(
+        version="11-5",
+        asset_base="GE-Proton11-5",
+        archive_url="https://example.invalid/GE-Proton11-5.tar.gz",
+        checksum_url="https://example.invalid/GE-Proton11-5.sha512sum",
+    )
+    monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(tmp_path))
+    monkeypatch.setattr(runtime_proton, "find_release_archive", lambda _: release)
+
+    def fake_download(url, destination):
+        if url == release.checksum_url and checksum_content is None:
+            raise runtime_proton.urllib.error.URLError("unavailable")
+        destination.write_bytes(
+            b"unverified archive" if url == release.archive_url else checksum_content.encode()
+        )
+
+    extract = Mock()
+    monkeypatch.setattr(runtime_proton, "_download_file", fake_download)
+    monkeypatch.setattr(runtime_proton, "safe_extract_archive", extract)
+
+    with pytest.raises(RuntimeError, match="Proton checksum verification failed"):
+        runtime_proton.install_proton_if_needed(
+            "11-5", logging.getLogger("test-proton-checksum"), RuntimeSettings.from_env({})
+        )
+
+    extract.assert_not_called()
+    assert not (tmp_path / "GE-Proton11-5").exists()
 
 
 def test_find_missing_proton_library_detects_missing_shared_object(monkeypatch, tmp_path):
