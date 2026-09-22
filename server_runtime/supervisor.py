@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from asa_ctrl.common.errors import AsaCtrlError
+from asa_ctrl.common.launch_config import LaunchConfiguration
 from asa_ctrl.core.rcon import execute_rcon_command
 
 from .bootstrap import configure_timezone, ensure_machine_id, maybe_debug_hold
@@ -143,7 +144,7 @@ class ServerSupervisor:
         self._start_log_streamer()
 
         self.logger.info("Starting ASA dedicated server.")
-        self.logger.info("Start parameters: %s", params)
+        self.logger.info("Start parameters: %s", LaunchConfiguration.parse(params).render_for_logging())
         command = self._build_launch_command(proton_dir_name, launch_binary, params)
         self.server_process = subprocess.Popen(command, cwd=ASA_BINARY_DIR)
         Path(PID_FILE).write_text(f"{self.server_process.pid}\n", encoding="utf-8")

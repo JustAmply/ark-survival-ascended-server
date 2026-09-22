@@ -658,6 +658,18 @@ def test_cli_main_no_args_shows_help(capsys):
     assert "Available commands" in captured.out
 
 
+def test_cli_debug_log_hides_launch_password(monkeypatch, caplog):
+    monkeypatch.setenv("ASA_LOG_LEVEL", "DEBUG")
+    monkeypatch.setenv("ASA_START_PARAMS", "Map?ServerAdminPassword=cli-secret?Port=7777")
+
+    with caplog.at_level(logging.DEBUG, logger="asa_ctrl.cli"):
+        with pytest.raises(SystemExit):
+            cli_main(["mods"])
+
+    assert "ServerAdminPassword=<redacted>" in caplog.text
+    assert "cli-secret" not in caplog.text
+
+
 def test_cli_mods_no_action_prints_help(capsys):
     with pytest.raises(SystemExit) as exc:
         cli_main(["mods"])

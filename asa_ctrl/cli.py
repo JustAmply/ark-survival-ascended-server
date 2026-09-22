@@ -50,7 +50,7 @@ def main(args: Optional[List[str]] = None) -> None:
     # Lazy debug output if user enabled verbose logging
     settings = parsed_args.settings
     if settings.start_params() and logger.isEnabledFor(10):  # DEBUG level
-        logger.debug("Parsed start params: %s", settings.parse_start_params())
+        logger.debug("Start params: %s", settings.launch_configuration().render_for_logging())
     
     # Execute the appropriate command
     if hasattr(parsed_args, 'func'):

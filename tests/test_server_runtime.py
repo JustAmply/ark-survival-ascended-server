@@ -426,6 +426,34 @@ def test_shutdown_sequence_skips_delay_when_saveworld_fails(monkeypatch):
     assert process.terminated is True
 
 
+def test_supervisor_log_hides_password_but_launches_with_it(monkeypatch, tmp_path):
+    params = "Map?ServerAdminPassword=runtime-secret?Port=7777 -nosteam"
+    logger = Mock()
+    supervisor = ServerSupervisor(RuntimeSettings.from_env({}), logger)
+    process = Mock(pid=4242)
+    process.wait.return_value = 0
+
+    monkeypatch.setattr(runtime_supervisor, "update_server_files", lambda *_: None)
+    monkeypatch.setattr(runtime_supervisor, "prepare_start_params", lambda *_: params)
+    monkeypatch.setattr(runtime_supervisor, "prepare_proton", lambda *_: "GE-Proton")
+    monkeypatch.setattr(runtime_supervisor, "ensure_proton_compat_data", lambda *_: None)
+    monkeypatch.setattr(runtime_supervisor, "resolve_launch_binary", lambda *_: "ArkAscendedServer.exe")
+    monkeypatch.setattr(runtime_supervisor, "PID_FILE", str(tmp_path / "server.pid"))
+    monkeypatch.setattr(supervisor, "_prepare_runtime_env", lambda: None)
+    monkeypatch.setattr(supervisor, "_start_log_streamer", lambda: None)
+    monkeypatch.setattr(runtime_supervisor.subprocess, "Popen", Mock(return_value=process))
+
+    assert supervisor._launch_server_once() == 0
+
+    logged = " ".join(str(call) for call in logger.info.call_args_list)
+    assert "ServerAdminPassword=<redacted>" in logged
+    assert "runtime-secret" not in logged
+    assert any(
+        "ServerAdminPassword=runtime-secret" in arg
+        for arg in runtime_supervisor.subprocess.Popen.call_args.args[0]
+    )
+
+
 def test_supervisor_run_restarts_after_launch_exception(monkeypatch, caplog):
     logger = logging.getLogger("test-supervisor")
     settings = RuntimeSettings.from_env()
