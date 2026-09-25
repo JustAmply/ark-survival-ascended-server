@@ -54,6 +54,26 @@ It registers PID files, starts the restart scheduler and the log streamer,
 launches the server through Proton, and handles the graceful shutdown sequence
 (`saveworld` over RCON, then SIGTERM, then SIGKILL).
 
+## Proton selection
+
+Which GE-Proton build the container runs and how it was arrived at
+(`server_runtime.proton.ProtonSelection`) — a version plus an **origin**:
+
+- **pinned** — the operator set `PROTON_VERSION`. Never silently swapped.
+- **auto** — detected from the latest GitHub release carrying usable assets.
+- **fallback** — an auto-detected build failed its preflight, so
+  `FALLBACK_PROTON_VERSION` replaced it.
+
+Resolving a selection can cost a GitHub round trip, a download and a preflight
+subprocess, and the [Supervisor](#supervisor) relaunches in a loop — so the
+selection is carried from one launch to the next as a value and passed back into
+`prepare_proton`, rather than parked in the process environment. A pin always
+outranks a carried selection; anything else is reused as is, which is what stops
+the loop re-probing a build already rejected.
+
+`PROTON_VERSION` is still exported into the environment after resolution, but
+only so `docker exec ... env` reports the build in use. Nothing reads it back.
+
 ## Wine synchronisation backend
 
 How Wine implements Windows synchronisation objects for the server process

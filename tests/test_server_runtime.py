@@ -23,7 +23,13 @@ from server_runtime import supervisor as runtime_supervisor
 from server_runtime import wine_sync as runtime_wine_sync
 from server_runtime.archive_utils import safe_extract_archive
 from server_runtime.constants import RuntimeSettings
+from server_runtime.proton import ProtonSelection
 from server_runtime.supervisor import ServerSupervisor
+
+
+def _proton_settings(**environ: str) -> RuntimeSettings:
+    """Runtime settings for the Proton tests, built without touching os.environ."""
+    return RuntimeSettings.from_env(dict(environ))
 
 
 def test_runtime_settings_defaults(monkeypatch):
@@ -51,6 +57,8 @@ def test_runtime_settings_read_from_a_plain_mapping():
             "ASA_SHUTDOWN_TIMEOUT": "not-a-number",
             "PROTON_VERSION": "9-20",
             "PROTON_SKIP_CHECKSUM": "1",
+            "PROTON_SKIP_PREFLIGHT": "1",
+            "ASA_IMAGE_VERSION": "2.1.0",
             "ASA_LOG_LEVEL": "debug",
             "TZ": "Europe/Berlin",
         }
@@ -64,6 +72,8 @@ def test_runtime_settings_read_from_a_plain_mapping():
     assert settings.shutdown_timeout == 180  # falls back on garbage
     assert settings.proton_version == "9-20"
     assert settings.proton_skip_checksum is True
+    assert settings.proton_skip_preflight is True
+    assert settings.image_version == "2.1.0"
     assert settings.log_level == "DEBUG"
     assert settings.timezone == "Europe/Berlin"
 
@@ -294,7 +304,6 @@ def test_prepare_start_params_extra_flags_escape_hatch(monkeypatch, tmp_path):
 
 
 def test_resolve_proton_version_detected_latest(monkeypatch):
-    monkeypatch.delenv("PROTON_VERSION", raising=False)
     monkeypatch.setattr(
         runtime_proton,
         "_fetch_json",
@@ -303,19 +312,21 @@ def test_resolve_proton_version_detected_latest(monkeypatch):
     monkeypatch.setattr(runtime_proton, "_check_release_assets", lambda _version: True)
     logger = logging.getLogger("test")
 
-    version = runtime_proton.resolve_proton_version(logger)
-    assert version == "9-20"
-    assert os.environ["PROTON_VERSION"] == "9-20"
+    selection = runtime_proton.resolve_proton_version(logger, _proton_settings())
+
+    assert selection.version == "9-20"
+    assert selection.origin == runtime_proton.ORIGIN_AUTO
+    assert selection.directory_name == "GE-Proton9-20"
 
 
 def test_resolve_proton_version_fallback(monkeypatch):
-    monkeypatch.delenv("PROTON_VERSION", raising=False)
     monkeypatch.setattr(runtime_proton, "_fetch_json", lambda _url: None)
     monkeypatch.setattr(runtime_proton, "find_latest_release_with_assets", lambda skip_version=None: None)
     logger = logging.getLogger("test")
 
-    version = runtime_proton.resolve_proton_version(logger)
-    assert version == runtime_proton.FALLBACK_PROTON_VERSION
+    selection = runtime_proton.resolve_proton_version(logger, _proton_settings())
+
+    assert selection.version == runtime_proton.FALLBACK_PROTON_VERSION
 
 
 def test_verify_sha512_ok(tmp_path):
@@ -769,12 +780,6 @@ def test_ensure_machine_id_write_error_is_non_fatal(monkeypatch, tmp_path, caplo
     assert "Failed to initialize /etc/machine-id" in caplog.text
 
 
-def _proton_env(monkeypatch):
-    monkeypatch.delenv("PROTON_VERSION", raising=False)
-    monkeypatch.delenv(runtime_proton.PROTON_VERSION_SOURCE_ENV, raising=False)
-    monkeypatch.delenv("PROTON_SKIP_PREFLIGHT", raising=False)
-
-
 def _write_proton_script(tmp_path, proton_dir_name):
     proton_dir = tmp_path / proton_dir_name
     proton_dir.mkdir(parents=True, exist_ok=True)
@@ -840,7 +845,6 @@ def test_canonicalize_install_dir_rejects_unexpected_layout(tmp_path):
 
 
 def test_find_missing_proton_library_detects_missing_shared_object(monkeypatch, tmp_path):
-    _proton_env(monkeypatch)
     _write_proton_script(tmp_path, "GE-Proton11-3")
     monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(tmp_path))
     captured = {}
@@ -856,7 +860,7 @@ def test_find_missing_proton_library_detects_missing_shared_object(monkeypatch, 
     monkeypatch.setattr(runtime_proton.subprocess, "run", fake_run)
 
     missing = runtime_proton.find_missing_proton_library(
-        "GE-Proton11-3", logging.getLogger("test-preflight")
+        "GE-Proton11-3", logging.getLogger("test-preflight"), _proton_settings()
     )
 
     assert missing == "libvulkan.so.1"
@@ -864,7 +868,6 @@ def test_find_missing_proton_library_detects_missing_shared_object(monkeypatch, 
 
 
 def test_find_missing_proton_library_ignores_unrelated_failure(monkeypatch, tmp_path):
-    _proton_env(monkeypatch)
     _write_proton_script(tmp_path, "GE-Proton11-3")
     monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(tmp_path))
     monkeypatch.setattr(
@@ -875,14 +878,13 @@ def test_find_missing_proton_library_ignores_unrelated_failure(monkeypatch, tmp_
 
     assert (
         runtime_proton.find_missing_proton_library(
-            "GE-Proton11-3", logging.getLogger("test-preflight")
+            "GE-Proton11-3", logging.getLogger("test-preflight"), _proton_settings()
         )
         is None
     )
 
 
 def test_find_missing_proton_library_fails_open(monkeypatch, tmp_path):
-    _proton_env(monkeypatch)
     _write_proton_script(tmp_path, "GE-Proton11-3")
     monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(tmp_path))
 
@@ -893,17 +895,15 @@ def test_find_missing_proton_library_fails_open(monkeypatch, tmp_path):
 
     assert (
         runtime_proton.find_missing_proton_library(
-            "GE-Proton11-3", logging.getLogger("test-preflight")
+            "GE-Proton11-3", logging.getLogger("test-preflight"), _proton_settings()
         )
         is None
     )
 
 
 def test_find_missing_proton_library_can_be_skipped(monkeypatch, tmp_path):
-    _proton_env(monkeypatch)
     _write_proton_script(tmp_path, "GE-Proton11-3")
     monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(tmp_path))
-    monkeypatch.setenv("PROTON_SKIP_PREFLIGHT", "1")
 
     def explode(command, **kwargs):  # pragma: no cover - must not be reached
         raise AssertionError("preflight should be skipped")
@@ -912,68 +912,103 @@ def test_find_missing_proton_library_can_be_skipped(monkeypatch, tmp_path):
 
     assert (
         runtime_proton.find_missing_proton_library(
-            "GE-Proton11-3", logging.getLogger("test-preflight")
+            "GE-Proton11-3",
+            logging.getLogger("test-preflight"),
+            _proton_settings(PROTON_SKIP_PREFLIGHT="1"),
         )
         is None
     )
 
 
-def test_prepare_proton_returns_verified_install(monkeypatch):
-    _proton_env(monkeypatch)
-    monkeypatch.setattr(runtime_proton, "resolve_proton_version", lambda _logger: "11-3")
-    monkeypatch.setattr(
-        runtime_proton,
-        "install_proton_if_needed",
-        lambda version, _logger, _settings=None: f"GE-Proton{version}",
-    )
-    monkeypatch.setattr(runtime_proton, "find_missing_proton_library", lambda _name, _logger: None)
-
-    assert runtime_proton.prepare_proton(logging.getLogger("test-prepare")) == "GE-Proton11-3"
-
-
-def test_prepare_proton_falls_back_when_detected_build_is_unsupported(monkeypatch, caplog):
-    _proton_env(monkeypatch)
+def _stub_proton_install(monkeypatch, missing):
+    """Record install calls and answer the preflight with `missing`."""
     installed = []
-    monkeypatch.setattr(runtime_proton, "resolve_proton_version", lambda _logger: "11-3")
 
-    def fake_install(version, _logger, _settings=None):
+    def fake_install(version, _logger, _settings):
         installed.append(version)
         return f"GE-Proton{version}"
 
-    def fake_missing(proton_dir_name, _logger):
-        return "libvulkan.so.1" if proton_dir_name == "GE-Proton11-3" else None
-
     monkeypatch.setattr(runtime_proton, "install_proton_if_needed", fake_install)
-    monkeypatch.setattr(runtime_proton, "find_missing_proton_library", fake_missing)
+    monkeypatch.setattr(
+        runtime_proton,
+        "find_missing_proton_library",
+        lambda proton_dir_name, _logger, _settings: missing(proton_dir_name),
+    )
+    return installed
+
+
+def test_prepare_proton_returns_verified_install(monkeypatch):
+    monkeypatch.setattr(
+        runtime_proton,
+        "resolve_proton_version",
+        lambda _logger, _settings, _previous=None: ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO),
+    )
+    _stub_proton_install(monkeypatch, lambda _name: None)
+
+    selection = runtime_proton.prepare_proton(logging.getLogger("test-prepare"), _proton_settings())
+
+    assert selection == ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO)
+    assert selection.directory_name == "GE-Proton11-3"
+
+
+def test_prepare_proton_falls_back_when_detected_build_is_unsupported(monkeypatch, caplog):
+    monkeypatch.setattr(
+        runtime_proton,
+        "resolve_proton_version",
+        lambda _logger, _settings, _previous=None: ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO),
+    )
+    installed = _stub_proton_install(
+        monkeypatch,
+        lambda name: "libvulkan.so.1" if name == "GE-Proton11-3" else None,
+    )
     caplog.set_level(logging.WARNING)
 
-    proton_dir_name = runtime_proton.prepare_proton(logging.getLogger("test-prepare"))
+    selection = runtime_proton.prepare_proton(logging.getLogger("test-prepare"), _proton_settings())
 
-    assert proton_dir_name == f"GE-Proton{runtime_proton.FALLBACK_PROTON_VERSION}"
+    assert selection == ProtonSelection(
+        runtime_proton.FALLBACK_PROTON_VERSION, runtime_proton.ORIGIN_FALLBACK
+    )
     assert installed == ["11-3", runtime_proton.FALLBACK_PROTON_VERSION]
     assert os.environ["PROTON_VERSION"] == runtime_proton.FALLBACK_PROTON_VERSION
     assert "libvulkan.so.1" in caplog.text
 
 
+def test_prepare_proton_keeps_the_fallback_across_relaunches(monkeypatch):
+    """The supervisor's relaunch loop must not re-probe a build already rejected."""
+    resolved = []
+
+    def fake_resolve(_logger, settings, previous=None):
+        resolved.append(previous)
+        return previous or ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO)
+
+    monkeypatch.setattr(runtime_proton, "resolve_proton_version", fake_resolve)
+    installed = _stub_proton_install(
+        monkeypatch,
+        lambda name: "libvulkan.so.1" if name == "GE-Proton11-3" else None,
+    )
+    logger = logging.getLogger("test-prepare-sticky")
+    settings = _proton_settings()
+
+    first = runtime_proton.prepare_proton(logger, settings)
+    second = runtime_proton.prepare_proton(logger, settings, first)
+
+    assert first == second
+    assert second.origin == runtime_proton.ORIGIN_FALLBACK
+    # The rejected 11-3 build is installed once, on the first launch only.
+    assert installed == ["11-3", runtime_proton.FALLBACK_PROTON_VERSION, runtime_proton.FALLBACK_PROTON_VERSION]
+    assert resolved == [None, first]
+
+
 def test_prepare_proton_does_not_swap_pinned_version(monkeypatch):
-    _proton_env(monkeypatch)
-    monkeypatch.setenv("PROTON_VERSION", "11-3")
-    monkeypatch.setattr(runtime_proton, "resolve_proton_version", lambda _logger: "11-3")
-    monkeypatch.setattr(
-        runtime_proton,
-        "install_proton_if_needed",
-        lambda version, _logger, _settings=None: f"GE-Proton{version}",
-    )
-    monkeypatch.setattr(
-        runtime_proton, "find_missing_proton_library", lambda _name, _logger: "libvulkan.so.1"
-    )
+    _stub_proton_install(monkeypatch, lambda _name: "libvulkan.so.1")
 
     with pytest.raises(RuntimeError, match="Pinned GE-Proton11-3"):
-        runtime_proton.prepare_proton(logging.getLogger("test-prepare"))
+        runtime_proton.prepare_proton(
+            logging.getLogger("test-prepare"), _proton_settings(PROTON_VERSION="11-3")
+        )
 
 
-def test_resolve_proton_version_reuses_auto_detected_value(monkeypatch):
-    _proton_env(monkeypatch)
+def test_resolve_proton_version_reuses_an_earlier_selection(monkeypatch):
     calls = []
 
     def fake_fetch(url):
@@ -983,22 +1018,32 @@ def test_resolve_proton_version_reuses_auto_detected_value(monkeypatch):
     monkeypatch.setattr(runtime_proton, "_fetch_json", fake_fetch)
     monkeypatch.setattr(runtime_proton, "_check_release_assets", lambda _version: True)
     logger = logging.getLogger("test-resolve")
+    settings = _proton_settings()
 
-    assert runtime_proton.resolve_proton_version(logger) == "11-3"
-    assert os.environ[runtime_proton.PROTON_VERSION_SOURCE_ENV] == "auto"
+    first = runtime_proton.resolve_proton_version(logger, settings)
+    assert first == ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO)
 
-    assert runtime_proton.resolve_proton_version(logger) == "11-3"
+    assert runtime_proton.resolve_proton_version(logger, settings, first) == first
     assert len(calls) == 1
 
 
-def test_resolve_proton_version_marks_pinned_value(monkeypatch):
-    _proton_env(monkeypatch)
-    monkeypatch.setenv("PROTON_VERSION", "10-34")
+def test_resolve_proton_version_marks_pinned_value():
+    selection = runtime_proton.resolve_proton_version(
+        logging.getLogger("test-resolve"), _proton_settings(PROTON_VERSION="10-34")
+    )
 
-    version = runtime_proton.resolve_proton_version(logging.getLogger("test-resolve"))
+    assert selection == ProtonSelection("10-34", runtime_proton.ORIGIN_PINNED)
 
-    assert version == "10-34"
-    assert os.environ[runtime_proton.PROTON_VERSION_SOURCE_ENV] == "pinned"
+
+def test_resolve_proton_version_prefers_a_pin_over_an_earlier_selection():
+    """A pin set by the operator outranks whatever the loop settled on before."""
+    previous = ProtonSelection("11-3", runtime_proton.ORIGIN_FALLBACK)
+
+    selection = runtime_proton.resolve_proton_version(
+        logging.getLogger("test-resolve"), _proton_settings(PROTON_VERSION="10-34"), previous
+    )
+
+    assert selection == ProtonSelection("10-34", runtime_proton.ORIGIN_PINNED)
 
 
 def test_missing_native_libraries_reports_unloadable_entries(monkeypatch, caplog):
@@ -1108,17 +1153,16 @@ def _preflight_probe_counter(monkeypatch, tmp_path, stderr):
 
     monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(compat_dir))
     monkeypatch.setattr(runtime_proton.subprocess, "run", fake_run)
-    monkeypatch.delenv("PROTON_SKIP_PREFLIGHT", raising=False)
     return calls
 
 
 def test_preflight_result_is_cached_per_image_version(monkeypatch, tmp_path):
     calls = _preflight_probe_counter(monkeypatch, tmp_path, stderr="")
-    monkeypatch.setenv("ASA_IMAGE_VERSION", "2.1.0")
+    settings = _proton_settings(ASA_IMAGE_VERSION="2.1.0")
     logger = logging.getLogger("test-preflight-cache")
 
-    assert runtime_proton.find_missing_proton_library("GE-Proton9-9", logger) is None
-    assert runtime_proton.find_missing_proton_library("GE-Proton9-9", logger) is None
+    assert runtime_proton.find_missing_proton_library("GE-Proton9-9", logger, settings) is None
+    assert runtime_proton.find_missing_proton_library("GE-Proton9-9", logger, settings) is None
     assert calls["count"] == 1
 
 
@@ -1126,11 +1170,17 @@ def test_preflight_cache_remembers_a_missing_library(monkeypatch, tmp_path):
     calls = _preflight_probe_counter(
         monkeypatch, tmp_path, stderr="libvulkan.so.1: cannot open shared object file"
     )
-    monkeypatch.setenv("ASA_IMAGE_VERSION", "2.1.0")
+    settings = _proton_settings(ASA_IMAGE_VERSION="2.1.0")
     logger = logging.getLogger("test-preflight-cache-missing")
 
-    assert runtime_proton.find_missing_proton_library("GE-Proton9-9", logger) == "libvulkan.so.1"
-    assert runtime_proton.find_missing_proton_library("GE-Proton9-9", logger) == "libvulkan.so.1"
+    assert (
+        runtime_proton.find_missing_proton_library("GE-Proton9-9", logger, settings)
+        == "libvulkan.so.1"
+    )
+    assert (
+        runtime_proton.find_missing_proton_library("GE-Proton9-9", logger, settings)
+        == "libvulkan.so.1"
+    )
     assert calls["count"] == 1
 
 
@@ -1138,21 +1188,23 @@ def test_preflight_cache_is_invalidated_by_a_new_image(monkeypatch, tmp_path):
     calls = _preflight_probe_counter(monkeypatch, tmp_path, stderr="")
     logger = logging.getLogger("test-preflight-cache-invalidation")
 
-    monkeypatch.setenv("ASA_IMAGE_VERSION", "2.1.0")
-    runtime_proton.find_missing_proton_library("GE-Proton9-9", logger)
-    monkeypatch.setenv("ASA_IMAGE_VERSION", "2.2.0")
-    runtime_proton.find_missing_proton_library("GE-Proton9-9", logger)
+    runtime_proton.find_missing_proton_library(
+        "GE-Proton9-9", logger, _proton_settings(ASA_IMAGE_VERSION="2.1.0")
+    )
+    runtime_proton.find_missing_proton_library(
+        "GE-Proton9-9", logger, _proton_settings(ASA_IMAGE_VERSION="2.2.0")
+    )
 
     assert calls["count"] == 2
 
 
 def test_preflight_is_never_cached_for_untagged_builds(monkeypatch, tmp_path):
     calls = _preflight_probe_counter(monkeypatch, tmp_path, stderr="")
-    monkeypatch.setenv("ASA_IMAGE_VERSION", "unknown")
+    settings = _proton_settings(ASA_IMAGE_VERSION="unknown")
     logger = logging.getLogger("test-preflight-cache-unknown")
 
-    runtime_proton.find_missing_proton_library("GE-Proton9-9", logger)
-    runtime_proton.find_missing_proton_library("GE-Proton9-9", logger)
+    runtime_proton.find_missing_proton_library("GE-Proton9-9", logger, settings)
+    runtime_proton.find_missing_proton_library("GE-Proton9-9", logger, settings)
 
     assert calls["count"] == 2
 
