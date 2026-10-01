@@ -7,6 +7,7 @@ import os
 import shutil
 import sys
 import shlex
+import time
 from pathlib import Path
 
 from .constants import (
@@ -54,7 +55,13 @@ def ensure_permissions_and_drop_privileges(logger: logging.Logger) -> None:
                     TARGET_UID,
                     TARGET_GID,
                 )
+                started = time.monotonic()
                 _chown_if_possible(directory, recursive=True)
+                logger.info(
+                    "Initial ownership setup for %s completed in %.1fs.",
+                    directory,
+                    time.monotonic() - started,
+                )
                 marker.touch(exist_ok=True)
             _chown_if_possible(directory, recursive=False)
             if marker.exists():

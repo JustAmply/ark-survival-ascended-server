@@ -404,6 +404,21 @@ class LaunchConfiguration:
         parts.extend(self.flags)
         return " ".join(part for part in parts if part)
 
+    def render_for_logging(self) -> str:
+        """Render a diagnostic copy with password values hidden."""
+        safe_query = [
+            QueryEntry(entry.key, "<redacted>" if entry.value is not None and entry.key.lower().endswith("password") else entry.value)
+            for entry in self.query
+        ]
+        safe_flags = []
+        for token in self.flags:
+            key, separator, _value = token.partition("=")
+            if separator and key.lstrip("-").lower().endswith("password"):
+                safe_flags.append(f"{key}=<redacted>")
+            else:
+                safe_flags.append(token)
+        return LaunchConfiguration(self.map_name, safe_query, safe_flags).render()
+
     def __str__(self) -> str:  # pragma: no cover - convenience only
         return self.render()
 

@@ -25,16 +25,24 @@ Your complete guide to getting an amazing ARK server up and running! This covers
    ```bash
    mkdir asa-server && cd asa-server
    wget https://raw.githubusercontent.com/JustAmply/ark-survival-ascended-server/main/docker-compose.yml
+   wget https://raw.githubusercontent.com/JustAmply/ark-survival-ascended-server/main/.env.example
    ```
 
-2. **Launch your server:**
+2. **Set a unique admin password:**
+   ```bash
+   cp .env.example .env
+   vi .env
+   ```
+   Fill in `ASA_SERVER_ADMIN_PASSWORD` and keep `.env` private. Compose stops with an error if the value is missing or empty.
+
+3. **Launch your server:**
    ```bash
    docker compose up -d
    ```
 
    **Tip:** The container already passes `-nosteam` in `ASA_START_PARAMS` (also required if you roll your own launch line) to avoid the startup `Error 3` where Steam refuses to fire up inside the container.
 
-3. **Watch it come to life:**
+4. **Watch it come to life:**
    ```bash
    docker logs -f asa-server-1
    ```
@@ -53,7 +61,7 @@ Startup is fully automatic through the container's Python runtime entrypoint; no
 
 ### 🔍 Find Your Server
 
-Once you see `"Starting the ARK: Survival Ascended dedicated server..."` in the logs, check your server name:
+Once you see `"Starting ASA dedicated server."` in the logs, check your server name:
 
 ```bash
 docker exec asa-server-1 cat server-files/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini | grep SessionName
@@ -74,7 +82,7 @@ environment:
   ASA_MAP: TheIsland_WP
   ASA_PORT: "7777"
   ASA_RCON_PORT: "27020"
-  ASA_SERVER_ADMIN_PASSWORD: change_this_password
+  ASA_SERVER_ADMIN_PASSWORD: ${ASA_SERVER_ADMIN_PASSWORD:?Set ASA_SERVER_ADMIN_PASSWORD in .env before starting}
   ASA_MAX_PLAYERS: "50"
 ```
 
@@ -87,7 +95,7 @@ environment:
 | `ASA_PORT` | `?Port=` | `7777` |
 | `ASA_RCON_PORT` | `?RCONPort=` | `27020` |
 | `ASA_RCON_ENABLED` | `?RCONEnabled=` | `True` |
-| `ASA_SERVER_ADMIN_PASSWORD` | `?ServerAdminPassword=` | `changeme` |
+| `ASA_SERVER_ADMIN_PASSWORD` | `?ServerAdminPassword=` | Required in the supplied Compose file; legacy runtime fallback: `changeme` |
 | `ASA_SERVER_PASSWORD` | `?ServerPassword=` | – |
 | `ASA_SPECTATOR_PASSWORD` | `?SpectatorPassword=` | – |
 | `ASA_MAX_PLAYERS` | `-WinLiveMaxPlayers=` | – |
@@ -236,6 +244,11 @@ If files ever do look damaged, one run with `ASA_VALIDATE=always` repairs them.
 
 The Proton preflight check (see below) is likewise cached per image build, so it
 costs a subprocess launch once rather than on every relaunch.
+
+To diagnose a slow start, compare the `Initial ownership setup`, `Server file
+update completed`, and `Proton preparation completed` durations in the container
+logs. Ownership setup is expected only for a new volume. Compare a first launch
+with a restart on the same volumes before changing validation or Proton settings.
 
 ## 🔁 Scheduled Restarts
 

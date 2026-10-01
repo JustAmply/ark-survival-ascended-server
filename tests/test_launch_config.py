@@ -93,6 +93,24 @@ def test_render_collapses_only_whitespace():
     )
 
 
+def test_render_for_logging_hides_passwords_without_changing_launch_line():
+    line = (
+        "Map?ServerAdminPassword=admin-secret?serverpassword=join-secret"
+        "?SpectatorPassword=spectator-secret?Port=7777"
+        " -ExtraPassword=extra-secret -nosteam"
+    )
+    config = LaunchConfiguration.parse(line)
+
+    logged = config.render_for_logging()
+
+    assert logged == (
+        "Map?ServerAdminPassword=<redacted>?serverpassword=<redacted>"
+        "?SpectatorPassword=<redacted>?Port=7777"
+        " -ExtraPassword=<redacted> -nosteam"
+    )
+    assert config.render() == line
+
+
 # --- lookups --------------------------------------------------------------
 
 

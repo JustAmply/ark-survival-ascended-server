@@ -12,10 +12,11 @@ import os
 import sys
 import tempfile
 import logging
+import struct
 import time
 from pathlib import Path
 from types import MethodType
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -562,6 +563,24 @@ def test_rcon_receive_exact_reads_full_buffer():
     assert data == b"abcd"
 
 
+@pytest.mark.parametrize(
+    ("chunks", "error"),
+    [
+        ([struct.pack("<I", 9)], "Invalid packet size"),
+        ([struct.pack("<I", 4093)], "Packet size too large"),
+        ([struct.pack("<I", 10), b"short", b""], "Connection closed"),
+        ([b"ab", b""], "Connection closed"),
+    ],
+)
+def test_rcon_receive_full_packet_rejects_bad_or_truncated_frames(chunks, error):
+    client = RconClient(port=27020, password="secret", retry_count=0)
+    client.socket = Mock()
+    client.socket.recv.side_effect = chunks
+
+    with pytest.raises((RconPacketError, RconConnectionError), match=error):
+        client._receive_full_packet()
+
+
 def test_rcon_execute_command_raises_on_invalid_command():
     with pytest.raises(ValueError):
         execute_rcon_command("")
@@ -658,6 +677,29 @@ def test_cli_main_no_args_shows_help(capsys):
     assert "Available commands" in captured.out
 
 
+def test_cli_help_lists_only_public_commands(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli_main(["--help"])
+
+    assert exc.value.code == ExitCodes.OK
+    output = capsys.readouterr().out
+    assert "{rcon,mods}" in output
+    assert "mods-string" not in output
+    assert "restart-scheduler" not in output
+
+
+def test_cli_debug_log_hides_launch_password(monkeypatch, caplog):
+    monkeypatch.setenv("ASA_LOG_LEVEL", "DEBUG")
+    monkeypatch.setenv("ASA_START_PARAMS", "Map?ServerAdminPassword=cli-secret?Port=7777")
+
+    with caplog.at_level(logging.DEBUG, logger="asa_ctrl.cli"):
+        with pytest.raises(SystemExit):
+            cli_main(["mods"])
+
+    assert "ServerAdminPassword=<redacted>" in caplog.text
+    assert "cli-secret" not in caplog.text
+
+
 def test_cli_mods_no_action_prints_help(capsys):
     with pytest.raises(SystemExit) as exc:
         cli_main(["mods"])
@@ -709,6 +751,20 @@ def test_rcon_command_errors_map_to_exit_codes(capsys, monkeypatch):
         RconCommand.execute(args)
     assert exc.value.code == ExitCodes.RCON_PASSWORD_NOT_FOUND
     assert "could not read rcon password" in capsys.readouterr().err.lower()
+
+
+def test_rcon_authentication_error_names_admin_password(capsys, monkeypatch):
+    def raise_auth_error(_command):
+        raise RconAuthenticationError("wrong password")
+
+    monkeypatch.setattr("asa_ctrl.cli_commands.rcon_command.execute_rcon_command", raise_auth_error)
+    args = type("Args", (), {"command": "listplayers"})
+
+    with pytest.raises(SystemExit) as exc:
+        RconCommand.execute(args)
+
+    assert exc.value.code == ExitCodes.RCON_PASSWORD_WRONG
+    assert "ServerAdminPassword" in capsys.readouterr().err
 
 
 def test_ini_config_helper_missing_file_returns_none(tmp_path):
