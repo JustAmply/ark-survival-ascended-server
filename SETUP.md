@@ -334,6 +334,31 @@ For troubleshooting, enable debug mode:
 2. Restart: `docker compose up -d`
 3. Access shell: `docker exec -ti asa-server-1 bash`
 
+## Local Image Validation
+
+Build and check the image before submitting runtime or Docker changes:
+
+```bash
+docker build -t asa-linux-server:smoke .
+docker run --rm --entrypoint python asa-linux-server:smoke -c 'from server_runtime.native_libs import main; raise SystemExit(main())'
+docker run --rm --entrypoint /usr/local/bin/asa-ctrl asa-linux-server:smoke --help
+docker run --rm --user 25000:25000 --entrypoint python \
+  --mount "type=bind,src=${PWD}/scripts/verify_runtime_lifecycle.py,dst=/tmp/verify_runtime_lifecycle.py,readonly" \
+  asa-linux-server:smoke /tmp/verify_runtime_lifecycle.py
+```
+
+The lifecycle check runs the discrete launch settings and legacy fallback cases
+in parallel, each with its own temporary files and child processes. It verifies
+authenticated RCON, scheduler warnings, restart, the real save delay, shutdown
+and cleanup. It replaces SteamCMD, Proton and the game binary at their external
+interfaces; it does not download or launch ARK or use existing server volumes.
+
+CI skips Docker for documentation-only and test-only changes. Release
+tags and a weekly refresh always run all checks; the refresh rebuilds without
+the layer cache. Image metadata is applied after filesystem layers to preserve
+the cache on ordinary builds. Draft, fork and Dependabot PRs do not publish
+images; ready PRs from this repository retain preview images.
+
 ## 📖 Need More Help?
 
 - **🐛 Found a bug?** [Open an issue](https://github.com/JustAmply/ark-survival-ascended-server/issues)

@@ -209,6 +209,21 @@ python -I scripts/verify_installed_package.py
 
 This registers the `asa-ctrl` command on your PATH while allowing you to modify the source code in-place. The isolated smoke test verifies that the installed distribution contains the CLI's required subpackages instead of accidentally importing them from the repository root.
 
+### Continuous integration
+
+The CI job always reports a status. Documentation-only changes skip Python and
+Docker checks; test-only changes run the Python checks. Runtime, image, project
+metadata, workflow and unrecognised changes run all checks. Tags and the weekly refresh
+always run the full suite. The refresh pulls the base image and rebuilds without
+the layer cache so OS packages stay current.
+
+Images are published after smoke tests pass, including two parallel supervisor
+lifecycle cases. Draft, fork and Dependabot PRs validate the image without
+publishing it; ready PRs from this repository retain their preview tags. Obsolete
+PR runs are cancelled, main/tag runs finish in sequence, and jobs have a
+15-minute timeout. See [local image validation](SETUP.md#local-image-validation)
+for the equivalent Docker checks.
+
 ## 📞 Support
 
 - **🐛 Found a bug?** [Open an issue](https://github.com/JustAmply/ark-survival-ascended-server/issues)
