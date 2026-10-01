@@ -53,7 +53,9 @@ def game(root: Path) -> None:
     from asa_ctrl.common.config import AsaSettings
 
     settings = AsaSettings()
-    password = settings.get_start_param_value("ServerAdminPassword") or settings.get_server_setting("ServerAdminPassword")
+    password = "test-private-password" if os.environ["ASA_LIFECYCLE_CASE"] == "discrete" else "changeme"
+    configured_password = settings.get_start_param_value("ServerAdminPassword") or settings.get_server_setting("ServerAdminPassword")
+    assert configured_password == password, "Game did not receive the expected fixture credential"
     port = int(settings.get_start_param_value("RCONPort"))
     assert password
     assert "STEAM_COMPAT_DATA_PATH" in os.environ
@@ -195,6 +197,7 @@ def verify_case(case: str) -> None:
         for key in ("STEAM_COMPAT_DATA_PATH", "SDL_VIDEODRIVER", "PROTON_VERSION"):
             env.pop(key, None)
         env.update(
+            ASA_LIFECYCLE_CASE=case,
             ASA_GAME_USER_SETTINGS_PATH=str(root / "GameUserSettings.ini"),
             ASA_MOD_DATABASE_PATH=str(root / "mods.json"),
             SERVER_RESTART_CRON="2 0 * * *",
