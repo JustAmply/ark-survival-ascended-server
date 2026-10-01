@@ -175,11 +175,11 @@ def _pinned_proton_version(settings: RuntimeSettings) -> str:
 
 
 def _export_proton_version(version: str) -> None:
-    """Publish the resolved version for anyone inspecting the container.
+    """Publish the resolved version to inheriting child processes.
 
     Nothing reads this back: resolution is driven by `RuntimeSettings` and the
-    `ProtonSelection` the supervisor carries between launches. It is written so
-    that `docker exec ... env` still reports the build actually in use.
+    `ProtonSelection` the supervisor carries between launches. Docker exec
+    processes retain the container's configured environment instead.
     """
     os.environ["PROTON_VERSION"] = version
 

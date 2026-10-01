@@ -95,8 +95,10 @@ selection is carried from one launch to the next as a value and passed back into
 outranks a carried selection; anything else is reused as is, which is what stops
 the loop re-probing a build already rejected.
 
-`PROTON_VERSION` is still exported into the environment after resolution, but
-only so `docker exec ... env` reports the build in use. Nothing reads it back.
+`PROTON_VERSION` is still exported after resolution for child processes that
+inherit the supervisor's environment. Nothing reads it back. This does not
+change Docker's configured environment: `docker exec ... env` retains the
+operator's original value. The startup logs report the resolved selection.
 
 ## Wine synchronisation backend
 
