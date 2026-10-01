@@ -53,7 +53,8 @@ def game(root: Path) -> None:
     from asa_ctrl.common.config import AsaSettings
 
     settings = AsaSettings()
-    password = "test-private-password" if os.environ["ASA_LIFECYCLE_CASE"] == "discrete" else "changeme"
+    discrete = os.environ["ASA_LIFECYCLE_CASE"] == "discrete"
+    password = "test-private-password" if discrete else "changeme"
     configured_password = settings.get_start_param_value("ServerAdminPassword") or settings.get_server_setting("ServerAdminPassword")
     assert configured_password == password, "Game did not receive the expected fixture credential"
     port = int(settings.get_start_param_value("RCONPort"))
@@ -62,9 +63,13 @@ def game(root: Path) -> None:
     assert os.environ["SDL_VIDEODRIVER"] == "dummy"
     assert (Path(os.environ["XDG_RUNTIME_DIR"]).stat().st_mode & 0o777) == 0o700
     assert sys.argv[3:] == ["run", "ArkAscendedServer.exe", *shlex.split(os.environ["ASA_START_PARAMS"])]
-    # ARK persists its launch settings to the INI read by the scheduler.
+    # The INI is a fixed fixture, never assembled from environment credentials.
+    ini_fixture = (
+        "[ServerSettings]\nServerAdminPassword=test-private-password\n"
+        if discrete else "[ServerSettings]\nServerAdminPassword=changeme\n"
+    )
     Path(os.environ["ASA_GAME_USER_SETTINGS_PATH"]).write_text(
-        f"[ServerSettings]\nServerAdminPassword={password}\nRCONPort={port}\n", encoding="utf-8"
+        ini_fixture + f"RCONPort={port}\n", encoding="utf-8"
     )
     running = True
 
