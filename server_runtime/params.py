@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from asa_ctrl.common.config import AsaSettings
 from asa_ctrl.common.constants import DEFAULT_ADMIN_PASSWORD
@@ -15,11 +14,12 @@ from .constants import DEFAULT_START_PARAMS
 
 
 def prepare_start_params(logger: logging.Logger) -> str:
-    """Normalize the complete launch-parameter contract and export its result.
+    """Normalize the complete launch-parameter contract and return the line.
 
-    The resolved launch line is written back to `ASA_START_PARAMS` so that child
-    processes started by the supervisor - notably `asa-ctrl restart-scheduler` -
-    observe exactly the line the server was launched with.
+    The environment is configuration input only: the resolved line is returned,
+    not written back. `LaunchEnvironment.for_server` puts it into the
+    environment the server is launched with, which is also what RCON discovery
+    reads during shutdown.
     """
     settings = AsaSettings()
     config = settings.launch_configuration()
@@ -35,9 +35,7 @@ def prepare_start_params(logger: logging.Logger) -> str:
     _inject_dynamic_mods(config, settings, logger)
     config.ensure_flag("-nosteam")
 
-    params = config.render()
-    os.environ["ASA_START_PARAMS"] = params
-    return params
+    return config.render()
 
 
 def _ensure_admin_password(
