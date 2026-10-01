@@ -47,12 +47,58 @@ The container's non-launch-line configuration contract
 shutdown timings, Proton pinning, log level, timezone. Every runtime switch the
 image understands is a field on it, resolvable from any mapping.
 
+## Launch environment
+
+The environment a child process is started with
+(`server_runtime.launch_env.LaunchEnvironment`), built as a value and handed to
+`subprocess.Popen(env=...)`. The container's own environment is configuration
+**input**: read once into [Runtime settings](#runtime-settings) and the
+[Launch configuration](#launch-configuration), never written back to.
+
+Two children need two different slices, which is what earns the seam:
+
+- **`for_server`** — Steam compatibility paths, a writable `XDG_RUNTIME_DIR`,
+  headless SDL defaults, and the resolved launch line. The headless values are
+  defaults: an operator who supplies their own keeps them.
+- **`for_scheduler`** — the PID files the [Restart scheduler](#restart-scheduler)
+  signals through, and its warning cadence.
+
+The supervisor keeps the server's launch environment so that RCON discovery
+during shutdown reads the same values the server itself was given.
+
+Three environment writes remain deliberate and sit outside this module: `TZ`
+(set before any child exists), the privilege-drop marker (`os.execvp` passes the
+current environment), and the `PROTON_VERSION` export described under
+[Proton selection](#proton-selection).
+
 ## Supervisor
 
 The container-level process owner (`server_runtime.supervisor.ServerSupervisor`).
 It registers PID files, starts the restart scheduler and the log streamer,
 launches the server through Proton, and handles the graceful shutdown sequence
 (`saveworld` over RCON, then SIGTERM, then SIGKILL).
+
+## Proton selection
+
+Which GE-Proton build the container runs and how it was arrived at
+(`server_runtime.proton.ProtonSelection`) — a version plus an **origin**:
+
+- **pinned** — the operator set `PROTON_VERSION`. Never silently swapped.
+- **auto** — detected from the latest GitHub release carrying usable assets.
+- **fallback** — an auto-detected build failed its preflight, so
+  `FALLBACK_PROTON_VERSION` replaced it.
+
+Resolving a selection can cost a GitHub round trip, a download and a preflight
+subprocess, and the [Supervisor](#supervisor) relaunches in a loop — so the
+selection is carried from one launch to the next as a value and passed back into
+`prepare_proton`, rather than parked in the process environment. A pin always
+outranks a carried selection; anything else is reused as is, which is what stops
+the loop re-probing a build already rejected.
+
+`PROTON_VERSION` is still exported after resolution for child processes that
+inherit the supervisor's environment. Nothing reads it back. This does not
+change Docker's configured environment: `docker exec ... env` retains the
+operator's original value. The startup logs report the resolved selection.
 
 ## Wine synchronisation backend
 

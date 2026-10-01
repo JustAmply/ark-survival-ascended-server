@@ -46,7 +46,7 @@ Focus: Maintain a lean Dockerized ARK: Survival Ascended server image with a zer
 5. Update app `2430930` server files via SteamCMD, validating according to `ASA_VALIDATE`.
 6. Enforce `ServerAdminPassword` presence (append default or full default start params) before launch args.
 7. Proton version resolution → download (per-architecture release assets) → checksum validation (unless skipped) → launchability preflight with fallback to `FALLBACK_PROTON_VERSION` → compat data prep.
-8. Launch line resolution (`LaunchConfiguration.from_env`): `ASA_START_PARAMS` as base, discrete `ASA_*` variables overlaid, `mods.json` ids merged into `-mods=`, then force `-nosteam`. The result is written back to `ASA_START_PARAMS` for child processes.
+8. Launch line resolution (`LaunchConfiguration.from_env`): `ASA_START_PARAMS` as base, discrete `ASA_*` variables overlaid, `mods.json` ids merged into `-mods=`, then force `-nosteam`. The result is passed in the server's explicit `LaunchEnvironment`; the supervisor keeps that environment for shutdown RCON discovery.
 9. Runtime prep (XDG paths + compat exports, raise the descriptor limit and report the Wine sync backend), plugin loader detection (zip starting with `AsaApi_` → unzip; choose `AsaApiLoader.exe`).
 10. Start log tailer and launch via Proton wrapper under `compatibilitytools.d` (supervisor handles crash/USR1 restarts with configured delay).
 Changing ordering can break cold start expectations; keep this sequence.
