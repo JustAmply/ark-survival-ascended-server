@@ -1,18 +1,5 @@
 FROM python:3.14-slim
 
-# Build arguments for metadata
-ARG VERSION="unknown"
-ARG GIT_COMMIT="unknown"
-ARG BUILD_DATE="unknown"
-
-# Add metadata labels
-LABEL org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${GIT_COMMIT}" \
-      org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.title="ARK: Survival Ascended Linux Server" \
-      org.opencontainers.image.description="Dockerized ARK: Survival Ascended server with asa_ctrl management tool" \
-      org.opencontainers.image.source="https://github.com/JustAmply/ark-survival-ascended-server"
-
 # Ensure timezone data is available and default to UTC inside the container
 ENV TZ=UTC
 ARG DEBIAN_FRONTEND=noninteractive
@@ -38,10 +25,6 @@ ENV LANG=en_US.UTF-8 \
 # Wine spawns several hundred threads for ASA; glibc would otherwise open up to
 # 8 malloc arenas per core and fragment the heap across all of them.
 ENV MALLOC_ARENA_MAX=2
-
-# Identifies the image build to the Proton preflight cache, so a rebuilt image
-# re-probes its host libraries instead of trusting the previous verdict.
-ENV ASA_IMAGE_VERSION=${VERSION}
 
 # Create gameserver user
 RUN groupadd -g 25000 gameserver && \
@@ -75,6 +58,21 @@ COPY scripts/start_server.sh /usr/bin/start_server.sh
 
 # Set permissions
 RUN chmod +x /usr/bin/start_server.sh
+
+# Keep changing metadata after all filesystem layers so it cannot invalidate
+# the OS installation or application cache.
+ARG VERSION="unknown"
+ARG GIT_COMMIT="unknown"
+ARG BUILD_DATE="unknown"
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.title="ARK: Survival Ascended Linux Server" \
+      org.opencontainers.image.description="Dockerized ARK: Survival Ascended server with asa_ctrl management tool" \
+      org.opencontainers.image.source="https://github.com/JustAmply/ark-survival-ascended-server"
+
+# The Proton preflight cache must still see the resolved image version.
+ENV ASA_IMAGE_VERSION=${VERSION}
 
 # Declare persistent data volumes
 VOLUME ["/home/gameserver/Steam", \

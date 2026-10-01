@@ -9,6 +9,7 @@ existing server volume is needed. This is not a full game-server acceptance test
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
 import os
@@ -276,6 +277,9 @@ if __name__ == "__main__":
     else:
         if not hasattr(signal, "SIGUSR1") or os.getuid() != 25000:
             raise SystemExit("Run this Linux image check as gameserver (UID 25000)")
-        for case_name in ("discrete", "legacy-fallback"):
-            verify_case(case_name)
+        # Each case owns its temporary paths and launches independent processes.
+        # Only their orchestration runs in threads; real signal handling remains
+        # in the supervisor and scheduler child processes.
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            list(executor.map(verify_case, ("discrete", "legacy-fallback")))
         print("Runtime lifecycle smoke test passed. ARK itself was not launched.")
