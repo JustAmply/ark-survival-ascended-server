@@ -40,6 +40,10 @@ PRIVS_DROPPED_ENV = "START_SERVER_PRIVS_DROPPED"
 
 PROTON_REPO = "GloriousEggroll/proton-ge-custom"
 
+# Stamped into the image by the Dockerfile; identifies the build whose host
+# libraries a Proton preflight verdict was reached against.
+IMAGE_VERSION_ENV = "ASA_IMAGE_VERSION"
+
 
 DEFAULT_RESTART_WARNINGS = "30,5,1"
 
@@ -71,6 +75,8 @@ class RuntimeSettings:
     proton_version: str
     validate_mode: str
     proton_skip_checksum: bool
+    proton_skip_preflight: bool
+    image_version: str
     log_level: str
     timezone: str
 
@@ -93,6 +99,8 @@ class RuntimeSettings:
             proton_version=text("PROTON_VERSION"),
             validate_mode=text("ASA_VALIDATE", VALIDATE_FIRST).lower(),
             proton_skip_checksum=source.get("PROTON_SKIP_CHECKSUM") == "1",
+            proton_skip_preflight=source.get("PROTON_SKIP_PREFLIGHT") == "1",
+            image_version=text(IMAGE_VERSION_ENV),
             log_level=text("ASA_LOG_LEVEL", "INFO").upper(),
             timezone=text("TZ"),
         )
