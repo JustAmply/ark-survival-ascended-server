@@ -26,7 +26,8 @@ if PROJECT_ROOT not in sys.path:
 
 import asa_ctrl as asa_ctrl_package  # noqa: E402
 from asa_ctrl.core.mods import ModDatabase, ModRecord, format_mod_list_for_server  # noqa: E402
-from asa_ctrl.common.config import AsaSettings, StartParamsHelper, parse_start_params  # noqa: E402
+from asa_ctrl.common.config import AsaSettings, parse_ini  # noqa: E402
+from asa_ctrl.common.launch_config import LaunchConfiguration  # noqa: E402
 from asa_ctrl.common.constants import ExitCodes, get_mod_database_path  # noqa: E402
 from asa_ctrl.common.logging_config import configure_logging  # noqa: E402
 from asa_ctrl.cli_helpers import exit_with_error, map_exception_to_exit_code  # noqa: E402
@@ -47,34 +48,27 @@ from asa_ctrl.common.errors import (  # noqa: E402
 from asa_ctrl.common.constants import RconPacketTypes  # noqa: E402
 
 
-def test_start_params_helper():
-    """Test start parameter parsing."""
-    print("Testing StartParamsHelper...")
-
+def test_launch_configuration_lookups():
+    """Start parameter lookups, through the module that owns them."""
     test_params = (
         "TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True "
         "-WinLiveMaxPlayers=50 -ServerAdminPassword=mypass123"
     )
+    config = LaunchConfiguration.parse(test_params)
 
-    assert StartParamsHelper.get_value(test_params, "RCONPort") == "27020"
-    assert StartParamsHelper.get_value(test_params, "ServerAdminPassword") == "mypass123"
-    assert StartParamsHelper.get_value(test_params, "WinLiveMaxPlayers") == "50"
-    assert StartParamsHelper.get_value(test_params, "NonExistent") is None
+    assert config.value("RCONPort") == "27020"
+    assert config.value("ServerAdminPassword") == "mypass123"
+    assert config.value("WinLiveMaxPlayers") == "50"
+    assert config.value("NonExistent") is None
 
-    parsed = parse_start_params(test_params)
+    parsed = config.as_mapping()
     assert parsed.get('_map') == 'TheIsland_WP'
     assert parsed.get('RCONPort') == '27020'
     assert parsed.get('WinLiveMaxPlayers') == '50'
 
-    print("OK StartParamsHelper tests passed")
 
-
-def test_ini_config_helper_duplicate_keys():
-    """Test that IniConfigHelper handles duplicate keys in INI files gracefully."""
-    print("Testing IniConfigHelper with duplicate keys...")
-
-    from asa_ctrl.common.config import IniConfigHelper
-
+def test_parse_ini_tolerates_duplicate_keys():
+    """ARK writes duplicate keys into GameUserSettings.ini; the last one wins."""
     # Create a test INI file with duplicate keys (similar to ARK GameUserSettings.ini)
     ini_content = """[/Script/ShooterGame.ShooterGameUserSettings]
 LastJoinedSessionPerCategory=
@@ -95,7 +89,7 @@ ServerAdminPassword=testpass
             temp_path = f.name
 
         # This should now work with the fix (strict=False)
-        config = IniConfigHelper.parse_ini(temp_path)
+        config = parse_ini(temp_path)
         assert config is not None, "Config should not be None"
         assert len(config.sections()) == 2, "Should have 2 sections"
 
@@ -111,7 +105,6 @@ ServerAdminPassword=testpass
         if temp_path and os.path.exists(temp_path):
             os.unlink(temp_path)
 
-    print("OK IniConfigHelper duplicate keys tests passed")
 
 
 def test_mod_database():
@@ -606,6 +599,57 @@ def test_rcon_client_root_export_has_compatibility_path():
         assert asa_ctrl_package.RconClient is RconClient
 
 
+@pytest.mark.parametrize(
+    "name, replacement",
+    [
+        ("StartParamsHelper", "LaunchConfiguration"),
+        ("IniConfigHelper", "parse_ini"),
+        ("parse_start_params", "LaunchConfiguration"),
+    ],
+)
+def test_retired_config_helpers_stay_importable_and_warn(name, replacement):
+    """The exported names keep working, and each warning names its replacement."""
+    assert name in asa_ctrl_package.__all__
+    with pytest.warns(DeprecationWarning, match=f"asa_ctrl.{name} is deprecated") as caught:
+        resolved = getattr(asa_ctrl_package, name)
+
+    assert resolved is not None
+    assert replacement in str(caught[0].message)
+
+
+def test_retired_helpers_still_delegate_to_the_live_modules():
+    with pytest.warns(DeprecationWarning):
+        helper = asa_ctrl_package.StartParamsHelper
+    with pytest.warns(DeprecationWarning):
+        legacy_parse = asa_ctrl_package.parse_start_params
+
+    line = "TheIsland_WP?listen?RCONPort=27020"
+    assert helper.get_value(line, "RCONPort") == "27020"
+    assert legacy_parse(line) == LaunchConfiguration.parse(line).as_mapping()
+
+
+def test_live_config_module_no_longer_carries_the_shims():
+    """The pass-throughs are gone from the module that owns the behaviour."""
+    from asa_ctrl.common import config
+
+    for retired in (
+        "StartParamsHelper",
+        "IniConfigHelper",
+        "parse_start_params",
+        "get_game_user_settings_path",
+        "get_game_ini_path",
+    ):
+        assert not hasattr(config, retired), f"{retired} should have been retired"
+
+    assert not hasattr(AsaSettings, "_get_start_param_value")
+    assert not hasattr(AsaSettings, "_parse_start_params")
+
+
+def test_unknown_root_attribute_still_raises():
+    with pytest.raises(AttributeError, match="has no attribute 'NotAThing'"):
+        asa_ctrl_package.NotAThing
+
+
 def test_cli_main_no_args_shows_help(capsys):
     with pytest.raises(SystemExit) as exc:
         cli_main([])
@@ -669,17 +713,13 @@ def test_rcon_command_errors_map_to_exit_codes(capsys, monkeypatch):
 
 def test_ini_config_helper_missing_file_returns_none(tmp_path):
     missing = tmp_path / "missing.ini"
-    from asa_ctrl.common.config import IniConfigHelper
-
-    assert IniConfigHelper.parse_ini(str(missing)) is None
+    assert parse_ini(str(missing)) is None
 
 
 def test_ini_config_helper_invalid_file_returns_none(tmp_path):
     invalid = tmp_path / "invalid.ini"
     invalid.write_text("missing section header", encoding="utf-8")
-    from asa_ctrl.common.config import IniConfigHelper
-
-    assert IniConfigHelper.parse_ini(str(invalid)) is None
+    assert parse_ini(str(invalid)) is None
 
 
 def main():  # pragma: no cover - simple runner
