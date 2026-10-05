@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import errno
 import logging
+import os
 import platform
 import shlex
 import shutil
+import signal
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -189,15 +191,29 @@ def run_probe_command(
 
     wrapped_command = wrap_command(context, command)
     try:
-        result = subprocess.run(
+        with subprocess.Popen(
             wrapped_command,
             cwd=str(cwd),
-            check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=context.probe_timeout,
-        )
+            start_new_session=os.name == "posix",
+        ) as process:
+            try:
+                _stdout, stderr = process.communicate(timeout=context.probe_timeout)
+            except subprocess.TimeoutExpired:
+                # SteamCMD's wrapper waits for a child that may still be updating
+                # its shared install. Stop the entire probe before retrying it.
+                if os.name == "posix":
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                else:
+                    process.kill()
+                process.communicate()
+                raise
+            result = subprocess.CompletedProcess(wrapped_command, process.returncode, stderr=stderr)
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
             f"{probe_name} translation probe timed out after {context.probe_timeout}s. "

@@ -7,7 +7,7 @@ import stat
 import subprocess
 import tarfile
 import zipfile
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -989,8 +989,10 @@ def test_run_probe_command_sets_probe_complete(monkeypatch):
         proton_profile="balanced",
     )
 
-    result = Mock(returncode=0, stderr="")
-    monkeypatch.setattr(runtime_translation.subprocess, "run", lambda *args, **kwargs: result)
+    result = MagicMock(returncode=0)
+    result.__enter__.return_value = result
+    result.communicate.return_value = (None, "")
+    monkeypatch.setattr(runtime_translation.subprocess, "Popen", lambda *args, **kwargs: result)
 
     runtime_translation.run_probe_command(
         context,
@@ -1013,8 +1015,10 @@ def test_run_probe_command_raises_on_nonzero(monkeypatch):
         proton_profile="balanced",
     )
 
-    result = Mock(returncode=1, stderr="failed")
-    monkeypatch.setattr(runtime_translation.subprocess, "run", lambda *args, **kwargs: result)
+    result = MagicMock(returncode=1)
+    result.__enter__.return_value = result
+    result.communicate.return_value = (None, "failed")
+    monkeypatch.setattr(runtime_translation.subprocess, "Popen", lambda *args, **kwargs: result)
 
     with pytest.raises(RuntimeError, match="translation probe failed"):
         runtime_translation.run_probe_command(

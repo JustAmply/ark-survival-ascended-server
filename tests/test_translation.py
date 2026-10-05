@@ -1,10 +1,12 @@
 """Regression coverage for the isolated ARM64 execution adapter."""
 
 import logging
+import os
 import shlex
 import subprocess
+import time
 from dataclasses import replace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -78,13 +80,35 @@ def test_translated_update_preserves_steamcmd_wrapper_and_validation(monkeypatch
 def test_translation_probe_uses_steamcmd_script_once(monkeypatch, tmp_path):
     (tmp_path / "steamcmd.sh").write_text("#!/bin/sh\n", encoding="utf-8")
     monkeypatch.setattr(steamcmd, "STEAMCMD_DIR", str(tmp_path))
-    run = Mock(return_value=subprocess.CompletedProcess([], 0, stderr=""))
-    monkeypatch.setattr(translation.subprocess, "run", run)
+    process = MagicMock(returncode=0)
+    process.__enter__.return_value = process
+    process.communicate.return_value = (None, "")
+    run = Mock(return_value=process)
+    monkeypatch.setattr(translation.subprocess, "Popen", run)
     execution_context = context()
     steamcmd.probe_steamcmd_translation(execution_context, LOGGER)
     steamcmd.probe_steamcmd_translation(execution_context, LOGGER)
     run.assert_called_once()
     assert shlex.split(run.call_args.args[0][-1]) == ["exec", str(tmp_path / "steamcmd.sh"), "+quit"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Process groups require POSIX")
+def test_probe_timeout_stops_wrapper_children(tmp_path):
+    marker = tmp_path / "child-survived"
+    started = tmp_path / "child-started"
+    child = tmp_path / "child.sh"
+    child.write_text(
+        f"echo started > {shlex.quote(str(started))}; sleep 2; echo child > {shlex.quote(str(marker))}\n",
+        encoding="utf-8",
+    )
+    wrapper = tmp_path / "wrapper.sh"
+    wrapper.write_text(f"/bin/sh {shlex.quote(str(child))} & wait\n", encoding="utf-8")
+    execution_context = replace(context(), runner_prefix=("/bin/sh", "-c"), probe_timeout=1)
+    with pytest.raises(RuntimeError, match="timed out after 1s"):
+        translation.run_probe_command(execution_context, ["/bin/sh", str(wrapper)], tmp_path, LOGGER, "fixture")
+    assert started.is_file(), "The child must have started for this test to exercise cleanup"
+    time.sleep(1.5)
+    assert not marker.exists(), "The probe left a child running after its timeout"
 
 
 def test_safe_profile_overrides_enabled_sync_without_mutating_base():
