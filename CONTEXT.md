@@ -79,6 +79,12 @@ It registers PID files, starts the restart scheduler and the log streamer,
 launches the server through Proton, and handles the graceful shutdown sequence
 (`saveworld` over RCON, then SIGTERM, then SIGKILL).
 
+A translated launch owns a process group as well as its prefix-specific Wine
+session. Graceful shutdown waits for living group members, including children
+whose wrapper already exited. Cleanup ends the Wine session before the next
+launch so detached Wine processes cannot survive a restart or retain the
+previous synchronisation profile. Native process supervision is unchanged.
+
 ## Proton selection
 
 Which GE-Proton build the container runs and how it was arrived at

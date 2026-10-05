@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from .archive_utils import safe_extract_archive
 from .constants import (
@@ -31,13 +31,14 @@ from .constants import (
     RuntimeSettings,
 )
 from .native_libs import warn_about_missing_native_libraries
-from .translation import ExecutionContext, normalize_architecture, wrap_command
+from .translation import ExecutionContext, format_execution_error, normalize_architecture, wrap_command
 
 _SAFE_VERSION_PATTERN = re.compile(r"^[0-9][0-9A-Za-z._-]*$")
 _MISSING_LIBRARY_PATTERN = re.compile(
     r"([A-Za-z0-9_.+-]+\.so(?:\.[0-9]+)*): cannot open shared object file"
 )
 PROTON_PREFLIGHT_TIMEOUT = 60
+PROTON_SHUTDOWN_TIMEOUT = 30
 # Build metadata that cannot identify a rebuild, so results keyed on it are
 # never reused.
 UNCACHEABLE_IMAGE_VERSIONS = frozenset({"", "unknown"})
@@ -542,3 +543,43 @@ def build_launch_command(
     if not os.access(proton_path, os.X_OK):
         raise RuntimeError(f"Proton launcher at '{proton_path}' is not executable.")
     return wrap_command(execution_context, [str(proton_path), "run", launch_binary, *shlex.split(params)])
+
+
+def stop_proton_session(
+    proton_dir_name: str,
+    execution_context: ExecutionContext,
+    server_env: Mapping[str, str],
+    logger: logging.Logger,
+) -> None:
+    """Stop and wait for the Wine session belonging to this server's prefix.
+
+    Wine children can create their own sessions, escaping the Proton launcher's
+    process group. The installed wineserver reaches them through the prefix
+    instead of signalling unrelated Wine processes on the host.
+    """
+    env = dict(server_env)
+    env["WINEPREFIX"] = str(Path(server_env["STEAM_COMPAT_DATA_PATH"]) / "pfx")
+    wineserver = Path(STEAM_COMPAT_DIR) / proton_dir_name / "files" / "bin" / "wineserver"
+    logger.info("Stopping the server's Proton Wine session.")
+    for operation in ("-k", "-w"):
+        command = wrap_command(execution_context, [str(wineserver), operation])
+        try:
+            subprocess.run(
+                command, env=env, capture_output=True, text=True,
+                check=True, timeout=PROTON_SHUTDOWN_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"Proton Wine session shutdown timed out after {PROTON_SHUTDOWN_TIMEOUT}s "
+                f"during wineserver {operation}."
+            ) from exc
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or "").strip()
+            raise RuntimeError(
+                f"Proton Wine session shutdown failed during wineserver {operation} "
+                f"with exit code {exc.returncode}" + (f": {detail}" if detail else ".")
+            ) from exc
+        except OSError as exc:
+            raise RuntimeError(
+                format_execution_error("Proton Wine session shutdown", exc, execution_context)
+            ) from exc

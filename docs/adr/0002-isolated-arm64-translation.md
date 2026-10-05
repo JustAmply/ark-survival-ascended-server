@@ -27,6 +27,13 @@ environment applies the effective profile; child profiles do not mutate
 process settings.
 Only completed translated server runs use the early-crash profile retry.
 
+Each translated server run owns a process group and its Wine prefix session.
+Shutdown gives living group members the configured graceful timeout even if
+the wrapper exits first. Cleanup stops the prefix's Wine server before a
+relaunch, since Wine children can leave the process group and otherwise carry
+the previous synchronisation profile into the next run. Native lifecycle
+behaviour remains unchanged.
+
 ## Consequences
 
 AMD64 keeps its current OS, package set, environment and restart behavior.

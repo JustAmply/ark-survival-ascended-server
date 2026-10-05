@@ -36,6 +36,7 @@ from .proton import (
     build_launch_command,
     ensure_proton_compat_data,
     prepare_proton,
+    stop_proton_session,
 )
 from .steamcmd import ensure_steamcmd, probe_steamcmd_translation, update_server_files
 from .translation import format_execution_error, resolve_execution_context
@@ -142,7 +143,10 @@ class ServerSupervisor:
         command = self._build_launch_command(proton_dir_name, launch_binary, params)
         start_time = time.monotonic()
         try:
-            self.server_process = subprocess.Popen(command, cwd=ASA_BINARY_DIR, env=self.server_env)
+            self.server_process = subprocess.Popen(
+                command, cwd=ASA_BINARY_DIR, env=self.server_env,
+                start_new_session=self.execution_context.translation_enabled,
+            )
         except OSError as exc:
             raise RuntimeError(format_execution_error("Proton launch", exc, self.execution_context)) from exc
         Path(PID_FILE).write_text(f"{self.server_process.pid}\n", encoding="utf-8")
@@ -161,7 +165,7 @@ class ServerSupervisor:
             purpose,
         )
 
-        if self.server_process is None or self.server_process.poll() is not None:
+        if not self._server_is_running(self.server_process):
             self.logger.info("Shutdown requested before launch or after stop; no server process to stop.")
             return
 
@@ -195,24 +199,68 @@ class ServerSupervisor:
         return ok
 
     def _stop_server_process(self, process: Optional[subprocess.Popen]) -> None:
-        if process is None or process.poll() is not None:
+        if process is None or not self._server_is_running(process):
             self.logger.info("Server process already stopped.")
             return
 
         self.logger.info("Sending SIGTERM to server process PID %s", process.pid)
-        process.terminate()
+        if self.execution_context.translation_enabled:
+            self._signal_server_group(process, signal.SIGTERM)
+        else:
+            process.terminate()
         timeout = self.settings.shutdown_timeout
         deadline = time.time() + max(timeout, 1)
-        while process.poll() is None and time.time() < deadline:
+        while self._server_is_running(process) and time.time() < deadline:
             time.sleep(1)
 
-        if process.poll() is None:
+        if self._server_is_running(process):
             self.logger.warning(
                 "Server did not stop within %ss; sending SIGKILL to PID %s",
                 timeout,
                 process.pid,
             )
-            process.kill()
+            if self.execution_context.translation_enabled:
+                self._signal_server_group(process, signal.SIGKILL)
+            else:
+                process.kill()
+
+    @staticmethod
+    def _signal_server_group(process: subprocess.Popen, sig: int) -> None:
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            pass
+
+    def _server_is_running(self, process: Optional[subprocess.Popen]) -> bool:
+        if process is None:
+            return False
+        if not self.execution_context.translation_enabled:
+            return process.poll() is None
+        # A translator or Proton wrapper can exit while its children are still
+        # handling SIGTERM. Zombies have exited and must not exhaust the timeout.
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            if fields[0] != "Z" and int(fields[2]) == process.pid:
+                return True
+        return False
+
+    def _cleanup_server_process(self) -> None:
+        if self.execution_context.translation_enabled and self.server_process is not None:
+            # A wrapper can exit before its Wine/FEX children. Its process group
+            # still belongs to this run and must be gone before the next launch.
+            self._signal_server_group(self.server_process, signal.SIGKILL)
+            self.server_process.wait(timeout=5)
+            if self.proton is not None and self.server_env is not None:
+                stop_proton_session(
+                    self.proton.directory_name, self.execution_context, self.server_env, self.logger
+                )
+        else:
+            self._terminate_process(self.server_process)
 
     @staticmethod
     def _signal_name(sig: int) -> str:
@@ -281,12 +329,12 @@ class ServerSupervisor:
         return None
 
     def _cleanup_after_run(self) -> None:
-        self._terminate_process(self.server_process)
+        self._cleanup_server_process()
         Path(PID_FILE).unlink(missing_ok=True)
         self.server_process = None
 
     def cleanup(self) -> None:
-        self._terminate_process(self.server_process)
+        self._cleanup_server_process()
         self._terminate_process(self.log_streamer_process)
         self._terminate_process(self.restart_scheduler_process)
         Path(PID_FILE).unlink(missing_ok=True)
