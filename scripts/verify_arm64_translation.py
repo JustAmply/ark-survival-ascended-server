@@ -3,11 +3,12 @@
 Run in a disposable ARM64 image container as gameserver, without existing
 volumes or privileged mode. Downloads use the production installers and
 checksum verification. A successful test proves the translated launch chain,
-not ARK startup, graceful game shutdown or sustained server operation.
+not ARK startup, RCON game saving or sustained server operation.
 """
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import replace
 import logging
 import os
@@ -34,12 +35,19 @@ from server_runtime.proton import (
 from server_runtime.steamcmd import ensure_steamcmd, probe_steamcmd_translation
 from server_runtime.translation import resolve_execution_context, wrap_command
 from server_runtime.wine_sync import configure_wine_sync
+from verify_translated_lifecycle import verify_translated_lifecycle
 
 
 MARKER = "ASA_ARM64_PROTON_OK"
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--proton-version", default=FALLBACK_PROTON_VERSION,
+        help="GE-Proton baseline version, or 'auto' to exercise the default latest-release path.",
+    )
+    args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     logger = logging.getLogger("arm64-smoke")
     if (os.getuid(), os.getgid()) != (TARGET_UID, TARGET_GID):
@@ -47,7 +55,7 @@ def main() -> int:
 
     settings = replace(
         RuntimeSettings.from_env(),
-        proton_version=FALLBACK_PROTON_VERSION,
+        proton_version="" if args.proton_version == "auto" else args.proton_version,
         proton_skip_checksum=False,
         proton_skip_preflight=False,
     )
@@ -78,6 +86,7 @@ def main() -> int:
     print("PASS: real SteamCMD self-update and anonymous login through FEX.", flush=True)
 
     proton = prepare_proton(logger, settings, execution_context=context)
+    logger.info("Verified Proton selection: version=%s, origin=%s", proton.version, proton.origin)
     ensure_proton_compat_data(proton.directory_name, logger)
     environment = LaunchEnvironment.from_process(settings).for_server()
     configure_wine_sync(logger, environment)
@@ -102,6 +111,7 @@ def main() -> int:
         if not marker_file.is_file() or marker_file.read_text(encoding="utf-8").strip() != MARKER:
             raise RuntimeError("The Windows command did not create its expected marker through Proton.")
     print("PASS: guest Python, Proton prefix and Windows command execution through FEX.", flush=True)
+    verify_translated_lifecycle(proton, context)
     print("ARK was not downloaded or launched; game startup and soak remain unverified.", flush=True)
     return 0
 

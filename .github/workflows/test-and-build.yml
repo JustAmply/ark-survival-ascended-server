@@ -99,7 +99,7 @@ jobs:
             FINAL_VERSION="${VERSION}"
           fi
 
-          echo "version=${FINAL_VERSION}" >> $GITHUB_OUTPUT
+          echo "version=${FINAL_VERSION}" >> "$GITHUB_OUTPUT"
           echo "build-date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
           echo "Determined version: ${FINAL_VERSION}"
 
@@ -167,6 +167,13 @@ jobs:
             --mount "type=bind,src=${PWD}/scripts/verify_runtime_lifecycle.py,dst=/tmp/verify_runtime_lifecycle.py,readonly" \
             asa-linux-server:smoke /tmp/verify_runtime_lifecycle.py
 
+      - name: Verify translated lifecycle policy with native fixtures
+        if: steps.changes.outputs.docker == 'true'
+        run: |
+          docker run --rm --user 25000:25000 --entrypoint python \
+            --mount "type=bind,src=${PWD}/scripts/verify_translated_lifecycle.py,dst=/tmp/verify_translated_lifecycle.py,readonly" \
+            asa-linux-server:smoke /tmp/verify_translated_lifecycle.py --native-fixture
+
       - name: Log in to GHCR
         if: steps.changes.outputs.docker == 'true' && env.PUBLISH_IMAGE == 'true'
         uses: docker/login-action@v4
@@ -193,7 +200,7 @@ jobs:
   build-arm64-experimental:
     name: Build and verify ARM64 experimental Docker image
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 30
+    timeout-minutes: 45
     needs: test-and-build
     if: needs.test-and-build.outputs.docker == 'true'
     env:
@@ -269,13 +276,24 @@ jobs:
             --mount "type=bind,src=${PWD}/scripts/verify_runtime_lifecycle.py,dst=/tmp/verify_runtime_lifecycle.py,readonly" \
             asa-linux-server:arm64-smoke /tmp/verify_runtime_lifecycle.py
 
-      - name: Verify real SteamCMD and Proton execution through FEX
+      - name: Verify pinned SteamCMD, Proton and translated lifecycle through FEX
         timeout-minutes: 15
         run: |
           timeout --signal=TERM --kill-after=30s 14m \
             docker run --rm --user 25000:25000 --entrypoint python \
             --mount "type=bind,src=${PWD}/scripts/verify_arm64_translation.py,dst=/tmp/verify_arm64_translation.py,readonly" \
+            --mount "type=bind,src=${PWD}/scripts/verify_translated_lifecycle.py,dst=/tmp/verify_translated_lifecycle.py,readonly" \
             asa-linux-server:arm64-smoke /tmp/verify_arm64_translation.py
+
+      - name: Verify default latest Proton selection and translated lifecycle through FEX
+        if: github.event_name == 'schedule'
+        timeout-minutes: 15
+        run: |
+          timeout --signal=TERM --kill-after=30s 14m \
+            docker run --rm --user 25000:25000 --entrypoint python \
+            --mount "type=bind,src=${PWD}/scripts/verify_arm64_translation.py,dst=/tmp/verify_arm64_translation.py,readonly" \
+            --mount "type=bind,src=${PWD}/scripts/verify_translated_lifecycle.py,dst=/tmp/verify_translated_lifecycle.py,readonly" \
+            asa-linux-server:arm64-smoke /tmp/verify_arm64_translation.py --proton-version auto
 
       - name: Log in to GHCR
         if: needs.test-and-build.outputs.publish-image == 'true'

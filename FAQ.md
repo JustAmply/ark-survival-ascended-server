@@ -113,6 +113,12 @@ docker compose up -d
 
 **A:** ARM64 currently depends on translated execution (FEX + Proton + SteamCMD), which can vary by kernel/host profile and may perform differently than native AMD64 hosts. Experimental tags let us improve compatibility without destabilizing `latest`.
 
+CI checks real SteamCMD login, Windows execution and translated supervisor
+restart/shutdown with descendant cleanup. It tests a pinned Proton baseline on
+every image change and the default latest-release selection weekly. These checks
+use lightweight fixtures and do not download ARK; successful ARK startup, game
+saving and sustained operation still need verification on the target host.
+
 ## 🎮 Gameplay Questions
 
 ### **Q: How do I add mods?**

@@ -127,7 +127,14 @@ ARM64 support is published separately as experimental tags to avoid impacting st
 
 The ARM64 image uses FEX translation for SteamCMD/Proton execution. Its build stage is separate from the existing AMD64 Python image, and its verified RootFS is extracted during the build so runtime does not require FUSE or a privileged container. The runtime performs a translator probe before full startup and fails early with actionable logs if translation is unavailable. Only translated launches use the early-crash retry policy: two short server runs trigger one retry with the safe profile; another early exit stops the supervisor. Preparation failures do not count as server crashes. Native AMD64 retains its existing restart behavior.
 
-Native ARM64 CI additionally runs the real SteamCMD self-update and anonymous login, then a Windows command through checksum-verified GE-Proton and FEX, as UID 25000 without privileged mode. This checks the translated launch chain without downloading ARK. ARM64 remains experimental until a real target host has completed an ARK startup and soak test; these integration and lifecycle checks alone do not establish game-server compatibility.
+Translated probes and server launches use isolated process groups. A probe
+timeout kills its whole group; server restart and shutdown send SIGTERM to the
+group and force-stop remaining children when the launcher exits or the shutdown
+timeout expires. Translated cleanup also stops the Wine session for that server's
+prefix, so Wine children that created their own sessions cannot survive a
+relaunch. This keeps retries from overlapping orphaned work.
+
+Native ARM64 CI additionally runs the real SteamCMD self-update and anonymous login, then a Windows command through checksum-verified GE-Proton and FEX, as UID 25000 without privileged mode. Every image check uses the pinned fallback Proton version as a reproducible baseline; the weekly refresh also exercises the default latest-release selection, including its production preflight fallback. Both paths require an actual Windows execution marker. Translated lifecycle checks exercise the production supervisor with guest Python children and a long-lived Windows command: restart, graceful SIGTERM, forced cleanup of a stubborn child, and detection of living descendants after shutdown. The fixtures replace ARK preparation and RCON, so they do not establish game saving or shutdown compatibility. ARM64 remains experimental until a real target host has completed an ARK startup and soak test.
 
 ## 🎮 Server Management
 
@@ -238,7 +245,8 @@ Images are published after smoke tests pass, including two parallel supervisor
 lifecycle cases. Draft, fork and Dependabot PRs validate the image without
 publishing it; ready PRs from this repository retain their preview tags. Obsolete
 PR runs are cancelled, main/tag runs finish in sequence, and jobs have a
-15-minute timeout. See [local image validation](SETUP.md#local-image-validation)
+15-minute AMD64 and 45-minute ARM64 job timeouts. Each ARM64 translation check
+has a separate 15-minute timeout. See [local image validation](SETUP.md#local-image-validation)
 for the equivalent Docker checks.
 
 ## 📞 Support

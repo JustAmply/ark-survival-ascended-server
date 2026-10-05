@@ -163,7 +163,14 @@ Behavior on ARM64:
 - `Exec format error` typically indicates translator setup mismatch; verify `ASA_TRANSLATOR_MODE` and FEX availability.
 - Keep persistent volumes mounted so SteamCMD/Proton caches are reused between restarts.
 
-Native ARM64 CI verifies real SteamCMD self-update and anonymous login plus a Windows command through checksum-verified GE-Proton and FEX, without privileged mode or an ARK download. ARM64 acceptance still requires the full ARK install, startup and soak test on the target host. The early-crash fallback applies only to translated server runs; download and preparation errors do not trigger a profile change.
+Translated probes and servers run in isolated process groups. Probe timeouts
+terminate all children. Restart and shutdown send SIGTERM to the whole server
+group. SIGKILL removes remaining group members when the launcher exits or
+`ASA_SHUTDOWN_TIMEOUT` expires. Translated cleanup also stops and waits for the
+prefix-specific Wine session, including Wine children outside the launcher's
+process group.
+
+Native ARM64 CI verifies real SteamCMD self-update and anonymous login plus a Windows command through checksum-verified GE-Proton and FEX, without privileged mode or an ARK download. It also exercises the production supervisor with translated guest Python children and a long-lived Windows command, checking restart, graceful SIGTERM, forced cleanup of a stubborn child and absence of living descendants. These fixtures replace ARK preparation and RCON. Every image check pins the fallback Proton baseline; the weekly refresh additionally tests the default latest-release selection and its preflight fallback through actual Windows execution. ARM64 acceptance still requires the full ARK install, startup and soak test on the target host. The early-crash fallback applies only to translated server runs; download and preparation errors do not trigger a profile change.
 
 ## 🌐 Port Configuration
 
@@ -366,6 +373,9 @@ docker run --rm --entrypoint /usr/local/bin/asa-ctrl asa-linux-server:smoke --he
 docker run --rm --user 25000:25000 --entrypoint python \
   --mount "type=bind,src=${PWD}/scripts/verify_runtime_lifecycle.py,dst=/tmp/verify_runtime_lifecycle.py,readonly" \
   asa-linux-server:smoke /tmp/verify_runtime_lifecycle.py
+docker run --rm --user 25000:25000 --entrypoint python \
+  --mount "type=bind,src=${PWD}/scripts/verify_translated_lifecycle.py,dst=/tmp/verify_translated_lifecycle.py,readonly" \
+  asa-linux-server:smoke /tmp/verify_translated_lifecycle.py --native-fixture
 ```
 
 The lifecycle check runs the discrete launch settings and legacy fallback cases
@@ -373,6 +383,27 @@ in parallel, each with its own temporary files and child processes. It verifies
 authenticated RCON, scheduler warnings, restart, the real save delay, shutdown
 and cleanup. It replaces SteamCMD, Proton and the game binary at their external
 interfaces; it does not download or launch ARK or use existing server volumes.
+The additional native fixture check exercises the translated supervisor's
+process-group policy with Linux Python children. It verifies graceful signals
+and forced cleanup, but provides no evidence about FEX or Proton.
+
+On a native ARM64 host, build the ARM64 image and run the translated checks in a
+disposable container with both scripts mounted. This downloads SteamCMD and
+checksum-verified Proton, then checks Windows execution and translated lifecycle
+cleanup without installing ARK:
+
+```bash
+docker build --platform linux/arm64 -t asa-linux-server:arm64-smoke .
+docker run --rm --user 25000:25000 --entrypoint python \
+  --mount "type=bind,src=${PWD}/scripts/verify_arm64_translation.py,dst=/tmp/verify_arm64_translation.py,readonly" \
+  --mount "type=bind,src=${PWD}/scripts/verify_translated_lifecycle.py,dst=/tmp/verify_translated_lifecycle.py,readonly" \
+  asa-linux-server:arm64-smoke /tmp/verify_arm64_translation.py
+```
+
+Add `--proton-version auto` after the script path to check the same Proton
+selection as a default container start, including the preflight fallback. CI
+runs this additional check weekly; ordinary image checks retain the reproducible
+pinned baseline.
 
 CI skips Docker for documentation-only and test-only changes. Release
 tags and a weekly refresh always run all checks; the refresh rebuilds without
