@@ -297,7 +297,7 @@ jobs:
           docker run --rm --user 25000:25000 --entrypoint FEXBash \
             asa-linux-server:arm64-smoke -c 'exec /lib/ld-linux.so.2 --help'
           docker run --rm --user 25000:25000 --entrypoint FEXBash \
-            asa-linux-server:arm64-smoke -c 'exec python3 -c "import platform, sys; assert platform.machine() == \"x86_64\"; assert sys.executable == \"/usr/bin/python3\", sys.executable; print(sys.version)"'
+            asa-linux-server:arm64-smoke -c 'exec python3 -c "import os, platform, sys; assert platform.machine() == \"x86_64\"; assert sys.executable == os.environ[\"FEX_ROOTFS\"] + \"/usr/bin/python3\", sys.executable; print(sys.version)"'
 
       - name: Verify supervisor lifecycle
         run: |
