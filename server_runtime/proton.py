@@ -31,7 +31,7 @@ from .constants import (
     RuntimeSettings,
 )
 from .native_libs import warn_about_missing_native_libraries
-from .translation import ExecutionContext, wrap_command
+from .translation import ExecutionContext, normalize_architecture, wrap_command
 
 _SAFE_VERSION_PATTERN = re.compile(r"^[0-9][0-9A-Za-z._-]*$")
 _MISSING_LIBRARY_PATTERN = re.compile(
@@ -107,12 +107,15 @@ class ReleaseArchive:
 
 def _architecture_suffixes(execution_context: Optional[ExecutionContext] = None) -> tuple[str, ...]:
     # FEX executes x86 Proton in its guest rootfs, even on an ARM64 host.
-    machine = platform.machine().lower()
-    if execution_context and execution_context.translation_enabled:
-        machine = "x86_64"
-    if machine in {"x86_64", "amd64"}:
+    if execution_context is not None:
+        architecture = (
+            "amd64" if execution_context.translation_enabled else execution_context.architecture
+        )
+    else:
+        architecture = normalize_architecture(platform.machine())
+    if architecture == "amd64":
         return ("-x86_64",)
-    if machine in {"aarch64", "arm64"}:
+    if architecture == "arm64":
         return ("-aarch64",)
     return ()
 
@@ -148,8 +151,7 @@ def find_release_archive(
 
 
 def _check_release_assets(version: str, execution_context: Optional[ExecutionContext] = None) -> bool:
-    options = {"execution_context": execution_context} if execution_context else {}
-    return find_release_archive(version, **options) is not None
+    return find_release_archive(version, execution_context=execution_context) is not None
 
 
 def _extract_versions(tags: Iterable[str]) -> list[str]:
@@ -164,7 +166,6 @@ def _extract_versions(tags: Iterable[str]) -> list[str]:
 def find_latest_release_with_assets(
     skip_version: Optional[str] = None, execution_context: Optional[ExecutionContext] = None
 ) -> Optional[str]:
-    options = {"execution_context": execution_context} if execution_context else {}
     for page in (1, 2, 3):
         url = f"https://api.github.com/repos/{PROTON_REPO}/releases?per_page=10&page={page}"
         payload = _fetch_json(url)
@@ -174,7 +175,7 @@ def find_latest_release_with_assets(
         for version in _extract_versions(tags):
             if skip_version and version == skip_version:
                 continue
-            if _check_release_assets(version, **options):
+            if _check_release_assets(version, execution_context=execution_context):
                 return version
     return None
 
@@ -207,7 +208,6 @@ def resolve_proton_version(
     is, so the supervisor's relaunch loop neither re-queries GitHub nor retries
     a build that already failed its preflight.
     """
-    options = {"execution_context": execution_context} if execution_context else {}
     pinned = _pinned_proton_version(settings)
     if pinned:
         return ProtonSelection(version=pinned, origin=ORIGIN_PINNED)
@@ -226,7 +226,7 @@ def resolve_proton_version(
     if isinstance(payload, dict):
         tag = str(payload.get("tag_name", ""))
         detected = tag.removeprefix("GE-Proton")
-    if detected and _check_release_assets(detected, **options):
+    if detected and _check_release_assets(detected, execution_context=execution_context):
         version = detected
         logger.info("Detected latest GE-Proton version: %s", version)
     elif detected:
@@ -234,9 +234,11 @@ def resolve_proton_version(
             "Latest GE-Proton tag '%s' missing required assets, searching previous releases.",
             detected,
         )
-        version = find_latest_release_with_assets(skip_version=detected, **options) or ""
+        version = find_latest_release_with_assets(
+            skip_version=detected, execution_context=execution_context
+        ) or ""
     else:
-        version = find_latest_release_with_assets(**options) or ""
+        version = find_latest_release_with_assets(execution_context=execution_context) or ""
 
     if not version:
         version = FALLBACK_PROTON_VERSION
@@ -286,8 +288,7 @@ def install_proton_if_needed(
     if proton_dir.exists():
         return proton_dir_name
 
-    options = {"execution_context": execution_context} if execution_context else {}
-    release = find_release_archive(version, **options)
+    release = find_release_archive(version, execution_context=execution_context)
     if release is None:
         raise RuntimeError(
             f"No downloadable GE-Proton{version} release assets found for "
@@ -478,12 +479,15 @@ def prepare_proton(
     Pass the previous return value back on a relaunch: a selection already
     settled on is reused rather than resolved again.
     """
-    options = {"execution_context": execution_context} if execution_context else {}
-    selection = resolve_proton_version(logger, settings, previous, **options)
-    install_proton_if_needed(selection.version, logger, settings, **options)
+    selection = resolve_proton_version(
+        logger, settings, previous, execution_context=execution_context
+    )
+    install_proton_if_needed(selection.version, logger, settings, execution_context=execution_context)
     _export_proton_version(selection.version)
 
-    missing = find_missing_proton_library(selection.directory_name, logger, settings, **options)
+    missing = find_missing_proton_library(
+        selection.directory_name, logger, settings, execution_context=execution_context
+    )
     if not missing:
         return selection
 
@@ -510,8 +514,10 @@ def prepare_proton(
         FALLBACK_PROTON_VERSION,
     )
     fallback = ProtonSelection(version=FALLBACK_PROTON_VERSION, origin=ORIGIN_FALLBACK)
-    install_proton_if_needed(fallback.version, logger, settings, **options)
-    fallback_missing = find_missing_proton_library(fallback.directory_name, logger, settings, **options)
+    install_proton_if_needed(fallback.version, logger, settings, execution_context=execution_context)
+    fallback_missing = find_missing_proton_library(
+        fallback.directory_name, logger, settings, execution_context=execution_context
+    )
     if fallback_missing:
         raise RuntimeError(
             f"GE-Proton{selection.version} and fallback GE-Proton{FALLBACK_PROTON_VERSION} both "
@@ -536,13 +542,3 @@ def build_launch_command(
     if not os.access(proton_path, os.X_OK):
         raise RuntimeError(f"Proton launcher at '{proton_path}' is not executable.")
     return wrap_command(execution_context, [str(proton_path), "run", launch_binary, *shlex.split(params)])
-
-
-def build_launch_environment(base_env: dict[str, str], proton_profile: str) -> dict[str, str]:
-    """Apply the selected profile to a copy of the server's explicit environment."""
-    env = dict(base_env)
-    if proton_profile == "safe":
-        env["PROTON_NO_ESYNC"] = "1"
-        env["PROTON_NO_FSYNC"] = "1"
-        env.setdefault("WINEDEBUG", "-all")
-    return env

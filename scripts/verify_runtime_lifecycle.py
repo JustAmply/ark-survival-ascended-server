@@ -158,11 +158,11 @@ def supervisor(root: Path) -> None:
     runtime.ASA_BINARY_DIR = str(root)
     runtime.LOG_DIR = str(root / "logs")
     runtime.ASA_CTRL_BIN = str(root / "scheduler")
-    runtime.update_server_files = lambda *_: None
+    runtime.update_server_files = lambda *_, **kwargs: None
     runtime.ensure_proton_compat_data = lambda *_: None
     runtime.resolve_launch_binary = lambda *_: "ArkAscendedServer.exe"
 
-    def prepare(_logger, _settings, previous=None):
+    def prepare(_logger, _settings, previous=None, execution_context=None):
         if previous is None:
             record(root, "proton_selection")
         return previous or ProtonSelection("test", ORIGIN_PINNED)

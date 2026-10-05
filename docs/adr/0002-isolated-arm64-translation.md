@@ -19,9 +19,12 @@ extraction during cross-builds. Stable launch wrappers precede the independent
 application source layers so code edits do not regenerate them.
 Publish ARM64 under separate experimental tags and verify it on native ARM CI.
 
-`ExecutionContext` owns command wrapping. SteamCMD updates, Proton asset
-selection, preflight and server launch receive it explicitly. Runtime settings
-remain the configuration source; child profiles do not mutate process settings.
+The immutable `ExecutionContext` owns command wrapping. SteamCMD updates,
+Proton asset selection, preflight and server launch receive it explicitly. Runtime settings
+remain the configuration source; the supervisor owns successful probe status,
+the effective profile and early-crash count across relaunches. The launch
+environment applies the effective profile; child profiles do not mutate
+process settings.
 Only completed translated server runs use the early-crash profile retry.
 
 ## Consequences

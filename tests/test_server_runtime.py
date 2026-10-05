@@ -312,7 +312,7 @@ def test_resolve_proton_version_detected_latest(monkeypatch):
         "_fetch_json",
         lambda _url: {"tag_name": "GE-Proton9-20"},
     )
-    monkeypatch.setattr(runtime_proton, "_check_release_assets", lambda _version: True)
+    monkeypatch.setattr(runtime_proton, "_check_release_assets", lambda _version, execution_context=None: True)
     logger = logging.getLogger("test")
 
     selection = runtime_proton.resolve_proton_version(logger, _proton_settings())
@@ -324,7 +324,7 @@ def test_resolve_proton_version_detected_latest(monkeypatch):
 
 def test_resolve_proton_version_fallback(monkeypatch):
     monkeypatch.setattr(runtime_proton, "_fetch_json", lambda _url: None)
-    monkeypatch.setattr(runtime_proton, "find_latest_release_with_assets", lambda skip_version=None: None)
+    monkeypatch.setattr(runtime_proton, "find_latest_release_with_assets", lambda skip_version=None, execution_context=None: None)
     logger = logging.getLogger("test")
 
     selection = runtime_proton.resolve_proton_version(logger, _proton_settings())
@@ -494,13 +494,13 @@ def test_supervisor_log_hides_password_but_launches_with_it(monkeypatch, tmp_pat
     launcher.chmod(0o755)
     monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(tmp_path))
 
-    monkeypatch.setattr(runtime_supervisor, "update_server_files", lambda *_: None)
+    monkeypatch.setattr(runtime_supervisor, "update_server_files", lambda *_, **kwargs: None)
     monkeypatch.setattr(runtime_supervisor, "prepare_start_params", lambda *_: params)
-    monkeypatch.setattr(runtime_supervisor, "prepare_proton", lambda *_: ProtonSelection("test", runtime_proton.ORIGIN_PINNED))
+    monkeypatch.setattr(runtime_supervisor, "prepare_proton", lambda *_, **kwargs: ProtonSelection("test", runtime_proton.ORIGIN_PINNED))
     monkeypatch.setattr(runtime_supervisor, "ensure_proton_compat_data", lambda *_: None)
     monkeypatch.setattr(runtime_supervisor, "resolve_launch_binary", lambda *_: "ArkAscendedServer.exe")
     monkeypatch.setattr(runtime_supervisor, "PID_FILE", str(tmp_path / "server.pid"))
-    monkeypatch.setattr(runtime_supervisor.LaunchEnvironment, "for_server", lambda _self, line: {"ASA_START_PARAMS": line})
+    monkeypatch.setattr(runtime_supervisor.LaunchEnvironment, "for_server", lambda _self, line, **kwargs: {"ASA_START_PARAMS": line})
     monkeypatch.setattr(runtime_supervisor, "configure_wine_sync", lambda *_: None)
     monkeypatch.setattr(supervisor, "_start_log_streamer", lambda: None)
     monkeypatch.setattr(runtime_supervisor.subprocess, "Popen", Mock(return_value=process))
@@ -959,7 +959,6 @@ def test_resolve_execution_context_auto_arm64_uses_fex(monkeypatch):
     assert context.runner_prefix == ("/usr/bin/FEXBash", "-c")
     assert context.wraps_with_shell is True
     assert context.probe_timeout == 20
-    assert context.proton_profile == "balanced"
 
 
 def test_wrap_command_uses_shell_runner():
@@ -969,7 +968,6 @@ def test_wrap_command_uses_shell_runner():
         runner_prefix=("/usr/bin/FEXBash", "-c"),
         wraps_with_shell=True,
         probe_timeout=20,
-        proton_profile="balanced",
     )
 
     wrapped = runtime_translation.wrap_command(context, ["/path/to/tool", "arg one", "--flag"])
@@ -979,14 +977,13 @@ def test_wrap_command_uses_shell_runner():
     assert "arg one" in wrapped[2]
 
 
-def test_run_probe_command_sets_probe_complete(monkeypatch):
+def test_run_probe_command_logs_success(monkeypatch):
     context = runtime_translation.ExecutionContext(
         architecture="arm64",
         translator_mode="fex",
         runner_prefix=("/usr/bin/FEXInterpreter",),
         wraps_with_shell=False,
         probe_timeout=20,
-        proton_profile="balanced",
     )
 
     result = MagicMock(returncode=0)
@@ -994,15 +991,16 @@ def test_run_probe_command_sets_probe_complete(monkeypatch):
     result.communicate.return_value = (None, "")
     monkeypatch.setattr(runtime_translation.subprocess, "Popen", lambda *args, **kwargs: result)
 
+    logger = Mock()
     runtime_translation.run_probe_command(
         context,
         ["/home/gameserver/steamcmd/linux32/steamcmd", "+quit"],
         "/home/gameserver/steamcmd",
-        logging.getLogger("test-probe"),
+        logger,
         "SteamCMD",
     )
 
-    assert context.translator_probe_complete is True
+    logger.info.assert_called_once_with("%s translation probe succeeded.", "SteamCMD")
 
 
 def test_run_probe_command_raises_on_nonzero(monkeypatch):
@@ -1012,7 +1010,6 @@ def test_run_probe_command_raises_on_nonzero(monkeypatch):
         runner_prefix=("/usr/bin/FEXInterpreter",),
         wraps_with_shell=False,
         probe_timeout=20,
-        proton_profile="balanced",
     )
 
     result = MagicMock(returncode=1)
@@ -1045,7 +1042,6 @@ def test_update_server_files_wraps_command_for_translator(monkeypatch, tmp_path)
         runner_prefix=("/usr/bin/FEXInterpreter",),
         wraps_with_shell=False,
         probe_timeout=20,
-        proton_profile="balanced",
     )
 
     calls = {}
@@ -1082,7 +1078,6 @@ def test_build_launch_command_wraps_proton_for_translator(monkeypatch, tmp_path)
         runner_prefix=("/usr/bin/FEXBash", "-c"),
         wraps_with_shell=True,
         probe_timeout=20,
-        proton_profile="balanced",
     )
 
     command = runtime_proton.build_launch_command(
@@ -1106,7 +1101,6 @@ def test_supervisor_switches_to_safe_profile_after_two_early_crashes(monkeypatch
         runner_prefix=("/usr/bin/FEXInterpreter",),
         wraps_with_shell=False,
         probe_timeout=20,
-        proton_profile="balanced",
     )
 
     monkeypatch.setattr("server_runtime.supervisor.resolve_execution_context", lambda _logger, _settings: context)
@@ -1128,20 +1122,18 @@ def test_supervisor_switches_to_safe_profile_after_two_early_crashes(monkeypatch
 
     assert code == 1
     assert runs["count"] == 3
-    assert supervisor.execution_context.proton_profile == "safe"
-    assert supervisor.safe_profile_retry_used is True
+    assert supervisor.proton_profile == "safe"
 
 
 def test_supervisor_fails_fast_after_early_crash_in_safe_profile(monkeypatch):
     logger = logging.getLogger("test-safe-failfast")
-    settings = RuntimeSettings.from_env()
+    settings = RuntimeSettings.from_env({"ASA_PROTON_PROFILE": "safe"})
     context = runtime_translation.ExecutionContext(
         architecture="arm64",
         translator_mode="fex",
         runner_prefix=("/usr/bin/FEXInterpreter",),
         wraps_with_shell=False,
         probe_timeout=20,
-        proton_profile="safe",
     )
 
     monkeypatch.setattr("server_runtime.supervisor.resolve_execution_context", lambda _logger, _settings: context)
@@ -1162,14 +1154,13 @@ def test_supervisor_fails_fast_after_early_crash_in_safe_profile(monkeypatch):
 @pytest.mark.parametrize("profile", ["balanced", "safe"])
 def test_supervisor_startup_exceptions_do_not_escalate_crash_profile(monkeypatch, profile):
     logger = logging.getLogger("test-safe-failfast-exception")
-    settings = RuntimeSettings.from_env()
+    settings = RuntimeSettings.from_env({"ASA_PROTON_PROFILE": profile})
     context = runtime_translation.ExecutionContext(
         architecture="arm64",
         translator_mode="fex",
         runner_prefix=("/usr/bin/FEXInterpreter",),
         wraps_with_shell=False,
         probe_timeout=20,
-        proton_profile=profile,
     )
 
     monkeypatch.setattr("server_runtime.supervisor.resolve_execution_context", lambda _logger, _settings: context)
@@ -1190,8 +1181,7 @@ def test_supervisor_startup_exceptions_do_not_escalate_crash_profile(monkeypatch
 
     assert code == 1
     assert runs["count"] == 4
-    assert supervisor.execution_context.proton_profile == profile
-    assert supervisor.safe_profile_retry_used is (profile == "safe")
+    assert supervisor.proton_profile == profile
 
 def _write_proton_script(tmp_path, proton_dir_name):
     proton_dir = tmp_path / proton_dir_name
@@ -1268,7 +1258,7 @@ def test_proton_install_rejects_unverified_archive_before_extraction(
         checksum_url="https://example.invalid/GE-Proton11-5.sha512sum",
     )
     monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(tmp_path))
-    monkeypatch.setattr(runtime_proton, "find_release_archive", lambda _: release)
+    monkeypatch.setattr(runtime_proton, "find_release_archive", lambda _, execution_context=None: release)
 
     def fake_download(url, destination):
         if url == release.checksum_url and checksum_content is None:
@@ -1370,7 +1360,7 @@ def _stub_proton_install(monkeypatch, missing):
     """Record install calls and answer the preflight with `missing`."""
     installed = []
 
-    def fake_install(version, _logger, _settings):
+    def fake_install(version, _logger, _settings, execution_context=None):
         installed.append(version)
         return f"GE-Proton{version}"
 
@@ -1378,7 +1368,7 @@ def _stub_proton_install(monkeypatch, missing):
     monkeypatch.setattr(
         runtime_proton,
         "find_missing_proton_library",
-        lambda proton_dir_name, _logger, _settings: missing(proton_dir_name),
+        lambda proton_dir_name, _logger, _settings, execution_context=None: missing(proton_dir_name),
     )
     return installed
 
@@ -1387,7 +1377,7 @@ def test_prepare_proton_returns_verified_install(monkeypatch):
     monkeypatch.setattr(
         runtime_proton,
         "resolve_proton_version",
-        lambda _logger, _settings, _previous=None: ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO),
+        lambda _logger, _settings, _previous=None, execution_context=None: ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO),
     )
     _stub_proton_install(monkeypatch, lambda _name: None)
 
@@ -1401,7 +1391,7 @@ def test_prepare_proton_falls_back_when_detected_build_is_unsupported(monkeypatc
     monkeypatch.setattr(
         runtime_proton,
         "resolve_proton_version",
-        lambda _logger, _settings, _previous=None: ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO),
+        lambda _logger, _settings, _previous=None, execution_context=None: ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO),
     )
     installed = _stub_proton_install(
         monkeypatch,
@@ -1423,7 +1413,7 @@ def test_prepare_proton_keeps_the_fallback_across_relaunches(monkeypatch):
     """The supervisor's relaunch loop must not re-probe a build already rejected."""
     resolved = []
 
-    def fake_resolve(_logger, settings, previous=None):
+    def fake_resolve(_logger, settings, previous=None, execution_context=None):
         resolved.append(previous)
         return previous or ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO)
 
@@ -1462,7 +1452,7 @@ def test_resolve_proton_version_reuses_an_earlier_selection(monkeypatch):
         return {"tag_name": "GE-Proton11-3"}
 
     monkeypatch.setattr(runtime_proton, "_fetch_json", fake_fetch)
-    monkeypatch.setattr(runtime_proton, "_check_release_assets", lambda _version: True)
+    monkeypatch.setattr(runtime_proton, "_check_release_assets", lambda _version, execution_context=None: True)
     logger = logging.getLogger("test-resolve")
     settings = _proton_settings()
 

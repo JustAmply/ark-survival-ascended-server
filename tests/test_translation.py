@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from server_runtime import proton, steamcmd, translation
+from server_runtime import launch_env, proton, steamcmd, supervisor, translation
 from server_runtime.constants import RuntimeSettings
 
 
@@ -24,7 +24,6 @@ def context():
         runner_prefix=("/usr/bin/FEXBash", "-c"),
         wraps_with_shell=True,
         probe_timeout=20,
-        proton_profile="balanced",
     )
 
 
@@ -35,7 +34,6 @@ def test_execution_context_uses_explicit_settings(monkeypatch):
     settings = RuntimeSettings.from_env({"ASA_TRANSLATOR_MODE": "none"})
     result = translation.resolve_execution_context(LOGGER, settings)
     assert result.translator_mode == "none"
-    assert result.proton_profile == "balanced"
 
 
 @pytest.mark.parametrize("runner", ["FEXBash", "FEX", "FEXInterpreter"])
@@ -77,7 +75,7 @@ def test_translated_update_preserves_steamcmd_wrapper_and_validation(monkeypatch
     assert run.call_args.kwargs == {"cwd": str(tmp_path), "check": True}
 
 
-def test_translation_probe_uses_steamcmd_script_once(monkeypatch, tmp_path):
+def test_translation_probe_uses_steamcmd_script(monkeypatch, tmp_path):
     (tmp_path / "steamcmd.sh").write_text("#!/bin/sh\n", encoding="utf-8")
     monkeypatch.setattr(steamcmd, "STEAMCMD_DIR", str(tmp_path))
     process = MagicMock(returncode=0)
@@ -86,7 +84,6 @@ def test_translation_probe_uses_steamcmd_script_once(monkeypatch, tmp_path):
     run = Mock(return_value=process)
     monkeypatch.setattr(translation.subprocess, "Popen", run)
     execution_context = context()
-    steamcmd.probe_steamcmd_translation(execution_context, LOGGER)
     steamcmd.probe_steamcmd_translation(execution_context, LOGGER)
     run.assert_called_once()
     assert shlex.split(run.call_args.args[0][-1]) == ["exec", str(tmp_path / "steamcmd.sh"), "+quit"]
@@ -111,12 +108,87 @@ def test_probe_timeout_stops_wrapper_children(tmp_path):
     assert not marker.exists(), "The probe left a child running after its timeout"
 
 
-def test_safe_profile_overrides_enabled_sync_without_mutating_base():
+def test_safe_profile_overrides_enabled_sync_without_mutating_base(monkeypatch):
+    monkeypatch.setattr(launch_env, "_resolve_runtime_dir", lambda _: "/tmp/fixture-runtime")
     base = {"PROTON_NO_ESYNC": "0", "PROTON_NO_FSYNC": "0", "WINEDEBUG": "+warn"}
-    safe = proton.build_launch_environment(base, "safe")
-    assert safe == {"PROTON_NO_ESYNC": "1", "PROTON_NO_FSYNC": "1", "WINEDEBUG": "+warn"}
+    environment = launch_env.LaunchEnvironment.from_process(
+        RuntimeSettings.from_env({"ASA_PROTON_PROFILE": "safe"}), base
+    )
+    safe = environment.for_server("Map?listen")
+    assert safe["PROTON_NO_ESYNC"] == "1"
+    assert safe["PROTON_NO_FSYNC"] == "1"
+    assert safe["WINEDEBUG"] == "+warn"
+    assert safe["ASA_START_PARAMS"] == "Map?listen"
     assert base["PROTON_NO_ESYNC"] == "0"
-    assert proton.build_launch_environment(base, "balanced") == base
+    balanced = environment.for_server(proton_profile="balanced")
+    assert balanced["PROTON_NO_ESYNC"] == "0"
+    assert balanced["PROTON_NO_FSYNC"] == "0"
+    assert environment.settings.proton_profile == "safe"
+
+
+@pytest.mark.parametrize("configured, expected", [(" Safe ", "safe"), ("invalid", "balanced"), ("", "balanced")])
+def test_server_environment_normalizes_configured_profile(monkeypatch, configured, expected):
+    monkeypatch.setattr(launch_env, "_resolve_runtime_dir", lambda _: "/tmp/fixture-runtime")
+    settings = RuntimeSettings.from_env({"ASA_PROTON_PROFILE": configured})
+    environment = launch_env.LaunchEnvironment.from_process(settings, {}).for_server()
+    assert environment.get("PROTON_NO_ESYNC") == ("1" if expected == "safe" else None)
+    assert environment.get("PROTON_NO_FSYNC") == ("1" if expected == "safe" else None)
+
+
+def test_supervisor_caches_only_successful_probe_across_preparation_failures(monkeypatch):
+    execution_context = context()
+    monkeypatch.setattr(supervisor, "resolve_execution_context", lambda *_: execution_context)
+    owner = supervisor.ServerSupervisor(RuntimeSettings.from_env({}), LOGGER)
+    probe = Mock(side_effect=[RuntimeError("probe failed"), None])
+    update = Mock(side_effect=RuntimeError("update failed"))
+    monkeypatch.setattr(supervisor, "probe_steamcmd_translation", probe)
+    monkeypatch.setattr(supervisor, "update_server_files", update)
+
+    with pytest.raises(RuntimeError, match="probe failed"):
+        owner._launch_server_once()
+    assert owner.translator_probe_complete is False
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="update failed"):
+            owner._launch_server_once()
+    assert probe.call_count == 2
+    assert update.call_count == 2
+    assert owner.translator_probe_complete is True
+    assert owner.proton_profile == "balanced"
+    assert owner.quick_crash_count == 0
+    assert owner.execution_context == execution_context
+
+
+@pytest.mark.parametrize("reset_reason", ["long run", "scheduled restart"])
+def test_translated_supervisor_resets_early_crash_count(monkeypatch, reset_reason):
+    monkeypatch.setattr(supervisor, "resolve_execution_context", lambda *_: context())
+    owner = supervisor.ServerSupervisor(RuntimeSettings.from_env({}), LOGGER)
+    attempts = []
+
+    def launch():
+        attempts.append(owner.proton_profile)
+        owner.last_run_duration = 1
+        if len(attempts) == 2:
+            if reset_reason == "long run":
+                owner.last_run_duration = 240
+            else:
+                owner.restart_requested = True
+        if len(attempts) == 4:
+            owner.supervisor_exit_requested = True
+        return 2
+
+    monkeypatch.setattr(owner, "_launch_server_once", launch)
+    monkeypatch.setattr(owner, "_cleanup_after_run", lambda: None)
+    monkeypatch.setattr(supervisor.time, "sleep", lambda _: None)
+    assert owner.run() == 2
+    assert attempts == ["balanced"] * 4
+    assert owner.quick_crash_count == 1
+
+
+def test_native_update_retains_os_error_contract(monkeypatch):
+    native = replace(context(), architecture="amd64", translator_mode="none", runner_prefix=())
+    monkeypatch.setattr(steamcmd.subprocess, "run", Mock(side_effect=OSError("native spawn failed")))
+    with pytest.raises(OSError, match="native spawn failed"):
+        steamcmd.update_server_files(LOGGER, RuntimeSettings.from_env({}), execution_context=native)
 
 
 def test_translated_arm64_selects_x86_proton_assets(monkeypatch):
@@ -125,6 +197,12 @@ def test_translated_arm64_selects_x86_proton_assets(monkeypatch):
     result = proton.find_release_archive("11-5", context())
     assert result.asset_base == "GE-Proton11-5-x86_64"
     assert proton.find_release_archive("11-5") is None
+
+
+def test_native_proton_assets_use_supplied_architecture(monkeypatch):
+    monkeypatch.setattr(proton.platform, "machine", lambda: "aarch64")
+    native = replace(context(), architecture="amd64", translator_mode="none", runner_prefix=())
+    assert proton._asset_bases("11-5", native) == ["GE-Proton11-5", "GE-Proton11-5-x86_64"]
 
 
 def test_translated_preflight_uses_guest_python_and_separate_cache(monkeypatch, tmp_path):
@@ -171,7 +249,7 @@ def test_native_supervisor_retries_short_runs_without_profile_escalation(monkeyp
     attempts = []
 
     def launch():
-        attempts.append(owner.execution_context.proton_profile)
+        attempts.append(owner.proton_profile)
         owner.last_run_duration = 1
         if len(attempts) == 4:
             owner.supervisor_exit_requested = True
@@ -190,7 +268,10 @@ def test_safe_profile_sync_report_uses_child_environment(monkeypatch, caplog):
     monkeypatch.setenv("PROTON_NO_ESYNC", "0")
     monkeypatch.setenv("PROTON_NO_FSYNC", "0")
     monkeypatch.setattr(wine_sync, "kernel_version", lambda: (6, 8))
-    env = proton.build_launch_environment({}, "safe")
+    monkeypatch.setattr(launch_env, "_resolve_runtime_dir", lambda _: "/tmp/fixture-runtime")
+    env = launch_env.LaunchEnvironment.from_process(
+        RuntimeSettings.from_env({"ASA_PROTON_PROFILE": "safe"}), {}
+    ).for_server()
     with caplog.at_level(logging.WARNING):
         mode = wine_sync.log_sync_mode(LOGGER, wine_sync.ESYNC_RECOMMENDED_NOFILE, env)
     assert mode == "server"

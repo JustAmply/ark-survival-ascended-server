@@ -108,14 +108,14 @@ def update_server_files(
     try:
         subprocess.run(command, cwd=STEAMCMD_DIR, check=True)
     except OSError as exc:
-        if execution_context is None:
+        if execution_context is None or not execution_context.translation_enabled:
             raise
         raise RuntimeError(format_execution_error("SteamCMD update", exc, execution_context)) from exc
 
 
 def probe_steamcmd_translation(execution_context: ExecutionContext, logger: logging.Logger) -> None:
     """Probe the same SteamCMD wrapper used for updates, preserving its library setup."""
-    if not execution_context.translation_enabled or execution_context.translator_probe_complete:
+    if not execution_context.translation_enabled:
         return
     script = Path(STEAMCMD_DIR) / "steamcmd.sh"
     if not script.is_file():

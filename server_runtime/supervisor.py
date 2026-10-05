@@ -26,7 +26,7 @@ from .constants import (
     SUPERVISOR_PID_FILE,
     RuntimeSettings,
 )
-from .launch_env import LaunchEnvironment
+from .launch_env import LaunchEnvironment, resolve_proton_profile
 from .logging_utils import configure_runtime_logging
 from .params import prepare_start_params
 from .permissions import ensure_permissions_and_drop_privileges
@@ -34,7 +34,6 @@ from .plugins import resolve_launch_binary
 from .proton import (
     ProtonSelection,
     build_launch_command,
-    build_launch_environment,
     ensure_proton_compat_data,
     prepare_proton,
 )
@@ -62,7 +61,9 @@ class ServerSupervisor:
         self.supervisor_exit_requested = False
         self.restart_requested = False
         self.execution_context = resolve_execution_context(logger, settings)
-        self.safe_profile_retry_used = self.execution_context.proton_profile == "safe"
+        self.proton_profile = resolve_proton_profile(settings.proton_profile, logger)
+        self.logger.info("Effective Proton profile: %s", self.proton_profile)
+        self.translator_probe_complete = False
         self.quick_crash_count = 0
         self.last_run_duration = 0.0
 
@@ -115,26 +116,21 @@ class ServerSupervisor:
 
     def _launch_server_once(self) -> int:
         started = time.monotonic()
-        if self.execution_context.translation_enabled:
+        if self.execution_context.translation_enabled and not self.translator_probe_complete:
             probe_steamcmd_translation(self.execution_context, self.logger)
-            update_server_files(self.logger, self.settings, execution_context=self.execution_context)
-        else:
-            update_server_files(self.logger, self.settings)
+            self.translator_probe_complete = True
+        update_server_files(self.logger, self.settings, execution_context=self.execution_context)
         self.logger.info("Server file update completed in %.1fs.", time.monotonic() - started)
         params = prepare_start_params(self.logger)
         started = time.monotonic()
-        if self.execution_context.translation_enabled:
-            self.proton = prepare_proton(
-                self.logger, self.settings, self.proton, execution_context=self.execution_context
-            )
-        else:
-            self.proton = prepare_proton(self.logger, self.settings, self.proton)
+        self.proton = prepare_proton(
+            self.logger, self.settings, self.proton, execution_context=self.execution_context
+        )
         proton_dir_name = self.proton.directory_name
         ensure_proton_compat_data(proton_dir_name, self.logger)
         self.logger.info("Proton preparation completed in %.1fs.", time.monotonic() - started)
-        self.server_env = LaunchEnvironment.from_process(self.settings).for_server(params)
-        self.server_env = build_launch_environment(
-            self.server_env, self.execution_context.proton_profile
+        self.server_env = LaunchEnvironment.from_process(self.settings).for_server(
+            params, proton_profile=self.proton_profile
         )
         # The server inherits the raised limit, which is what esync needs.
         configure_wine_sync(self.logger, self.server_env)
@@ -260,7 +256,7 @@ class ServerSupervisor:
             self.quick_crash_count = 0
             return None
 
-        if self.execution_context.proton_profile == "safe":
+        if self.proton_profile == "safe":
             self.logger.error(
                 "Server exited after %.1fs while ASA_PROTON_PROFILE=safe. "
                 "Failing fast to avoid an endless restart loop.",
@@ -273,12 +269,11 @@ class ServerSupervisor:
             "Early server exit detected after %.1fs (%s/2) with ASA_PROTON_PROFILE=%s.",
             self.last_run_duration,
             self.quick_crash_count,
-            self.execution_context.proton_profile,
+            self.proton_profile,
         )
 
-        if self.quick_crash_count >= 2 and not self.safe_profile_retry_used:
-            self.execution_context.proton_profile = "safe"
-            self.safe_profile_retry_used = True
+        if self.quick_crash_count >= 2:
+            self.proton_profile = "safe"
             self.quick_crash_count = 0
             self.logger.warning(
                 "Switching ASA_PROTON_PROFILE to 'safe' after repeated early crashes."

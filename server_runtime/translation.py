@@ -15,10 +15,8 @@ from pathlib import Path
 from typing import Sequence
 
 from .constants import (
-    DEFAULT_PROTON_PROFILE,
     DEFAULT_TRANSLATOR_MODE,
     DEFAULT_TRANSLATOR_PROBE_TIMEOUT,
-    VALID_PROTON_PROFILES,
     VALID_TRANSLATOR_MODES,
     RuntimeSettings,
 )
@@ -34,7 +32,7 @@ def normalize_architecture(machine: str) -> str:
     return value or "unknown"
 
 
-@dataclass
+@dataclass(frozen=True)
 class ExecutionContext:
     """Runtime execution context for architecture and translation settings."""
 
@@ -43,8 +41,6 @@ class ExecutionContext:
     runner_prefix: tuple[str, ...]
     wraps_with_shell: bool
     probe_timeout: int
-    proton_profile: str
-    translator_probe_complete: bool = False
 
     @property
     def translation_enabled(self) -> bool:
@@ -83,18 +79,6 @@ def _resolve_probe_timeout(value: int, logger: logging.Logger) -> int:
     return value
 
 
-def _resolve_proton_profile(raw_profile: str, logger: logging.Logger) -> str:
-    profile = (raw_profile or DEFAULT_PROTON_PROFILE).strip().lower()
-    if profile not in VALID_PROTON_PROFILES:
-        logger.warning(
-            "Invalid ASA_PROTON_PROFILE %r; falling back to %r.",
-            raw_profile,
-            DEFAULT_PROTON_PROFILE,
-        )
-        return DEFAULT_PROTON_PROFILE
-    return profile
-
-
 def _resolve_fex_runner() -> tuple[tuple[str, ...], bool]:
     for candidate in ("FEXBash", "fexbash", "FEX", "FEXInterpreter"):
         binary = shutil.which(candidate)
@@ -118,7 +102,6 @@ def resolve_execution_context(
     architecture = normalize_architecture(platform.machine())
     mode = _resolve_translator_mode(settings.translator_mode, architecture, logger)
     probe_timeout = _resolve_probe_timeout(settings.translator_probe_timeout, logger)
-    proton_profile = _resolve_proton_profile(settings.proton_profile, logger)
 
     runner_prefix: tuple[str, ...] = ()
     wraps_with_shell = False
@@ -131,14 +114,12 @@ def resolve_execution_context(
         runner_prefix=runner_prefix,
         wraps_with_shell=wraps_with_shell,
         probe_timeout=probe_timeout,
-        proton_profile=proton_profile,
     )
 
     logger.info(
-        "Execution context: arch=%s, translator=%s, proton_profile=%s, probe_timeout=%ss",
+        "Execution context: arch=%s, translator=%s, probe_timeout=%ss",
         context.architecture,
         context.translator_mode,
-        context.proton_profile,
         context.probe_timeout,
     )
     return context
@@ -185,8 +166,8 @@ def run_probe_command(
     logger: logging.Logger,
     probe_name: str,
 ) -> None:
-    """Run a one-time translator probe command for early failure detection."""
-    if not context.translation_enabled or context.translator_probe_complete:
+    """Run a translator probe command for early failure detection."""
+    if not context.translation_enabled:
         return
 
     wrapped_command = wrap_command(context, command)
@@ -229,5 +210,4 @@ def run_probe_command(
             f"{probe_name} translation probe failed with exit code {result.returncode}{detail}"
         )
 
-    context.translator_probe_complete = True
     logger.info("%s translation probe succeeded.", probe_name)

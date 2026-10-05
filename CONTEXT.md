@@ -58,8 +58,9 @@ The environment a child process is started with
 Two children need two different slices, which is what earns the seam:
 
 - **`for_server`** — Steam compatibility paths, a writable `XDG_RUNTIME_DIR`,
-  headless SDL defaults, and the resolved launch line. The headless values are
-  defaults: an operator who supplies their own keeps them.
+  headless SDL defaults, the effective Proton profile, and the resolved launch
+  line. The headless values are defaults: an operator who supplies their own
+  keeps them.
 - **`for_scheduler`** — the PID files the [Restart scheduler](#restart-scheduler)
   signals through, and its warning cadence.
 
@@ -133,9 +134,13 @@ The JSON file at `/home/gameserver/server-files/mods.json` holding
 
 The architecture and optional translation runner used for SteamCMD, Proton
 preflight and server launch (`server_runtime.translation.ExecutionContext`).
-Runtime settings supply its translator mode, probe timeout and Proton profile.
+Runtime settings supply its translator mode and probe timeout.
 On native AMD64 the runner is empty. On ARM64, FEX executes x86 programs using
 an extracted RootFS prepared by the separate image build stage. The supervisor
-carries this context across restarts; changing its stability profile does not
-write back to the container environment. Only completed translated server runs
-participate in the experimental early-crash policy.
+carries this immutable context across restarts. Probe completion, the effective
+Proton profile and the early-crash count are supervisor state, separate from
+the execution context. The profile is normalized from runtime settings and
+applied when building the server launch environment; a retry may switch it to
+`safe` without changing runtime settings or the container environment. Only
+completed translated server runs participate in the experimental early-crash
+policy.

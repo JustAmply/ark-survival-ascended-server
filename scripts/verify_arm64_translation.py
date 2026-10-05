@@ -28,7 +28,6 @@ from server_runtime.constants import (
 from server_runtime.launch_env import LaunchEnvironment
 from server_runtime.proton import (
     build_launch_command,
-    build_launch_environment,
     ensure_proton_compat_data,
     prepare_proton,
 )
@@ -80,9 +79,7 @@ def main() -> int:
 
     proton = prepare_proton(logger, settings, execution_context=context)
     ensure_proton_compat_data(proton.directory_name, logger)
-    environment = build_launch_environment(
-        LaunchEnvironment.from_process(settings).for_server(), context.proton_profile
-    )
+    environment = LaunchEnvironment.from_process(settings).for_server()
     configure_wine_sync(logger, environment)
     # Proton's Steam shim does not inherit the captured standard handles when
     # creating its Windows child. A fresh file proves execution independently
