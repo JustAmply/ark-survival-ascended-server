@@ -13,7 +13,9 @@ import logging
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
+import tempfile
 import time
 
 from server_runtime.constants import (
@@ -82,19 +84,26 @@ def main() -> int:
         LaunchEnvironment.from_process(settings).for_server(), context.proton_profile
     )
     configure_wine_sync(logger, environment)
-    command = build_launch_command(proton.directory_name, "cmd.exe", f"/c echo {MARKER}", context)
-    windows = subprocess.run(
-        command,
-        env=environment,
-        capture_output=True,
-        text=True,
-        timeout=300,
-        check=False,
-    )
-    print(windows.stdout + windows.stderr, flush=True)
-    windows.check_returncode()
-    if MARKER not in windows.stdout.splitlines():
-        raise RuntimeError("The Windows command did not produce its expected output through Proton.")
+    # Proton's Steam shim does not inherit the captured standard handles when
+    # creating its Windows child. A fresh file proves execution independently
+    # of console attachment and cannot pass from a previous smoke run.
+    with tempfile.TemporaryDirectory(prefix="asa-arm64-smoke-") as root:
+        marker_file = Path(root) / "result.txt"
+        windows_path = "Z:" + str(marker_file).replace("/", "\\")
+        params = shlex.join(["/c", f"echo {MARKER}>{windows_path}"])
+        command = build_launch_command(proton.directory_name, "cmd.exe", params, context)
+        windows = subprocess.run(
+            command,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+        print(windows.stdout + windows.stderr, flush=True)
+        windows.check_returncode()
+        if not marker_file.is_file() or marker_file.read_text(encoding="utf-8").strip() != MARKER:
+            raise RuntimeError("The Windows command did not create its expected marker through Proton.")
     print("PASS: guest Python, Proton prefix and Windows command execution through FEX.", flush=True)
     print("ARK was not downloaded or launched; game startup and soak remain unverified.", flush=True)
     return 0
