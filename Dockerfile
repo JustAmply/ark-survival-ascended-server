@@ -22,9 +22,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 FROM ubuntu:24.04 AS runtime-arm64
 ARG DEBIAN_FRONTEND=noninteractive
 ARG FEX_EMU_VERSION="2609.1-1~n"
-ARG FEX_ROOTFS_URL="https://rootfs.fex-emu.gg/Ubuntu_24_04/2026-08-11/Ubuntu_24_04.sqsh"
-ARG FEX_ROOTFS_HASH="3517e0e5ea25a473"
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     gnupg \
@@ -42,13 +39,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && add-apt-repository -y ppa:fex-emu/fex \
     && apt-get update \
     && apt-get install -y --no-install-recommends "fex-emu-armv8.0=${FEX_EMU_VERSION}" \
-    && wget --https-only -q "${FEX_ROOTFS_URL}" -O /tmp/fex-rootfs.sqsh \
-    && printf '%s  /tmp/fex-rootfs.sqsh\n' "${FEX_ROOTFS_HASH}" | xxhsum -c - \
-    && unsquashfs -no-progress -d /opt/fex-rootfs /tmp/fex-rootfs.sqsh \
-    && rm /tmp/fex-rootfs.sqsh \
     && rm -rf /var/lib/apt/lists/* \
     && echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen \
     && locale-gen
+
+ARG FEX_ROOTFS_URL="https://rootfs.fex-emu.gg/Ubuntu_24_04/2026-08-11/Ubuntu_24_04.sqsh"
+ARG FEX_ROOTFS_HASH="3517e0e5ea25a473"
+# FEX metadata uses XXH3-64, while xxhsum defaults to the older XXH64.
+RUN wget --https-only -q "${FEX_ROOTFS_URL}" -O /tmp/fex-rootfs.sqsh \
+    && printf 'XXH3 (/tmp/fex-rootfs.sqsh) = %s\n' "${FEX_ROOTFS_HASH}" | xxhsum -c - \
+    && unsquashfs -no-progress -d /opt/fex-rootfs /tmp/fex-rootfs.sqsh \
+    && rm /tmp/fex-rootfs.sqsh
 
 # An extracted directory works without FUSE or elevated container privileges.
 ENV FEX_APP_DATA_LOCATION=/home/gameserver/.fex-emu \
