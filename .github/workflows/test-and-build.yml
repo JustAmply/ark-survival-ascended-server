@@ -150,6 +150,11 @@ jobs:
           cache-from: type=gha,scope=amd64
           cache-to: type=gha,scope=amd64,mode=max
 
+      - name: Verify application Python version and standard library
+        if: steps.changes.outputs.docker == 'true'
+        run: |
+          docker run --rm --entrypoint python asa-linux-server:smoke -c "import sys, ssl, ctypes, bz2, lzma, sqlite3, zlib; from compression import zstd; from zoneinfo import ZoneInfo; assert sys.version_info[:2] == (3, 14), sys.version; ssl.create_default_context(); ZoneInfo('Europe/Berlin'); print(sys.version)"
+
       - name: Verify native GE-Proton runtime dependencies
         if: steps.changes.outputs.docker == 'true'
         run: |
@@ -253,6 +258,10 @@ jobs:
           cache-from: type=gha,scope=arm64
           # Cache final layers; mode=max also exports the large RootFS builder output.
           cache-to: type=gha,scope=arm64,mode=min
+
+      - name: Verify application Python version and standard library
+        run: |
+          docker run --rm --entrypoint python asa-linux-server:arm64-smoke -c "import sys, ssl, ctypes, bz2, lzma, sqlite3, zlib; from compression import zstd; from zoneinfo import ZoneInfo; assert sys.version_info[:2] == (3, 14), sys.version; ssl.create_default_context(); ZoneInfo('Europe/Berlin'); print(sys.version)"
 
       - name: Verify native GE-Proton runtime dependencies
         run: |

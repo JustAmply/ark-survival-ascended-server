@@ -1,6 +1,32 @@
 # syntax=docker/dockerfile:1
 ARG TARGETARCH
 
+# Build against Ubuntu's libc instead of copying Debian-built Python into FEX's
+# Ubuntu host. Only this stage contains compilers and development headers.
+FROM ubuntu:24.04 AS arm64-python
+ARG DEBIAN_FRONTEND=noninteractive
+ARG PYTHON_VERSION="3.14.8"
+ARG PYTHON_SHA256="c2215904f02b175596dc49351585104f4bc20341e1c47378b26a2c274360ce73"
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates wget build-essential libbz2-dev libffi-dev libgdbm-dev \
+    libgdbm-compat-dev liblzma-dev libncursesw5-dev libreadline-dev \
+    libsqlite3-dev libssl-dev libzstd-dev uuid-dev zlib1g-dev \
+    && wget --https-only -q "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz" -O /tmp/python.tar.xz \
+    && echo "${PYTHON_SHA256}  /tmp/python.tar.xz" | sha256sum -c - \
+    && mkdir /tmp/python \
+    && tar -xJf /tmp/python.tar.xz -C /tmp/python --strip-components=1 \
+    && cd /tmp/python \
+    && ./configure --enable-shared --with-lto --with-ensurepip=no \
+    && make -j "$(nproc)" LDFLAGS="-Wl,--strip-all" \
+    && make altinstall \
+    && ln -s python3.14 /usr/local/bin/python3 \
+    && ln -s python3.14 /usr/local/bin/python \
+    && find /usr/local -depth \( \
+        \( -type d \( -name test -o -name tests -o -name idle_test -o -name __pycache__ \) \) \
+        -o \( -type f \( -name '*.pyc' -o -name '*.pyo' -o -name 'libpython*.a' \) \) \
+       \) -exec rm -rf '{}' + \
+    && rm -rf /usr/local/include /usr/local/lib/pkgconfig /usr/local/share
+
 # RootFS files are x86 data; download and extract them on the build host.
 # Cross-builds do not need to emulate ARM64 for this expensive preparation.
 FROM --platform=$BUILDPLATFORM ubuntu:24.04 AS fex-rootfs
@@ -43,20 +69,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     gnupg \
     locales \
-    python-is-python3 \
-    python3 \
     software-properties-common \
     tzdata \
-    libc6-dev \
     libfreetype6 \
     libvulkan1 \
+    libbz2-1.0 libffi8 libgdbm6t64 libgdbm-compat4t64 liblzma5 \
+    libncursesw6 libreadline8t64 libsqlite3-0 libssl3t64 libzstd1 libuuid1 zlib1g \
     && add-apt-repository -y ppa:fex-emu/fex \
     && apt-get update \
     && apt-get install -y --no-install-recommends "fex-emu-armv8.0=${FEX_EMU_VERSION}" \
+    && apt-get purge -y --auto-remove software-properties-common gnupg \
     && rm -rf /var/lib/apt/lists/* \
     && echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen \
     && locale-gen
 
+COPY --link --from=arm64-python /usr/local /usr/local
+RUN ldconfig && python --version
+ENV PATH="/usr/local/bin:${PATH}"
 COPY --link --from=fex-rootfs /opt/fex-rootfs /opt/fex-rootfs
 
 # An extracted directory works without FUSE or elevated container privileges.

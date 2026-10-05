@@ -156,6 +156,8 @@ ARM64 images are published with dedicated experimental tags:
 - `ghcr.io/justamply/asa-linux-server:arm64-experimental`
 - `ghcr.io/justamply/asa-linux-server:<version>-arm64-experimental`
 
+Both images run the application and `asa-ctrl` on Python 3.14. ARM64 builds checksum-verified CPython against Ubuntu 24.04 in a separate stage and installs its runtime under `/usr/local`; it does not replace Ubuntu's `/usr/bin/python3`. Compilers, development headers and PPA setup helpers stay out of the final image. The x86 guest Python used by Proton remains the Ubuntu-provided version.
+
 The ARM64 stage installs a pinned FEX build and a checksum-verified, extracted x86 RootFS. No privileged mode or `/dev/fuse` mount is required. Native AMD64 keeps its existing Python base image and launch behavior.
 
 Behavior on ARM64:

@@ -11,8 +11,13 @@ that ordinary containers do not provide.
 
 ## Decision
 
-Keep the existing AMD64 Python image in its own build stage. Install pinned
-FEX only in the ARM64 stage. Prepare the checksum-verified x86 RootFS in a
+Keep the existing AMD64 Python image in its own build stage. Run the application
+on Python 3.14 on both architectures. Build checksum-verified CPython against
+Ubuntu 24.04 in a separate stage for ARM64, then copy its runtime under
+`/usr/local`. Do not overwrite Ubuntu's system Python or copy a newer Debian
+libc-dependent interpreter into Ubuntu. Build tooling and PPA setup helpers
+are absent from the final image. Install pinned FEX only in the ARM64 stage.
+Prepare the checksum-verified x86 RootFS in a
 separate stage on the build host architecture and link its files into ARM64.
 This lets FEX package changes reuse RootFS preparation and avoids emulated
 extraction during cross-builds. Stable launch wrappers precede the independent

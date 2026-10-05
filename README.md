@@ -125,6 +125,8 @@ ARM64 support is published separately as experimental tags to avoid impacting st
 - **Translator probe timeout**: `ASA_TRANSLATOR_PROBE_TIMEOUT=20` seconds.
 - **Proton profile**: `ASA_PROTON_PROFILE=balanced|safe`; `safe` forces esync/fsync off.
 
+Both images run the application and `asa-ctrl` on Python 3.14. ARM64 builds checksum-verified CPython against Ubuntu 24.04 in a separate stage and installs its runtime under `/usr/local`; it does not replace Ubuntu's `/usr/bin/python3`. Compilers, development headers and PPA setup helpers stay out of the final image. The x86 guest Python used by Proton remains the Ubuntu-provided version.
+
 The ARM64 image uses FEX translation for SteamCMD/Proton execution. Its build stage is separate from the existing AMD64 Python image, and its verified RootFS is extracted during the build so runtime does not require FUSE or a privileged container. The runtime performs a translator probe before full startup and fails early with actionable logs if translation is unavailable. Only translated launches use the early-crash retry policy: two short server runs trigger one retry with the safe profile; another early exit stops the supervisor. Preparation failures do not count as server crashes. Native AMD64 retains its existing restart behavior.
 
 Translated probes and server launches use isolated process groups. A probe
