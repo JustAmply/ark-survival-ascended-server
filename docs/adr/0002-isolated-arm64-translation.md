@@ -12,7 +12,11 @@ that ordinary containers do not provide.
 ## Decision
 
 Keep the existing AMD64 Python image in its own build stage. Install pinned
-FEX and a checksum-verified, extracted x86 RootFS only in the ARM64 stage.
+FEX only in the ARM64 stage. Prepare the checksum-verified x86 RootFS in a
+separate stage on the build host architecture and link its files into ARM64.
+This lets FEX package changes reuse RootFS preparation and avoids emulated
+extraction during cross-builds. Stable launch wrappers precede the independent
+application source layers so code edits do not regenerate them.
 Publish ARM64 under separate experimental tags and verify it on native ARM CI.
 
 `ExecutionContext` owns command wrapping. SteamCMD updates, Proton asset

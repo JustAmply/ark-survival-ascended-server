@@ -1,4 +1,21 @@
+# syntax=docker/dockerfile:1
 ARG TARGETARCH
+
+# RootFS files are x86 data; download and extract them on the build host.
+# Cross-builds do not need to emulate ARM64 for this expensive preparation.
+FROM --platform=$BUILDPLATFORM ubuntu:24.04 AS fex-rootfs
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates wget xxhash squashfs-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG FEX_ROOTFS_URL="https://rootfs.fex-emu.gg/Ubuntu_24_04/2026-08-11/Ubuntu_24_04.sqsh"
+ARG FEX_ROOTFS_HASH="3517e0e5ea25a473"
+# FEX metadata uses XXH3-64, while xxhsum defaults to the older XXH64.
+RUN wget --https-only -q "${FEX_ROOTFS_URL}" -O /tmp/fex-rootfs.sqsh \
+    && printf 'XXH3 (/tmp/fex-rootfs.sqsh) = %s\n' "${FEX_ROOTFS_HASH}" | xxhsum -c - \
+    && unsquashfs -no-progress -d /opt/fex-rootfs /tmp/fex-rootfs.sqsh \
+    && rm /tmp/fex-rootfs.sqsh
 
 FROM python:3.14-slim AS runtime-amd64
 
@@ -29,10 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python-is-python3 \
     python3 \
     software-properties-common \
-    squashfs-tools \
     tzdata \
-    wget \
-    xxhash \
     libc6-dev \
     libfreetype6 \
     libvulkan1 \
@@ -43,13 +57,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen \
     && locale-gen
 
-ARG FEX_ROOTFS_URL="https://rootfs.fex-emu.gg/Ubuntu_24_04/2026-08-11/Ubuntu_24_04.sqsh"
-ARG FEX_ROOTFS_HASH="3517e0e5ea25a473"
-# FEX metadata uses XXH3-64, while xxhsum defaults to the older XXH64.
-RUN wget --https-only -q "${FEX_ROOTFS_URL}" -O /tmp/fex-rootfs.sqsh \
-    && printf 'XXH3 (/tmp/fex-rootfs.sqsh) = %s\n' "${FEX_ROOTFS_HASH}" | xxhsum -c - \
-    && unsquashfs -no-progress -d /opt/fex-rootfs /tmp/fex-rootfs.sqsh \
-    && rm /tmp/fex-rootfs.sqsh
+COPY --link --from=fex-rootfs /opt/fex-rootfs /opt/fex-rootfs
 
 # An extracted directory works without FUSE or elevated container privileges.
 ENV FEX_APP_DATA_LOCATION=/home/gameserver/.fex-emu \
@@ -80,10 +88,6 @@ RUN mkdir -p \
     /home/gameserver/cluster-shared && \
     chown -R gameserver:gameserver /home/gameserver
 
-# Copy Python applications
-COPY asa_ctrl /usr/share/asa_ctrl
-COPY server_runtime /usr/share/server_runtime
-
 # Create launcher script for Python application (avoid pip install to prevent PEP 668 issues)
 WORKDIR /usr/share
 RUN echo '#!/bin/bash' > /usr/local/bin/asa-ctrl && \
@@ -95,11 +99,12 @@ RUN echo '#!/bin/bash' > /usr/local/bin/asa-ctrl && \
 # Ensure PYTHONPATH is available for all shells
 RUN echo 'export PYTHONPATH=/usr/share:$PYTHONPATH' > /etc/profile.d/asa_ctrl.sh
 
-# Copy server management script
-COPY scripts/start_server.sh /usr/bin/start_server.sh
+# Copy the stable launch wrapper before frequently changing application code.
+COPY --chmod=0755 scripts/start_server.sh /usr/bin/start_server.sh
 
-# Set permissions
-RUN chmod +x /usr/bin/start_server.sh
+# Link source layers independently so base-image changes can reuse them.
+COPY --link asa_ctrl /usr/share/asa_ctrl
+COPY --link server_runtime /usr/share/server_runtime
 
 # Keep changing metadata after all filesystem layers so it cannot invalidate
 # the OS installation or application cache.
