@@ -244,7 +244,8 @@ jobs:
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ needs.test-and-build.outputs.build-date }}
           cache-from: type=gha,scope=arm64
-          cache-to: type=gha,scope=arm64,mode=max
+          # Cache final layers; mode=max also exports the large RootFS builder output.
+          cache-to: type=gha,scope=arm64,mode=min
 
       - name: Verify native GE-Proton runtime dependencies
         run: |

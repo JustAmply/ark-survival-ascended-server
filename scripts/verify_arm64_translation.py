@@ -12,6 +12,7 @@ from dataclasses import replace
 import logging
 import os
 from pathlib import Path
+import re
 import subprocess
 import time
 
@@ -66,7 +67,7 @@ def main() -> int:
         timeout=300,
         check=False,
     )
-    steam_output = steamcmd.stdout + steamcmd.stderr
+    steam_output = re.sub(r"\x1b\[[0-9;]*m", "", steamcmd.stdout + steamcmd.stderr)
     print(steam_output, flush=True)
     steamcmd.check_returncode()
     # SteamCMD can exit successfully after a login error; require its final
