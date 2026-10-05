@@ -163,7 +163,7 @@ Behavior on ARM64:
 - `Exec format error` typically indicates translator setup mismatch; verify `ASA_TRANSLATOR_MODE` and FEX availability.
 - Keep persistent volumes mounted so SteamCMD/Proton caches are reused between restarts.
 
-ARM64 acceptance still requires a full SteamCMD update, Proton launch and ARK soak test on the target host. The early-crash fallback applies only to translated server runs; download and preparation errors do not trigger a profile change.
+Native ARM64 CI verifies real SteamCMD self-update and anonymous login plus a Windows command through checksum-verified GE-Proton and FEX, without privileged mode or an ARK download. ARM64 acceptance still requires the full ARK install, startup and soak test on the target host. The early-crash fallback applies only to translated server runs; download and preparation errors do not trigger a profile change.
 
 ## 🌐 Port Configuration
 

@@ -127,7 +127,7 @@ ARM64 support is published separately as experimental tags to avoid impacting st
 
 The ARM64 image uses FEX translation for SteamCMD/Proton execution. Its build stage is separate from the existing AMD64 Python image, and its verified RootFS is extracted during the build so runtime does not require FUSE or a privileged container. The runtime performs a translator probe before full startup and fails early with actionable logs if translation is unavailable. Only translated launches use the early-crash retry policy: two short server runs trigger one retry with the safe profile; another early exit stops the supervisor. Preparation failures do not count as server crashes. Native AMD64 retains its existing restart behavior.
 
-ARM64 remains experimental until a real target host has completed SteamCMD updates, Proton startup, and an ARK server soak test; image and lifecycle checks alone do not establish game-server compatibility.
+Native ARM64 CI additionally runs the real SteamCMD self-update and anonymous login, then a Windows command through checksum-verified GE-Proton and FEX, as UID 25000 without privileged mode. This checks the translated launch chain without downloading ARK. ARM64 remains experimental until a real target host has completed an ARK startup and soak test; these integration and lifecycle checks alone do not establish game-server compatibility.
 
 ## 🎮 Server Management
 

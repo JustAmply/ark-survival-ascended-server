@@ -268,6 +268,14 @@ jobs:
             --mount "type=bind,src=${PWD}/scripts/verify_runtime_lifecycle.py,dst=/tmp/verify_runtime_lifecycle.py,readonly" \
             asa-linux-server:arm64-smoke /tmp/verify_runtime_lifecycle.py
 
+      - name: Verify real SteamCMD and Proton execution through FEX
+        timeout-minutes: 15
+        run: |
+          timeout --signal=TERM --kill-after=30s 14m \
+            docker run --rm --user 25000:25000 --entrypoint python \
+            --mount "type=bind,src=${PWD}/scripts/verify_arm64_translation.py,dst=/tmp/verify_arm64_translation.py,readonly" \
+            asa-linux-server:arm64-smoke /tmp/verify_arm64_translation.py
+
       - name: Log in to GHCR
         if: needs.test-and-build.outputs.publish-image == 'true'
         uses: docker/login-action@v4
