@@ -12,7 +12,9 @@ from dataclasses import replace
 import pytest
 
 from server_runtime.constants import RuntimeSettings
+from server_runtime import proton
 from server_runtime.supervisor import ServerSupervisor
+from server_runtime.translation import ExecutionContext
 
 
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Translated images use Linux process groups")
@@ -66,6 +68,42 @@ def is_running(pid):
     except FileNotFoundError:
         return False
     return state != "Z"
+
+
+def test_wine_session_request_timeout_does_not_leave_helper_children(monkeypatch, tmp_path):
+    child_pid = tmp_path / "request-child.pid"
+    directory = tmp_path / "fixture"
+    directory.mkdir()
+    launcher = directory / "proton"
+    launcher.write_text(
+        f"#!{sys.executable}\n"
+        "import subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', "
+        "'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'])\n"
+        f"open({str(child_pid)!r}, 'w').write(str(child.pid))\n"
+        "time.sleep(60)\n",
+        encoding="utf-8",
+    )
+    launcher.chmod(0o755)
+    monkeypatch.setattr(proton, "STEAM_COMPAT_DIR", str(tmp_path))
+    monkeypatch.setattr(proton, "PROTON_SHUTDOWN_TIMEOUT", 1)
+    context = ExecutionContext(
+        architecture="amd64", translator_mode="fex", runner_prefix=("/bin/sh", "-c"),
+        wraps_with_shell=True, probe_timeout=20,
+    )
+    try:
+        with pytest.raises(RuntimeError, match="Graceful.*timed out after 1s"):
+            proton.end_proton_session("fixture", context, dict(os.environ), logging.getLogger("wine-request-timeout"))
+        pid = int(child_pid.read_text())
+        deadline = time.monotonic() + 2
+        while is_running(pid) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert not is_running(pid), "A timed-out Wine shutdown request left its helper alive"
+    finally:
+        if child_pid.exists():
+            pid = int(child_pid.read_text())
+            if is_running(pid):
+                os.kill(pid, signal.SIGKILL)
 
 
 @pytest.mark.parametrize("leader_exits_first", [False, True])

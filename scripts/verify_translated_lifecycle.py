@@ -112,10 +112,16 @@ def supervisor(root: Path, case: str, version: str, native_fixture: bool = False
         proton_runtime.ASA_COMPAT_DATA = launch_env.ASA_COMPAT_DATA
         proton_runtime.STEAM_COMPAT_DATA = str(root)
         runtime.ensure_proton_compat_data = proton_runtime.ensure_proton_compat_data
+        def end_session(*args, **kwargs):
+            record(root, "wine-session-requested", generation=int(args[2][GENERATION_ENV]))
+            proton_runtime.end_proton_session(*args, **kwargs)
+            record(root, "wine-session-ended", generation=int(args[2][GENERATION_ENV]))
+        runtime.end_proton_session = end_session
     else:
         (root / "prefix").mkdir()
         runtime.ensure_proton_compat_data = lambda *_args: None
         runtime.stop_proton_session = lambda *_args, **_kwargs: None
+        runtime.end_proton_session = lambda *_args, **_kwargs: None
     runtime.resolve_launch_binary = lambda *_args: "cmd.exe"
     runtime.prepare_start_params = lambda *_args: "Map?listen"
     if native_fixture:
@@ -230,6 +236,14 @@ def verify_case(case: str, version: str, native_fixture: bool = False) -> None:
                 assert_no_processes(root)
                 assert not (root / "server.pid").exists()
                 assert not (root / "supervisor.pid").exists()
+                if case == "proton":
+                    current = events(root)
+                    for generation in (1, 2):
+                        saved = next(item for item in current if item["kind"] == "saveworld" and item["generation"] == generation)
+                        requested = next(item for item in current if item["kind"] == "wine-session-requested" and item["generation"] == generation)
+                        ended = next(item for item in current if item["kind"] == "wine-session-ended" and item["generation"] == generation)
+                        assert requested["time"] - saved["time"] >= 0.9, "Wine session ended before the save delay"
+                        assert ended["time"] >= requested["time"], "Wine session request did not complete"
                 if case.startswith("guest-"):
                     current = events(root)
                     for generation in (1, 2):

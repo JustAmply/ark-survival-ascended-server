@@ -7,6 +7,7 @@ import stat
 import subprocess
 import tarfile
 import zipfile
+from dataclasses import replace
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -462,6 +463,66 @@ def test_shutdown_sequence_saves_waits_then_terminates(monkeypatch):
     supervisor._perform_shutdown_sequence(signal.SIGTERM, "container shutdown")
 
     assert events == ["saveworld", ("sleep", 3), ("stop", process)]
+
+
+@pytest.mark.parametrize("request_fails", [False, True])
+@pytest.mark.parametrize("saveworld_succeeds", [False, True])
+def test_translated_shutdown_ends_wine_session_after_save_delay_before_process_signals(monkeypatch, caplog, request_fails, saveworld_succeeds):
+    events = []
+    supervisor = ServerSupervisor(
+        RuntimeSettings.from_env({"ASA_TRANSLATOR_MODE": "none", "ASA_SHUTDOWN_SAVEWORLD_DELAY": "3"}),
+        logging.getLogger("test-wine-shutdown"),
+    )
+    supervisor.execution_context = replace(supervisor.execution_context, translator_mode="fex")
+    supervisor.server_process = Mock(pid=4242)
+    supervisor.proton = ProtonSelection("10-34", runtime_proton.ORIGIN_PINNED)
+    supervisor.server_env = {"STEAM_COMPAT_DATA_PATH": "/fixture/prefix"}
+    monkeypatch.setattr(supervisor, "_server_is_running", lambda _: True)
+    monkeypatch.setattr(supervisor, "_send_saveworld", lambda: events.append("saveworld") or saveworld_succeeds)
+    monkeypatch.setattr(runtime_supervisor.time, "sleep", lambda seconds: events.append(("sleep", seconds)))
+
+    def request(proton_name, context, environment, logger):
+        assert proton_name == supervisor.proton.directory_name
+        assert context is supervisor.execution_context
+        assert environment is supervisor.server_env
+        events.append("wine-session")
+        if request_fails:
+            raise RuntimeError("fixture Wine session timeout")
+
+    monkeypatch.setattr(runtime_supervisor, "end_proton_session", request)
+    monkeypatch.setattr(supervisor, "_stop_server_process", lambda _: events.append("stop"))
+
+    supervisor._perform_shutdown_sequence(signal.SIGTERM, "container shutdown")
+
+    assert events == ["saveworld", *([("sleep", 3)] if saveworld_succeeds else []), "wine-session", "stop"]
+    if request_fails:
+        assert "fixture Wine session timeout" in caplog.text
+        assert "Continuing with server process shutdown" in caplog.text
+
+
+def test_translated_shutdown_reaches_the_prefix_after_its_process_group_exited(monkeypatch):
+    supervisor = ServerSupervisor(
+        RuntimeSettings.from_env({"ASA_TRANSLATOR_MODE": "none", "ASA_SHUTDOWN_SAVEWORLD_DELAY": "0"}),
+        logging.getLogger("test-detached-wine"),
+    )
+    supervisor.execution_context = replace(supervisor.execution_context, translator_mode="fex")
+    supervisor.server_process = Mock(pid=4242)
+    supervisor.proton = ProtonSelection("10-34", runtime_proton.ORIGIN_PINNED)
+    supervisor.server_env = {"STEAM_COMPAT_DATA_PATH": "/fixture/prefix"}
+    monkeypatch.setattr(supervisor, "_server_is_running", lambda _: False)
+    saveworld = Mock(return_value=True)
+    monkeypatch.setattr(supervisor, "_send_saveworld", saveworld)
+    request = Mock()
+    monkeypatch.setattr(runtime_supervisor, "end_proton_session", request)
+
+    supervisor._perform_shutdown_sequence(signal.SIGTERM, "container shutdown")
+
+    saveworld.assert_called_once_with()
+    request.assert_called_once_with(
+        supervisor.proton.directory_name, supervisor.execution_context, supervisor.server_env, supervisor.logger
+    )
+    supervisor.server_process.terminate.assert_not_called()
+    supervisor.server_process.kill.assert_not_called()
 
 
 def test_shutdown_escalates_to_sigkill_after_timeout(monkeypatch):

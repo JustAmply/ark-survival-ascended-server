@@ -166,7 +166,12 @@ Behavior on ARM64:
 - Keep persistent volumes mounted so SteamCMD/Proton caches are reused between restarts.
 
 Translated probes and servers run in isolated process groups. Probe timeouts
-terminate all children. Restart and shutdown send SIGTERM to the whole server
+terminate all children. After `saveworld` and its save delay, translated restart
+and shutdown first use the installed Proton launcher to request
+`wineboot --end-session --shutdown` for the same prefix. The request has a
+30-second timeout and also reaches applications outside the launcher's group,
+including when that group has already exited. If it fails, shutdown logs the
+error and continues. It then sends SIGTERM to the whole server
 group. SIGKILL removes remaining group members when the launcher exits or
 `ASA_SHUTDOWN_TIMEOUT` expires. Translated cleanup also stops and waits for the
 prefix-specific Wine session, including Wine children outside the launcher's

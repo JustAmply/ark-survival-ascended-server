@@ -80,7 +80,12 @@ launches the server through Proton, and handles the graceful shutdown sequence
 (`saveworld` over RCON, then SIGTERM, then SIGKILL).
 
 A translated launch owns a process group as well as its prefix-specific Wine
-session. Graceful shutdown waits for living group members, including children
+session. After the RCON save and save delay, a translated shutdown requests
+Windows end-session notifications through Proton's `runinprefix wineboot
+--end-session --shutdown` before sending process signals. The bounded request
+uses the same prefix and synchronization environment; it also runs when only
+detached Wine processes remain. Failure proceeds to the existing escalation.
+Graceful shutdown waits for living group members, including children
 whose wrapper already exited. Cleanup ends the Wine session before the next
 launch so detached Wine processes cannot survive a restart or retain the
 previous synchronisation profile. Native process supervision is unchanged.

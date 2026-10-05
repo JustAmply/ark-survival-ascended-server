@@ -34,6 +34,7 @@ from .plugins import resolve_launch_binary
 from .proton import (
     ProtonSelection,
     build_launch_command,
+    end_proton_session,
     ensure_proton_compat_data,
     prepare_proton,
     stop_proton_session,
@@ -165,13 +166,24 @@ class ServerSupervisor:
             purpose,
         )
 
-        if not self._server_is_running(self.server_process):
+        owns_wine_session = (
+            self.execution_context.translation_enabled and self.server_process is not None
+            and self.proton is not None and self.server_env is not None
+        )
+        if not self._server_is_running(self.server_process) and not owns_wine_session:
             self.logger.info("Shutdown requested before launch or after stop; no server process to stop.")
             return
 
         saveworld_sent = self._send_saveworld()
         if saveworld_sent:
             time.sleep(max(self.settings.shutdown_saveworld_delay, 0))
+        if owns_wine_session:
+            try:
+                end_proton_session(
+                    self.proton.directory_name, self.execution_context, self.server_env, self.logger
+                )
+            except RuntimeError as exc:
+                self.logger.warning("%s Continuing with server process shutdown.", exc)
         self._stop_server_process(self.server_process)
 
     def _rcon_settings(self) -> Optional[AsaSettings]:

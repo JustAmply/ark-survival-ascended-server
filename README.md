@@ -130,7 +130,11 @@ Both images run the application and `asa-ctrl` on Python 3.14. ARM64 builds chec
 The ARM64 image uses FEX translation for SteamCMD/Proton execution. Its x86 RootFS is built from signed Ubuntu 24.04 packages with explicit 32-bit SteamCMD and 64-bit Proton libraries, guest Python and headless Wine dependencies. It does not download a dated snapshot from the FEX CDN. Desktop applications, Mesa drivers and LLVM are excluded; guest identity and mount files are removed so FEX uses the container's users, DNS and game volumes. The directory is copied into the image, so runtime does not require FUSE or a privileged container. CI reports the extracted RootFS and final image sizes. The runtime performs a translator probe before full startup and fails early with actionable logs if translation is unavailable. Only translated launches use the early-crash retry policy: two short server runs trigger one retry with the safe profile; another early exit stops the supervisor. Preparation failures do not count as server crashes. Native AMD64 retains its existing restart behavior.
 
 Translated probes and server launches use isolated process groups. A probe
-timeout kills its whole group; server restart and shutdown send SIGTERM to the
+timeout kills its whole group. After `saveworld` and its save delay, translated
+restart and shutdown first request `wineboot --end-session --shutdown` through
+the installed Proton launcher, with a 30-second request timeout. This reaches
+Windows applications in the same prefix even if they left the launcher's group.
+An unsuccessful request is logged and shutdown continues. It then sends SIGTERM to the
 group and force-stop remaining children when the launcher exits or the shutdown
 timeout expires. Translated cleanup also stops the Wine session for that server's
 prefix, so Wine children that created their own sessions cannot survive a

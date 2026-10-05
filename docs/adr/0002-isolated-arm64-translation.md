@@ -38,6 +38,11 @@ process settings.
 Only completed translated server runs use the early-crash profile retry.
 
 Each translated server run owns a process group and its Wine prefix session.
+After the RCON save and delay, request `wineboot --end-session --shutdown`
+through Proton's `runinprefix` before process signals. This preserves the
+launched prefix's library paths and synchronization settings and reaches
+applications that left the process group. The request is bounded to 30 seconds;
+failure is logged and proceeds to process signals and prefix cleanup.
 Shutdown gives living group members the configured graceful timeout even if
 the wrapper exits first. Cleanup stops the prefix's Wine server before a
 relaunch, since Wine children can leave the process group and otherwise carry

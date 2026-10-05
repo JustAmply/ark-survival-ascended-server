@@ -9,6 +9,7 @@ import os
 import platform
 import re
 import shlex
+import signal
 import shutil
 import subprocess
 import sys
@@ -543,6 +544,49 @@ def build_launch_command(
     if not os.access(proton_path, os.X_OK):
         raise RuntimeError(f"Proton launcher at '{proton_path}' is not executable.")
     return wrap_command(execution_context, [str(proton_path), "run", launch_binary, *shlex.split(params)])
+
+
+def end_proton_session(
+    proton_dir_name: str,
+    execution_context: ExecutionContext,
+    server_env: Mapping[str, str],
+    logger: logging.Logger,
+) -> None:
+    """Ask the launched prefix's Windows applications to close their session.
+
+    runinprefix preserves Proton's library and Wine synchronization settings
+    without updating the prefix. --shutdown prevents wineboot from booting a
+    new session after delivering the Windows shutdown notifications.
+    """
+    launcher = Path(STEAM_COMPAT_DIR) / proton_dir_name / "proton"
+    command = wrap_command(execution_context, [
+        str(launcher), "runinprefix", "wineboot", "--end-session", "--shutdown",
+    ])
+    logger.info("Requesting graceful shutdown of the server's Proton Wine session.")
+    try:
+        process = subprocess.Popen(
+            command, env=dict(server_env), start_new_session=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            exit_code = process.wait(timeout=PROTON_SHUTDOWN_TIMEOUT)
+        except subprocess.TimeoutExpired as exc:
+            # The translator/Proton wrapper may spawn children. End the whole
+            # request group before proceeding to server shutdown escalation.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+            raise RuntimeError(
+                f"Graceful Proton Wine session shutdown timed out after {PROTON_SHUTDOWN_TIMEOUT}s."
+            ) from exc
+    except OSError as exc:
+        raise RuntimeError(
+            format_execution_error("Graceful Proton Wine session shutdown", exc, execution_context)
+        ) from exc
+    if exit_code != 0:
+        raise RuntimeError(f"Graceful Proton Wine session shutdown failed with exit code {exit_code}.")
 
 
 def stop_proton_session(

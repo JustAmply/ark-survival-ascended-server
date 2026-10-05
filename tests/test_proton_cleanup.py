@@ -20,6 +20,57 @@ CONTEXT = ExecutionContext(
 )
 
 
+def test_graceful_shutdown_joins_the_launched_prefix_with_protons_runtime_settings(monkeypatch):
+    monkeypatch.setattr(proton, "STEAM_COMPAT_DIR", "/fixture/compat")
+    process = Mock()
+    process.wait.return_value = 0
+    popen = Mock(return_value=process)
+    monkeypatch.setattr(proton.subprocess, "Popen", popen)
+    environment = {"STEAM_COMPAT_DATA_PATH": "/fixture/data", "PROTON_NO_FSYNC": "1"}
+    original = dict(environment)
+
+    proton.end_proton_session("GE-Proton10-34", CONTEXT, environment, LOGGER)
+
+    command = popen.call_args.args[0]
+    assert command[:2] == ["/usr/bin/FEXBash", "-c"]
+    assert shlex.split(command[2]) == [
+        "exec", str(Path("/fixture/compat") / "GE-Proton10-34/proton"),
+        "runinprefix", "wineboot", "--end-session", "--shutdown",
+    ]
+    assert popen.call_args.kwargs["env"] == original
+    assert popen.call_args.kwargs["start_new_session"] is True
+    process.wait.assert_called_once_with(timeout=proton.PROTON_SHUTDOWN_TIMEOUT)
+    assert environment == original
+
+
+def test_graceful_shutdown_timeout_ends_the_request_group_before_reporting_failure(monkeypatch):
+    process = Mock(pid=123)
+    error = subprocess.TimeoutExpired("wineboot", proton.PROTON_SHUTDOWN_TIMEOUT)
+    process.wait.side_effect = [error, -9]
+    monkeypatch.setattr(proton.subprocess, "Popen", Mock(return_value=process))
+    killpg = Mock()
+    monkeypatch.setattr(proton.os, "killpg", killpg, raising=False)
+    monkeypatch.setattr(proton.signal, "SIGKILL", 9, raising=False)
+
+    with pytest.raises(RuntimeError, match="Graceful.*timed out after 30s") as failure:
+        proton.end_proton_session("GE-Proton10-34", CONTEXT, {"STEAM_COMPAT_DATA_PATH": "/fixture/data"}, LOGGER)
+
+    assert failure.value.__cause__ is error
+    killpg.assert_called_once_with(process.pid, proton.signal.SIGKILL)
+    assert process.wait.call_count == 2
+
+
+@pytest.mark.parametrize("failure", [7, FileNotFoundError("missing FEX runner")])
+def test_graceful_shutdown_reports_a_failed_request(monkeypatch, failure):
+    process = Mock()
+    process.wait.return_value = failure
+    popen = Mock(side_effect=failure) if isinstance(failure, OSError) else Mock(return_value=process)
+    monkeypatch.setattr(proton.subprocess, "Popen", popen)
+
+    with pytest.raises(RuntimeError, match="Graceful Proton Wine session shutdown"):
+        proton.end_proton_session("GE-Proton10-34", CONTEXT, {"STEAM_COMPAT_DATA_PATH": "/fixture/data"}, LOGGER)
+
+
 def test_cleanup_stops_and_waits_for_the_launched_prefix_without_mutating_environment(monkeypatch):
     monkeypatch.setattr(proton, "STEAM_COMPAT_DIR", "/fixture/compat")
     run = Mock()
