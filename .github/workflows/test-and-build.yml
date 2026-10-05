@@ -215,6 +215,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # Only the AMD64 guest build stage needs QEMU. Runtime checks below run
+      # native ARM64 FEX processes and do not use QEMU for x86 execution.
+      - name: Set up QEMU for the x86 RootFS build
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: amd64
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -256,8 +263,19 @@ jobs:
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ needs.test-and-build.outputs.build-date }}
           cache-from: type=gha,scope=arm64
-          # Cache final layers; mode=max also exports the large RootFS builder output.
-          cache-to: type=gha,scope=arm64,mode=min
+          # Retain the native Python compiler stage for unchanged rebuilds.
+          cache-to: type=gha,scope=arm64,mode=max
+
+      - name: Disable QEMU before native ARM64 acceptance checks
+        run: |
+          docker run --privileged --rm tonistiigi/binfmt --uninstall 'qemu-*'
+          test ! -e /proc/sys/fs/binfmt_misc/qemu-x86_64
+          test ! -e /proc/sys/fs/binfmt_misc/qemu-i386
+
+      - name: Report ARM64 image and guest RootFS size
+        run: |
+          docker image inspect asa-linux-server:arm64-smoke --format 'Uncompressed image bytes: {{.Size}}'
+          docker run --rm --entrypoint du asa-linux-server:arm64-smoke -sx /opt/fex-rootfs
 
       - name: Verify application Python version and standard library
         run: |
@@ -278,6 +296,8 @@ jobs:
           test "$ARCH" = "x86_64"
           docker run --rm --user 25000:25000 --entrypoint FEXBash \
             asa-linux-server:arm64-smoke -c 'exec /lib/ld-linux.so.2 --help'
+          docker run --rm --user 25000:25000 --entrypoint FEXBash \
+            asa-linux-server:arm64-smoke -c 'exec python3 -c "import platform, sys; assert platform.machine() == \"x86_64\"; assert sys.executable == \"/usr/bin/python3\", sys.executable; print(sys.version)"'
 
       - name: Verify supervisor lifecycle
         run: |

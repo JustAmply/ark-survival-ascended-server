@@ -19,29 +19,38 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ./configure --enable-shared --with-lto --with-ensurepip=no \
     && make -j "$(nproc)" LDFLAGS="-Wl,--strip-all" \
     && make altinstall \
-    && ln -s python3.14 /usr/local/bin/python3 \
     && ln -s python3.14 /usr/local/bin/python \
     && find /usr/local -depth \( \
         \( -type d \( -name test -o -name tests -o -name idle_test -o -name __pycache__ \) \) \
         -o \( -type f \( -name '*.pyc' -o -name '*.pyo' -o -name 'libpython*.a' \) \) \
        \) -exec rm -rf '{}' + \
-    && rm -rf /usr/local/include /usr/local/lib/pkgconfig /usr/local/share
+    && rm -rf /usr/local/include /usr/local/lib/pkgconfig /usr/local/share \
+    && cd / && rm -rf /tmp/python /tmp/python.tar.xz /var/lib/apt/lists/*
 
-# RootFS files are x86 data; download and extract them on the build host.
-# Cross-builds do not need to emulate ARM64 for this expensive preparation.
-FROM --platform=$BUILDPLATFORM ubuntu:24.04 AS fex-rootfs
+# A headless x86 guest with both library architectures for Proton and SteamCMD.
+# Build from signed Ubuntu packages; no external FEX RootFS snapshot is needed.
+FROM --platform=linux/amd64 ubuntu:24.04 AS fex-rootfs
 ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates wget xxhash squashfs-tools \
-    && rm -rf /var/lib/apt/lists/*
-
-ARG FEX_ROOTFS_URL="https://rootfs.fex-emu.gg/Ubuntu_24_04/2026-08-11/Ubuntu_24_04.sqsh"
-ARG FEX_ROOTFS_HASH="3517e0e5ea25a473"
-# FEX metadata uses XXH3-64, while xxhsum defaults to the older XXH64.
-RUN wget --https-only -q "${FEX_ROOTFS_URL}" -O /tmp/fex-rootfs.sqsh \
-    && printf 'XXH3 (/tmp/fex-rootfs.sqsh) = %s\n' "${FEX_ROOTFS_HASH}" | xxhsum -c - \
-    && unsquashfs -no-progress -d /opt/fex-rootfs /tmp/fex-rootfs.sqsh \
-    && rm /tmp/fex-rootfs.sqsh
+RUN dpkg --add-architecture i386 \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates python3 libstdc++6 libstdc++6:i386 zlib1g zlib1g:i386 \
+    libfreetype6 libfreetype6:i386 libfontconfig1 libfontconfig1:i386 \
+    libvulkan1 libvulkan1:i386 libnss3 libnss3:i386 \
+    libx11-6 libx11-6:i386 libxext6 libxext6:i386 libxrandr2 libxrandr2:i386 \
+    libxcursor1 libxcursor1:i386 libxi6 libxi6:i386 libxinerama1 libxinerama1:i386 \
+    libxrender1 libxrender1:i386 libxfixes3 libxfixes3:i386 \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/* \
+    && mkdir /opt/fex-rootfs \
+    && cp -a /bin /etc /lib /lib64 /sbin /usr /var /opt/fex-rootfs/ \
+    && rm -f /opt/fex-rootfs/etc/hosts /opt/fex-rootfs/etc/resolv.conf \
+        /opt/fex-rootfs/etc/timezone /opt/fex-rootfs/etc/localtime \
+        /opt/fex-rootfs/etc/passwd /opt/fex-rootfs/etc/group \
+        /opt/fex-rootfs/etc/shadow /opt/fex-rootfs/etc/gshadow \
+        /opt/fex-rootfs/etc/fstab /opt/fex-rootfs/etc/hostname \
+        /opt/fex-rootfs/etc/mtab /opt/fex-rootfs/etc/subuid \
+        /opt/fex-rootfs/etc/subgid /opt/fex-rootfs/etc/machine-id \
+    && find /opt/fex-rootfs/usr -type d -name __pycache__ -prune -exec rm -rf '{}' + \
+    && du -sx /opt/fex-rootfs
 
 FROM python:3.14-slim AS runtime-amd64
 

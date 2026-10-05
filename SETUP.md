@@ -156,9 +156,9 @@ ARM64 images are published with dedicated experimental tags:
 - `ghcr.io/justamply/asa-linux-server:arm64-experimental`
 - `ghcr.io/justamply/asa-linux-server:<version>-arm64-experimental`
 
-Both images run the application and `asa-ctrl` on Python 3.14. ARM64 builds checksum-verified CPython against Ubuntu 24.04 in a separate stage and installs its runtime under `/usr/local`; it does not replace Ubuntu's `/usr/bin/python3`. Compilers, development headers and PPA setup helpers stay out of the final image. The x86 guest Python used by Proton remains the Ubuntu-provided version.
+Both images run the application and `asa-ctrl` on Python 3.14. ARM64 builds checksum-verified CPython against Ubuntu 24.04 in a separate stage and installs its runtime under `/usr/local`; it does not replace Ubuntu's `/usr/bin/python3`. Compilers, development headers and PPA setup helpers stay out of the final image. The application uses `python`/`python3.14`; `python3` is reserved for the Ubuntu-provided x86 guest interpreter so Proton's shebang cannot escape FEX through a native interpreter.
 
-The ARM64 stage installs a pinned FEX build and a checksum-verified, extracted x86 RootFS. No privileged mode or `/dev/fuse` mount is required. Native AMD64 keeps its existing Python base image and launch behavior.
+The ARM64 stage installs a pinned FEX build and an x86 RootFS built from signed Ubuntu 24.04 packages. The guest contains explicit 32-bit SteamCMD and 64-bit Proton libraries, Python and headless Wine dependencies, without desktop applications, Mesa drivers or LLVM. Builds no longer depend on a dated FEX CDN snapshot. Guest identity and mount files are removed so the container's users, DNS and game volumes remain visible. The RootFS is copied as a directory; no privileged mode or `/dev/fuse` mount is required. QEMU is used only to build this AMD64 guest stage on the ARM64 CI runner; the runtime and acceptance checks use native ARM64 FEX. Native AMD64 keeps its existing Python base image and launch behavior.
 
 Behavior on ARM64:
 - Startup performs a SteamCMD translation probe before full updates/downloads.

@@ -17,10 +17,15 @@ Ubuntu 24.04 in a separate stage for ARM64, then copy its runtime under
 `/usr/local`. Do not overwrite Ubuntu's system Python or copy a newer Debian
 libc-dependent interpreter into Ubuntu. Build tooling and PPA setup helpers
 are absent from the final image. Install pinned FEX only in the ARM64 stage.
-Prepare the checksum-verified x86 RootFS in a
-separate stage on the build host architecture and link its files into ARM64.
-This lets FEX package changes reuse RootFS preparation and avoids emulated
-extraction during cross-builds. Stable launch wrappers precede the independent
+Build the x86 RootFS in a separate AMD64 Ubuntu stage from signed distribution
+packages. Declare the 32-bit SteamCMD and 64-bit Proton library closure and keep
+guest Python, font, Vulkan-loader and X11 libraries for headless Wine. Exclude
+desktop applications, GPU drivers and LLVM. Remove guest identity and mount
+files according to FEX's custom RootFS contract so container users, DNS and
+game volumes remain visible. Link this directory into ARM64 without depending
+on a dated FEX CDN snapshot. QEMU is used only for this guest build stage on
+ARM64 CI; the runtime smoke checks execute native ARM64 FEX.
+Stable launch wrappers precede the independent
 application source layers so code edits do not regenerate them.
 Publish ARM64 under separate experimental tags and verify it on native ARM CI.
 
@@ -43,7 +48,9 @@ behaviour remains unchanged.
 
 AMD64 keeps its current OS, package set, environment and restart behavior.
 The extracted RootFS needs more image space but avoids privileged mounts.
-FEX and RootFS pins must be updated together with native smoke verification.
+FEX pins and the guest package set must be updated with native smoke verification.
+Python compilation and guest preparation are cached independently of application
+code. CI reports the final image and RootFS sizes to make growth reviewable.
 Image checks cannot replace an ARK startup and soak test on the target host.
 
 To retire the experiment, remove the ARM64 image stage and CI job, translation
