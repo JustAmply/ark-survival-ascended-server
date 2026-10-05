@@ -10,6 +10,15 @@ on:
   pull_request:
     branches:
       - main
+    types: [opened, synchronize, reopened, ready_for_review]
+  schedule:
+    # Refresh base image and OS packages even when application code is unchanged.
+    - cron: '0 4 * * 1'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # PR updates replace obsolete runs. Main/tag publications finish in sequence.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -19,34 +28,56 @@ jobs:
   test-and-build:
     name: Run tests and build AMD64 Docker image
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       REGISTRY: ghcr.io
       IMAGE_BASENAME: ${{ github.repository_owner }}/asa-linux-server
+      PUBLISH_IMAGE: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
     outputs:
       image-tags: ${{ steps.metadata.outputs.tags }}
       version: ${{ steps.version.outputs.version }}
+      build-date: ${{ steps.version.outputs.build-date }}
+      docker: ${{ steps.changes.outputs.docker }}
+      publish-image: ${{ env.PUBLISH_IMAGE }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Select required checks
+        id: changes
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_REF_TYPE: ${{ github.ref_type }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 scripts/ci_changes.py
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        if: steps.changes.outputs.python == 'true'
+        uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: '3.14'
           cache: 'pip'
 
       - name: Install dependencies
+        if: steps.changes.outputs.python == 'true'
         run: |
           python -m pip install --upgrade pip
-          pip install pytest
-          pip install .
+          pip install ".[dev]"
+
+      - name: Verify installed distribution
+        if: steps.changes.outputs.python == 'true'
+        run: |
+          python -I scripts/verify_installed_package.py
 
       - name: Run tests
-        if: ${{ hashFiles('tests/**/*.py') != '' }}
+        if: steps.changes.outputs.python == 'true'
         run: |
           pytest -q
 
       - name: Extract version from pyproject.toml
+        if: steps.changes.outputs.docker == 'true'
         id: version
         run: |
           VERSION=$(python3 -c "
@@ -69,9 +100,11 @@ jobs:
           fi
 
           echo "version=${FINAL_VERSION}" >> $GITHUB_OUTPUT
+          echo "build-date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
           echo "Determined version: ${FINAL_VERSION}"
 
       - name: Generate image metadata
+        if: steps.changes.outputs.docker == 'true'
         id: metadata
         run: |
           IMAGE_BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
@@ -97,62 +130,87 @@ jobs:
           echo "Generated tags: ${TAGS//$'\n'/, }"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        if: steps.changes.outputs.docker == 'true'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build image for smoke test
+        if: steps.changes.outputs.docker == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          pull: true
+          no-cache: ${{ github.event_name == 'schedule' }}
+          tags: asa-linux-server:smoke
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ steps.version.outputs.build-date }}
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,scope=amd64,mode=max
+
+      - name: Verify native GE-Proton runtime dependencies
+        if: steps.changes.outputs.docker == 'true'
+        run: |
+          docker run --rm --entrypoint python asa-linux-server:smoke -c "from server_runtime.native_libs import main; raise SystemExit(main())"
+
+      - name: Verify image control wrapper
+        if: steps.changes.outputs.docker == 'true'
+        run: |
+          docker run --rm --entrypoint /usr/local/bin/asa-ctrl asa-linux-server:smoke --help
+
+      - name: Verify supervisor lifecycle
+        if: steps.changes.outputs.docker == 'true'
+        run: |
+          docker run --rm --user 25000:25000 --entrypoint python \
+            --mount "type=bind,src=${PWD}/scripts/verify_runtime_lifecycle.py,dst=/tmp/verify_runtime_lifecycle.py,readonly" \
+            asa-linux-server:smoke /tmp/verify_runtime_lifecycle.py
 
       - name: Log in to GHCR
-        if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
-        uses: docker/login-action@v3
+        if: steps.changes.outputs.docker == 'true' && env.PUBLISH_IMAGE == 'true'
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push AMD64 Docker image
-        uses: docker/build-push-action@v5
+        if: steps.changes.outputs.docker == 'true' && env.PUBLISH_IMAGE == 'true'
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64
-          push: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
+          push: true
           tags: ${{ steps.metadata.outputs.tags }}
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
             GIT_COMMIT=${{ github.sha }}
-            BUILD_DATE=${{ github.run_id }}
-            TARGETARCH=amd64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            BUILD_DATE=${{ steps.version.outputs.build-date }}
+          # The same builder already holds the tested layers. Preserve BuildKit
+          # provenance on publication without a second remote cache export.
 
   build-arm64-experimental:
-    name: Build ARM64 experimental Docker image
-    runs-on: ubuntu-latest
+    name: Build and verify ARM64 experimental Docker image
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
     needs: test-and-build
+    if: needs.test-and-build.outputs.docker == 'true'
     env:
       REGISTRY: ghcr.io
       IMAGE_BASENAME: ${{ github.repository_owner }}/asa-linux-server
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        uses: docker/setup-buildx-action@v4
 
       - name: Generate ARM64 experimental image metadata
-        id: arm64-metadata
+        id: metadata
         run: |
           IMAGE_BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
           VERSION="${{ needs.test-and-build.outputs.version }}"
-
           TAGS="${IMAGE_BASE}:${VERSION}-arm64-experimental"
 
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
@@ -172,17 +230,61 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Generated ARM64 tags: ${TAGS//$'\n'/, }"
 
-      - name: Build and push ARM64 experimental Docker image
-        uses: docker/build-push-action@v5
+      - name: Build ARM64 image for smoke test
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/arm64
-          push: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false) }}
-          tags: ${{ steps.arm64-metadata.outputs.tags }}
+          load: true
+          pull: true
+          no-cache: ${{ github.event_name == 'schedule' }}
+          tags: asa-linux-server:arm64-smoke
           build-args: |
             VERSION=${{ needs.test-and-build.outputs.version }}
             GIT_COMMIT=${{ github.sha }}
-            BUILD_DATE=${{ github.run_id }}
-            TARGETARCH=arm64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            BUILD_DATE=${{ needs.test-and-build.outputs.build-date }}
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,scope=arm64,mode=max
+
+      - name: Verify native GE-Proton runtime dependencies
+        run: |
+          docker run --rm --entrypoint python asa-linux-server:arm64-smoke -m server_runtime.native_libs
+
+      - name: Verify image control wrapper
+        run: |
+          docker run --rm --entrypoint /usr/local/bin/asa-ctrl asa-linux-server:arm64-smoke --help
+
+      - name: Verify x86 execution through FEX without privileged mounts
+        run: |
+          ARCH=$(docker run --rm --user 25000:25000 --entrypoint FEXBash \
+            asa-linux-server:arm64-smoke -c '/usr/bin/uname -m')
+          test "$ARCH" = "x86_64"
+          docker run --rm --user 25000:25000 --entrypoint FEXBash \
+            asa-linux-server:arm64-smoke -c 'exec /lib/ld-linux.so.2 --help'
+
+      - name: Verify supervisor lifecycle
+        run: |
+          docker run --rm --user 25000:25000 --entrypoint python \
+            --mount "type=bind,src=${PWD}/scripts/verify_runtime_lifecycle.py,dst=/tmp/verify_runtime_lifecycle.py,readonly" \
+            asa-linux-server:arm64-smoke /tmp/verify_runtime_lifecycle.py
+
+      - name: Log in to GHCR
+        if: needs.test-and-build.outputs.publish-image == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ARM64 experimental Docker image
+        if: needs.test-and-build.outputs.publish-image == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          build-args: |
+            VERSION=${{ needs.test-and-build.outputs.version }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ needs.test-and-build.outputs.build-date }}

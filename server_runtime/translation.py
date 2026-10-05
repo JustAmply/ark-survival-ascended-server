@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import errno
 import logging
-import os
 import platform
 import shlex
 import shutil
@@ -19,6 +18,7 @@ from .constants import (
     DEFAULT_TRANSLATOR_PROBE_TIMEOUT,
     VALID_PROTON_PROFILES,
     VALID_TRANSLATOR_MODES,
+    RuntimeSettings,
 )
 
 
@@ -70,27 +70,15 @@ def _resolve_translator_mode(raw_mode: str, architecture: str, logger: logging.L
     return mode
 
 
-def _resolve_probe_timeout(raw_value: str, logger: logging.Logger) -> int:
-    value = (raw_value or "").strip()
-    if not value:
-        return DEFAULT_TRANSLATOR_PROBE_TIMEOUT
-    try:
-        parsed = int(value)
-    except ValueError:
-        logger.warning(
-            "Invalid ASA_TRANSLATOR_PROBE_TIMEOUT %r; using default %s.",
-            raw_value,
-            DEFAULT_TRANSLATOR_PROBE_TIMEOUT,
-        )
-        return DEFAULT_TRANSLATOR_PROBE_TIMEOUT
-    if parsed <= 0:
+def _resolve_probe_timeout(value: int, logger: logging.Logger) -> int:
+    if value <= 0:
         logger.warning(
             "Non-positive ASA_TRANSLATOR_PROBE_TIMEOUT %r; using default %s.",
-            raw_value,
+            value,
             DEFAULT_TRANSLATOR_PROBE_TIMEOUT,
         )
         return DEFAULT_TRANSLATOR_PROBE_TIMEOUT
-    return parsed
+    return value
 
 
 def _resolve_proton_profile(raw_profile: str, logger: logging.Logger) -> str:
@@ -106,30 +94,29 @@ def _resolve_proton_profile(raw_profile: str, logger: logging.Logger) -> str:
 
 
 def _resolve_fex_runner() -> tuple[tuple[str, ...], bool]:
-    candidates: tuple[tuple[str, ...], ...] = (
-        ("FEXBash", "-c"),
-        ("fexbash", "-c"),
-        ("FEXInterpreter",),
-    )
-    for candidate in candidates:
-        binary = shutil.which(candidate[0])
+    for candidate in ("FEXBash", "fexbash", "FEX", "FEXInterpreter"):
+        binary = shutil.which(candidate)
         if not binary:
             continue
-        if len(candidate) == 1:
-            return (binary,), False
-        return (binary, candidate[1]), True
+        if candidate in {"FEXBash", "fexbash"}:
+            # The pinned FEXBash forwards arguments to the guest /bin/sh.
+            return (binary, "-c"), True
+        return (binary, "/bin/sh", "-c"), True
     raise RuntimeError(
         "ASA_TRANSLATOR_MODE resolved to 'fex' but no FEX runner was found "
-        "(expected one of: FEXBash, fexbash, FEXInterpreter)."
+        "(expected one of: FEXBash, fexbash, FEX, FEXInterpreter)."
     )
 
 
-def resolve_execution_context(logger: logging.Logger) -> ExecutionContext:
+def resolve_execution_context(
+    logger: logging.Logger, settings: RuntimeSettings | None = None
+) -> ExecutionContext:
     """Resolve execution context from host architecture and environment."""
+    settings = settings or RuntimeSettings.from_env()
     architecture = normalize_architecture(platform.machine())
-    mode = _resolve_translator_mode(os.environ.get("ASA_TRANSLATOR_MODE", ""), architecture, logger)
-    probe_timeout = _resolve_probe_timeout(os.environ.get("ASA_TRANSLATOR_PROBE_TIMEOUT", ""), logger)
-    proton_profile = _resolve_proton_profile(os.environ.get("ASA_PROTON_PROFILE", ""), logger)
+    mode = _resolve_translator_mode(settings.translator_mode, architecture, logger)
+    probe_timeout = _resolve_probe_timeout(settings.translator_probe_timeout, logger)
+    proton_profile = _resolve_proton_profile(settings.proton_profile, logger)
 
     runner_prefix: tuple[str, ...] = ()
     wraps_with_shell = False
@@ -157,9 +144,9 @@ def resolve_execution_context(logger: logging.Logger) -> ExecutionContext:
 
 def wrap_command(context: ExecutionContext, command: Sequence[str]) -> list[str]:
     """Wrap a command in the configured architecture translator if needed."""
-    base = [item for item in command if item]
-    if not base:
-        raise ValueError("Command must contain at least one non-empty token")
+    base = list(command)
+    if not base or not base[0]:
+        raise ValueError("Command must start with a non-empty executable")
 
     if not context.translation_enabled:
         return base
@@ -168,7 +155,7 @@ def wrap_command(context: ExecutionContext, command: Sequence[str]) -> list[str]
         raise RuntimeError("Translation is enabled but no runner prefix is configured")
 
     if context.wraps_with_shell:
-        return [*context.runner_prefix, shlex.join(base)]
+        return [*context.runner_prefix, "exec " + shlex.join(base)]
     return [*context.runner_prefix, *base]
 
 

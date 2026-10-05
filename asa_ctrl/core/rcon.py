@@ -21,6 +21,8 @@ from asa_ctrl.common.errors import (
     RconTimeoutError,
 )
 
+RCON_MAX_COMMAND_LENGTH = 1000
+
 
 class RconPacket(NamedTuple):
     """RCON packet structure."""
@@ -97,7 +99,7 @@ class RconClient:
     # Configuration constants
     MAX_PACKET_SIZE = 4096  # Maximum RCON packet size
     MIN_PACKET_SIZE = 12    # Minimum packet size (header only)
-    MAX_COMMAND_LENGTH = 1000  # Maximum command length
+    MAX_COMMAND_LENGTH = RCON_MAX_COMMAND_LENGTH
     DEFAULT_RETRY_COUNT = 3
     DEFAULT_RETRY_DELAY = 1.0
     
@@ -188,21 +190,7 @@ class RconClient:
         Raises:
             ValueError: If command is invalid
         """
-        if not command or not isinstance(command, str):
-            raise ValueError("Command must be a non-empty string")
-            
-        # Strip whitespace and check length
-        command = command.strip()
-        if len(command) > self.MAX_COMMAND_LENGTH:
-            raise ValueError(f"Command too long: {len(command)} > {self.MAX_COMMAND_LENGTH}")
-            
-        # Basic sanitization - remove null bytes and control characters
-        command = ''.join(char for char in command if ord(char) >= 32 or char in '\t\n\r')
-        
-        if not command:
-            raise ValueError("Command contains only invalid characters")
-            
-        return command
+        return _validate_command(command, self.MAX_COMMAND_LENGTH)
     
     def _validate_packet_data(self, data: bytes, expected_min_size: int = MIN_PACKET_SIZE) -> None:
         """
@@ -566,16 +554,37 @@ class RconClient:
         self.close()
 
 
-def execute_rcon_command(command: str, server_ip: str = '127.0.0.1') -> str:
+def execute_rcon_command(
+    command: str,
+    server_ip: str = '127.0.0.1',
+    *,
+    settings: Optional[AsaSettings] = None,
+) -> str:
     """
     Execute a single RCON command (convenience function).
-    
+
     Args:
         command: The command to execute
         server_ip: Server IP address
+        settings: Optional configuration source for password and port discovery
         
     Returns:
         The command response
     """
-    with RconClient(server_ip) as client:
-        return client.execute_command(command)
+    normalized_command = _validate_command(command, RCON_MAX_COMMAND_LENGTH)
+    with RconClient(server_ip, settings=settings) as client:
+        return client.execute_command(normalized_command)
+
+
+def _validate_command(command: str, max_length: int) -> str:
+    if not command or not isinstance(command, str):
+        raise ValueError("Command must be a non-empty string")
+
+    command = command.strip()
+    if len(command) > max_length:
+        raise ValueError(f"Command too long: {len(command)} > {max_length}")
+
+    command = ''.join(char for char in command if ord(char) >= 32 or char in '\t\n\r')
+    if not command:
+        raise ValueError("Command contains only invalid characters")
+    return command

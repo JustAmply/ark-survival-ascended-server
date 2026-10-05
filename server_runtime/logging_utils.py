@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
-import os
+from typing import Optional
+
+from .constants import RuntimeSettings
 
 
 _LEVEL_ALIASES = {
@@ -12,9 +14,12 @@ _LEVEL_ALIASES = {
 }
 
 
-def configure_runtime_logging() -> logging.Logger:
+def configure_runtime_logging(
+    settings: Optional[RuntimeSettings] = None,
+) -> logging.Logger:
     """Configure runtime logger from ASA_LOG_LEVEL."""
-    configured_level = (os.environ.get("ASA_LOG_LEVEL") or "INFO").upper()
+    settings = settings or RuntimeSettings.from_env()
+    configured_level = settings.log_level
     level_name = _LEVEL_ALIASES.get(configured_level, configured_level)
     valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
     if level_name in valid_levels:

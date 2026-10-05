@@ -3,14 +3,42 @@ services:
     container_name: asa-server-1
     image: ghcr.io/justamply/asa-linux-server:latest
     environment:
-      ASA_START_PARAMS: >
-        TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True?ServerAdminPassword=change_this_password
-        -WinLiveMaxPlayers=50 
-        -clusterid=default 
-        -ClusterDirOverride="/home/gameserver/cluster-shared"
+      # One variable per setting. See SETUP.md for the full list.
+      ASA_MAP: TheIsland_WP
+      ASA_PORT: "7777"
+      ASA_RCON_PORT: "27020"
+      ASA_SERVER_ADMIN_PASSWORD: ${ASA_SERVER_ADMIN_PASSWORD:?Set ASA_SERVER_ADMIN_PASSWORD in .env before starting}
+      ASA_MAX_PLAYERS: "50"
+      ASA_CLUSTER_ID: default
+      ASA_CLUSTER_DIR: /home/gameserver/cluster-shared
+      # Alternatively, keep using the single launch-line string. It is still
+      # fully supported and can be combined with the variables above, which
+      # override the matching entries:
+      #
+      # ASA_START_PARAMS: >
+      #   TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True
+      #   -WinLiveMaxPlayers=50
+      #   -clusterid=default
+      #   -ClusterDirOverride="/home/gameserver/cluster-shared"
       ENABLE_DEBUG: "0"
       SERVER_RESTART_CRON: "0 4 * * *"
       TZ: "Europe/Berlin"
+      # Checksum every installed file on start: "first" (default, initial
+      # install only), "always" or "never". Validation reads the whole ~20 GB
+      # installation, so "always" adds minutes to every restart.
+      ASA_VALIDATE: "first"
+    # Wine needs a large descriptor budget for esync; without it the server
+    # falls back to a markedly slower synchronisation path.
+    ulimits:
+      nofile:
+        soft: 524288
+        hard: 524288
+    # ARK touches a lot of memory while loading the world and then leaves much
+    # of it cold. A limit plus swap lets the kernel page the cold part out
+    # instead of forcing the host to hold it in RAM. Tune to your host.
+    # mem_limit: 16g
+    # memswap_limit: 24g
+    # mem_swappiness: 10
     ports:
       # Game port for player connections through the server browser
       - 7777:7777/udp
@@ -25,10 +53,21 @@ services:
 #    container_name: asa-server-2
 #    image: ghcr.io/justamply/asa-linux-server:latest
 #    environment:
-#      - ASA_START_PARAMS=ScorchedEarth_WP?listen?Port=7778?RCONPort=27021?RCONEnabled=True -WinLiveMaxPlayers=50 -clusterid=default -ClusterDirOverride="/home/gameserver/cluster-shared"
-#      - ENABLE_DEBUG=0
-#      - SERVER_RESTART_CRON=0 4 * * *
-#      - TZ=Europe/Berlin
+#      ASA_MAP: ScorchedEarth_WP
+#      ASA_PORT: "7778"
+#      ASA_RCON_PORT: "27021"
+#      ASA_SERVER_ADMIN_PASSWORD: ${ASA_SERVER_ADMIN_PASSWORD:?Set ASA_SERVER_ADMIN_PASSWORD in .env before starting}
+#      ASA_MAX_PLAYERS: "50"
+#      ASA_CLUSTER_ID: default
+#      ASA_CLUSTER_DIR: /home/gameserver/cluster-shared
+#      ENABLE_DEBUG: "0"
+#      SERVER_RESTART_CRON: "0 4 * * *"
+#      TZ: "Europe/Berlin"
+#      ASA_VALIDATE: "first"
+#    ulimits:
+#      nofile:
+#        soft: 524288
+#        hard: 524288
 #    ports:
 #      # Game port for player connections through the server browser
 #      - 7778:7778/udp

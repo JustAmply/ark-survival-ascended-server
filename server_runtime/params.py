@@ -1,85 +1,72 @@
-"""Start parameter normalization helpers."""
+"""Deep start-parameter normalization for the server launch contract."""
 
 from __future__ import annotations
 
 import logging
-import os
-import re
-import subprocess
-from pathlib import Path
 
-from .constants import ASA_CTRL_BIN, DEFAULT_START_PARAMS, GAME_USER_SETTINGS_PATH
+from asa_ctrl.common.config import AsaSettings
+from asa_ctrl.common.constants import DEFAULT_ADMIN_PASSWORD
+from asa_ctrl.common.errors import CorruptedModsDatabaseError
+from asa_ctrl.common.launch_config import LaunchConfiguration
+from asa_ctrl.core.mods import get_enabled_mod_ids
 
-
-def has_server_admin_password_in_params(params: str) -> bool:
-    return "ServerAdminPassword=" in params
+from .constants import DEFAULT_START_PARAMS
 
 
-def server_admin_password_in_ini() -> bool:
-    path = Path(GAME_USER_SETTINGS_PATH)
-    if not path.exists():
-        return False
-    pattern = re.compile(r"^[ \t]*ServerAdminPassword[ \t]*=")
-    try:
-        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-            if pattern.search(line):
-                return True
-    except OSError:
-        return False
-    return False
+def prepare_start_params(logger: logging.Logger) -> str:
+    """Normalize the complete launch-parameter contract and return the line.
 
+    The environment is configuration input only: the resolved line is returned,
+    not written back. `LaunchEnvironment.for_server` puts it into the
+    environment the server is launched with, which is also what RCON discovery
+    reads during shutdown.
+    """
+    settings = AsaSettings()
+    config = settings.launch_configuration()
 
-def ensure_server_admin_password(logger: logging.Logger) -> str:
-    """Ensure launch params include/admin password fallback behavior."""
-    params = (os.environ.get("ASA_START_PARAMS") or "").strip()
-    if has_server_admin_password_in_params(params) or server_admin_password_in_ini():
-        return params
-
-    if params:
-        logger.warning(
-            "ServerAdminPassword missing in ASA_START_PARAMS/INI; appending default fallback."
-        )
-        params = f"{params} -ServerAdminPassword=changeme"
-    else:
+    if config.is_empty():
         logger.warning(
             "No ASA_START_PARAMS provided; using default map payload with ServerAdminPassword."
         )
-        params = DEFAULT_START_PARAMS
+        config = LaunchConfiguration.parse(DEFAULT_START_PARAMS)
+    else:
+        _ensure_admin_password(config, settings, logger)
 
-    os.environ["ASA_START_PARAMS"] = params
-    return params
+    _inject_dynamic_mods(config, settings, logger)
+    config.ensure_flag("-nosteam")
+
+    return config.render()
 
 
-def inject_mods_param(base_params: str, logger: logging.Logger) -> str:
-    """Append dynamic mods string from asa-ctrl if present."""
+def _ensure_admin_password(
+    config: LaunchConfiguration, settings: AsaSettings, logger: logging.Logger
+) -> None:
+    if config.value("ServerAdminPassword"):
+        return
+
     try:
-        result = subprocess.run(
-            [ASA_CTRL_BIN, "mods-string"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        password_in_ini = bool(settings.get_server_setting("ServerAdminPassword"))
     except OSError as exc:
-        logger.warning("Failed to query dynamic mods via asa-ctrl: %s", exc)
-        return base_params
+        logger.warning("Failed to read ServerAdminPassword from INI: %s", exc)
+        password_in_ini = False
 
-    if result.returncode != 0:
-        logger.warning("asa-ctrl mods-string exited with code %s; skipping dynamic mods injection.", result.returncode)
-        return base_params
+    if password_in_ini:
+        return
 
-    mods = (result.stdout or "").strip()
-    if not mods:
-        return base_params
-    merged = f"{base_params} {mods}".strip()
-    os.environ["ASA_START_PARAMS"] = merged
-    return merged
+    logger.warning(
+        "ServerAdminPassword missing in ASA_START_PARAMS/INI; appending default fallback."
+    )
+    config.set_flag("ServerAdminPassword", DEFAULT_ADMIN_PASSWORD)
 
 
-def ensure_nosteam_flag(params: str) -> str:
-    """Ensure -nosteam exists in start params exactly once."""
-    tokens = params.split()
-    if any(token == "-nosteam" for token in tokens):
-        return params
-    updated = f"{params} -nosteam".strip()
-    os.environ["ASA_START_PARAMS"] = updated
-    return updated
+def _inject_dynamic_mods(
+    config: LaunchConfiguration, settings: AsaSettings, logger: logging.Logger
+) -> None:
+    try:
+        mod_ids = get_enabled_mod_ids(settings)
+    except (CorruptedModsDatabaseError, OSError, ValueError) as exc:
+        logger.warning("Failed to read dynamic mods; skipping mods injection: %s", exc)
+        return
+
+    if mod_ids:
+        config.merge_mods(mod_ids)

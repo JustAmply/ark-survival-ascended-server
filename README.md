@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="ARK: Survival Ascended Linux Server logo" width="240">
+</p>
+
 # ARK: Survival Ascended Linux Server
 
 🦕 **Easy-to-use Docker container for running ARK: Survival Ascended dedicated servers on Linux**
@@ -14,11 +18,16 @@ Get your ARK server running in minutes:
 # 1. Create server directory and download config
 mkdir asa-server && cd asa-server
 wget https://raw.githubusercontent.com/JustAmply/ark-survival-ascended-server/main/docker-compose.yml
+wget https://raw.githubusercontent.com/JustAmply/ark-survival-ascended-server/main/.env.example
 
-# 2. Start your server
+# 2. Set a unique admin password in the local, untracked .env file
+cp .env.example .env
+vi .env
+
+# 3. Start your server
 docker compose up -d
 
-# 3. Follow the logs to see progress
+# 4. Follow the logs to see progress
 docker logs -f asa-server-1
 ```
 
@@ -33,8 +42,10 @@ Your server will be discoverable in the "Unofficial" server browser once setup i
 - **🎮 Mod Support**: Simple mod management via console
 - **🌐 Cluster Ready**: Multi-server setups with character/dino transfer
 - **🔄 Auto-Updates**: Automatic game updates on container restart
+- **⚡ Fast Restarts**: Full file validation only on the first install, so scheduled restarts come back in seconds instead of minutes
 - **⏰ Scheduled Restarts**: Built-in cron scheduler with in-game warnings
 - **📊 Monitoring**: Debug mode and comprehensive logging
+- **⏱️ Startup timing**: Logs show initial ownership, server update, and Proton preparation durations to help locate slow starts
 - **🔌 Plugin Support**: ServerAPI plugin loader integration
 
 ## 📋 System Requirements
@@ -42,7 +53,7 @@ Your server will be discoverable in the "Unofficial" server browser once setup i
 - **RAM**: ~13 GB per server instance
 - **Storage**: ~31 GB (server files only)
 - **OS**: Linux with Docker support
-- **Tested on**: Ubuntu 24.04, Debian 12, Docker Desktop on Windows, ARM64 cloud hosts (experimental tag)
+- **Tested on**: Ubuntu 24.04, Debian 12, Docker Desktop on Windows
 
 ## 🎯 Main Use Cases
 
@@ -66,23 +77,42 @@ Ideal for modded gameplay:
 
 ## 🔧 Basic Configuration
 
-Before starting your server, you can customize it by editing the `docker-compose.yml` file:
+Configure the server with one environment variable per setting in your `docker-compose.yml`:
 
 ```yaml
 environment:
-  # Change map, ports, and player limit
-  - ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50
+  ASA_MAP: TheIsland_WP
+  ASA_PORT: "7777"
+  ASA_RCON_PORT: "27020"
+  ASA_SERVER_ADMIN_PASSWORD: ${ASA_SERVER_ADMIN_PASSWORD:?Set ASA_SERVER_ADMIN_PASSWORD in .env before starting}
+  ASA_MAX_PLAYERS: "50"
+  TZ: Europe/Berlin
 ```
 
 ### Popular Configuration Changes
 
-- **Change map**: Replace `TheIsland_WP` with `ScorchedEarth_WP`, `TheCenter_WP`, etc.
-- **Change ports**: Modify `Port=7777` and `RCONPort=27020`
-- **Player limit**: Adjust `-WinLiveMaxPlayers=50`
-- **Timezone**: Add `TZ=Europe/Berlin` (or your region) to keep server logs and saves in local time (default: `UTC`)
-- **Translator mode**: `ASA_TRANSLATOR_MODE=auto|fex|none` (default: `auto`; on ARM64 this resolves to `fex`)
-- **Translator probe timeout**: `ASA_TRANSLATOR_PROBE_TIMEOUT=20` seconds for SteamCMD x86 probe
-- **Proton profile**: `ASA_PROTON_PROFILE=balanced|safe` (safe disables esync/fsync for stability)
+- **Change map**: `ASA_MAP=ScorchedEarth_WP` (or `TheCenter_WP`, `Aberration_WP`, `Extinction_WP`, …)
+- **Change ports**: `ASA_PORT=7777`, `ASA_RCON_PORT=27020`
+- **Player limit**: `ASA_MAX_PLAYERS=50`
+- **Admin password**: Set `ASA_SERVER_ADMIN_PASSWORD` in `.env`. The supplied Compose file refuses to start when it is empty or missing. Keep `.env` private.
+- **Timezone**: `TZ=Europe/Berlin` (or your region) to keep server logs and saves in local time (default: `UTC`)
+
+See [SETUP.md](SETUP.md#-server-configuration) for the full list.
+
+### Already using `ASA_START_PARAMS`?
+
+Nothing changes — keep it. The single-string launch line is still fully
+supported and stays the way to express the long tail of ARK launch options:
+
+```yaml
+environment:
+  ASA_START_PARAMS: TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50
+```
+
+You can also mix the two: `ASA_START_PARAMS` provides the base launch line and
+any `ASA_*` variable you set overrides the matching entry. That makes it easy to
+rotate just the admin password, or move one server in a cluster to a new port,
+without touching the rest of the string.
 
 ## 🧪 ARM64 (Experimental)
 
@@ -91,15 +121,22 @@ ARM64 support is published separately as experimental tags to avoid impacting st
 - `ghcr.io/justamply/asa-linux-server:arm64-experimental`
 - `ghcr.io/justamply/asa-linux-server:<version>-arm64-experimental`
 
-The ARM64 image uses FEX translation for SteamCMD/Proton execution. The runtime performs a translator probe before full startup and fails early with actionable logs if translation is unavailable.
+- **Translator mode**: `ASA_TRANSLATOR_MODE=auto|fex|none` (default `auto`; selects FEX on ARM64).
+- **Translator probe timeout**: `ASA_TRANSLATOR_PROBE_TIMEOUT=20` seconds.
+- **Proton profile**: `ASA_PROTON_PROFILE=balanced|safe`; `safe` forces esync/fsync off.
+
+The ARM64 image uses FEX translation for SteamCMD/Proton execution. Its build stage is separate from the existing AMD64 Python image, and its verified RootFS is extracted during the build so runtime does not require FUSE or a privileged container. The runtime performs a translator probe before full startup and fails early with actionable logs if translation is unavailable. Only translated launches use the early-crash retry policy: two short server runs trigger one retry with the safe profile; another early exit stops the supervisor. Preparation failures do not count as server crashes. Native AMD64 retains its existing restart behavior.
+
+ARM64 remains experimental until a real target host has completed SteamCMD updates, Proton startup, and an ARK server soak test; image and lifecycle checks alone do not establish game-server compatibility.
 
 ## 🎮 Server Management
 
 ### Add Mods
 
-Simple modify the `ASA_START_PARAMS` in the `docker-compose.yml` to include mods `-mods=12345,67891`:
+Set `ASA_MODS` in the `docker-compose.yml`:
 ```yaml
-- ASA_START_PARAMS=TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50 -mods=12345,67891
+environment:
+  ASA_MODS: "12345,67891"
 ```
 
 Changing this list requires editing the compose file and recreating/restarting the container.
@@ -120,7 +157,7 @@ docker exec asa-server-1 asa-ctrl mods remove 12345
 docker restart asa-server-1
 ```
 
-Mixing both methods is safe: statically defined mods are merged with dynamically enabled ones (duplicates are ignored by the game server).
+Mixing both methods is safe: statically defined mods are merged with dynamically enabled ones into a single `-mods=` flag, and duplicates are dropped.
 
 ### RCON Commands
 ```bash
@@ -182,10 +219,27 @@ Set up a local development environment with an editable installation so that CLI
 ```bash
 git clone https://github.com/JustAmply/ark-survival-ascended-server.git
 cd ark-survival-ascended-server
-pip install -e .
+python -m pip install -e ".[dev]"
+pytest -q
+python -I scripts/verify_installed_package.py
 ```
 
-This registers the `asa-ctrl` command on your PATH while allowing you to modify the source code in-place.
+This registers the `asa-ctrl` command on your PATH while allowing you to modify the source code in-place. The isolated smoke test verifies that the installed distribution contains the CLI's required subpackages instead of accidentally importing them from the repository root.
+
+### Continuous integration
+
+The CI job always reports a status. Documentation-only changes skip Python and
+Docker checks; test-only changes run the Python checks. Runtime, image, project
+metadata, workflow and unrecognised changes run all checks. Tags and the weekly refresh
+always run the full suite. The refresh pulls the base image and rebuilds without
+the layer cache so OS packages stay current.
+
+Images are published after smoke tests pass, including two parallel supervisor
+lifecycle cases. Draft, fork and Dependabot PRs validate the image without
+publishing it; ready PRs from this repository retain their preview tags. Obsolete
+PR runs are cancelled, main/tag runs finish in sequence, and jobs have a
+15-minute timeout. See [local image validation](SETUP.md#local-image-validation)
+for the equivalent Docker checks.
 
 ## 📞 Support
 

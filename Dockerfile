@@ -1,27 +1,29 @@
-FROM ubuntu:24.04
+ARG TARGETARCH
 
-ARG TARGETARCH=amd64
-
-# Build arguments for metadata
-ARG VERSION="unknown"
-ARG GIT_COMMIT="unknown"
-ARG BUILD_DATE="unknown"
-ARG DEBIAN_FRONTEND=noninteractive
-ARG FEX_ROOTFS_METADATA_URL="https://rootfs.fex-emu.gg/RootFS_links.json"
-ARG FEX_ROOTFS_ENTRY="Ubuntu 24.04 (SquashFS)"
-ARG FEX_EMU_PACKAGE="fex-emu-armv8.0"
-ARG FEX_EMU_VERSION="2601~n"
-
-# Add metadata labels
-LABEL org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${GIT_COMMIT}" \
-      org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.title="ARK: Survival Ascended Linux Server" \
-      org.opencontainers.image.description="Dockerized ARK: Survival Ascended server with asa_ctrl management tool" \
-      org.opencontainers.image.source="https://github.com/JustAmply/ark-survival-ascended-server"
+FROM python:3.14-slim AS runtime-amd64
 
 # Ensure timezone data is available and default to UTC inside the container
 ENV TZ=UTC
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    locales \
+    tzdata \
+    lib32stdc++6 \
+    lib32z1 \
+    lib32gcc-s1 \
+    libfreetype6 \
+    libvulkan1 \
+    && rm -rf /var/lib/apt/lists/* && \
+    echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen && \
+    locale-gen
+
+# Keep all emulation dependencies out of the stable AMD64 image.
+FROM ubuntu:24.04 AS runtime-arm64
+ARG DEBIAN_FRONTEND=noninteractive
+ARG FEX_EMU_VERSION="2609.1-1~n"
+ARG FEX_ROOTFS_URL="https://rootfs.fex-emu.gg/Ubuntu_24_04/2026-08-11/Ubuntu_24_04.sqsh"
+ARG FEX_ROOTFS_HASH="3517e0e5ea25a473"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -30,60 +32,40 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python-is-python3 \
     python3 \
     software-properties-common \
+    squashfs-tools \
     tzdata \
-    unzip \
     wget \
     xxhash \
     libc6-dev \
     libfreetype6 \
-    && if [ "$TARGETARCH" = "amd64" ]; then \
-      apt-get install -y --no-install-recommends \
-        lib32stdc++6 \
-        lib32z1 \
-        lib32gcc-s1; \
-    fi \
-    && if [ "$TARGETARCH" = "arm64" ]; then \
-      add-apt-repository -y ppa:fex-emu/fex; \
-      apt-get update; \
-      apt-get install -y --no-install-recommends "${FEX_EMU_PACKAGE}=${FEX_EMU_VERSION}"; \
-      mkdir -p /home/gameserver/.fex-emu/RootFS; \
-      FEX_ROOTFS_TARGET="/home/gameserver/.fex-emu/RootFS/Ubuntu_24_04.sqsh"; \
-      FEX_ROOTFS_METADATA_URL="$FEX_ROOTFS_METADATA_URL" \
-      FEX_ROOTFS_ENTRY="$FEX_ROOTFS_ENTRY" \
-      FEX_ROOTFS_TARGET="$FEX_ROOTFS_TARGET" \
-      python3 -c "import json, os, pathlib, shutil, urllib.request; \
-metadata_url = os.environ['FEX_ROOTFS_METADATA_URL']; \
-entry_name = os.environ['FEX_ROOTFS_ENTRY']; \
-target = pathlib.Path(os.environ['FEX_ROOTFS_TARGET']); \
-response = urllib.request.urlopen(metadata_url, timeout=30); \
-metadata = json.load(response); \
-response.close(); \
-entry = (metadata.get('v1') or {}).get(entry_name); \
-isinstance(entry, dict) or (_ for _ in ()).throw(SystemExit(f'FEX RootFS entry not found: {entry_name!r}')); \
-url = str(entry.get('URL', '')).strip(); \
-expected_hash = str(entry.get('Hash', '')).strip().lower(); \
-(url and expected_hash) or (_ for _ in ()).throw(SystemExit('FEX RootFS metadata entry is incomplete')); \
-target.parent.mkdir(parents=True, exist_ok=True); \
-source = urllib.request.urlopen(url, timeout=120); \
-destination = target.open('wb'); \
-shutil.copyfileobj(source, destination, 1024 * 1024); \
-destination.close(); \
-source.close(); \
-print(f'{expected_hash}  {target}')" > /tmp/fex_rootfs.xxhash; \
-      xxhsum -c /tmp/fex_rootfs.xxhash; \
-      rm -f /tmp/fex_rootfs.xxhash; \
-    fi \
+    libvulkan1 \
+    && add-apt-repository -y ppa:fex-emu/fex \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends "fex-emu-armv8.0=${FEX_EMU_VERSION}" \
+    && wget --https-only -q "${FEX_ROOTFS_URL}" -O /tmp/fex-rootfs.sqsh \
+    && printf '%s  /tmp/fex-rootfs.sqsh\n' "${FEX_ROOTFS_HASH}" | xxhsum -c - \
+    && unsquashfs -no-progress -d /opt/fex-rootfs /tmp/fex-rootfs.sqsh \
+    && rm /tmp/fex-rootfs.sqsh \
     && rm -rf /var/lib/apt/lists/* \
     && echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen \
     && locale-gen
+
+# An extracted directory works without FUSE or elevated container privileges.
+ENV FEX_APP_DATA_LOCATION=/home/gameserver/.fex-emu \
+    FEX_ROOTFS=/opt/fex-rootfs
+
+FROM runtime-${TARGETARCH} AS runtime
+ENV TZ=UTC
 
 # Set locale-related environment variables early (inherit to runtime)
 ENV LANG=en_US.UTF-8 \
     LANGUAGE=en_US:en \
     LC_ALL=en_US.UTF-8 \
-    PYTHONPATH=/usr/share \
-    FEX_APP_DATA_LOCATION=/home/gameserver/.fex-emu \
-    FEX_ROOTFS=/home/gameserver/.fex-emu/RootFS/Ubuntu_24_04.sqsh
+    PYTHONPATH=/usr/share
+
+# Wine spawns several hundred threads for ASA; glibc would otherwise open up to
+# 8 malloc arenas per core and fragment the heap across all of them.
+ENV MALLOC_ARENA_MAX=2
 
 # Create gameserver user
 RUN groupadd -g 25000 gameserver && \
@@ -94,8 +76,7 @@ RUN mkdir -p \
     /home/gameserver/Steam \
     /home/gameserver/steamcmd \
     /home/gameserver/server-files \
-    /home/gameserver/cluster-shared \
-    /home/gameserver/.fex-emu/RootFS && \
+    /home/gameserver/cluster-shared && \
     chown -R gameserver:gameserver /home/gameserver
 
 # Copy Python applications
@@ -118,6 +99,21 @@ COPY scripts/start_server.sh /usr/bin/start_server.sh
 
 # Set permissions
 RUN chmod +x /usr/bin/start_server.sh
+
+# Keep changing metadata after all filesystem layers so it cannot invalidate
+# the OS installation or application cache.
+ARG VERSION="unknown"
+ARG GIT_COMMIT="unknown"
+ARG BUILD_DATE="unknown"
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.title="ARK: Survival Ascended Linux Server" \
+      org.opencontainers.image.description="Dockerized ARK: Survival Ascended server with asa_ctrl management tool" \
+      org.opencontainers.image.source="https://github.com/JustAmply/ark-survival-ascended-server"
+
+# The Proton preflight cache must still see the resolved image version.
+ENV ASA_IMAGE_VERSION=${VERSION}
 
 # Declare persistent data volumes
 VOLUME ["/home/gameserver/Steam", \

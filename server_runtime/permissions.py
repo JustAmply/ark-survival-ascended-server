@@ -5,11 +5,10 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-import subprocess
 import sys
 import shlex
+import time
 from pathlib import Path
-from typing import Optional
 
 from .constants import (
     CLUSTER_DIR,
@@ -56,7 +55,13 @@ def ensure_permissions_and_drop_privileges(logger: logging.Logger) -> None:
                     TARGET_UID,
                     TARGET_GID,
                 )
+                started = time.monotonic()
                 _chown_if_possible(directory, recursive=True)
+                logger.info(
+                    "Initial ownership setup for %s completed in %.1fs.",
+                    directory,
+                    time.monotonic() - started,
+                )
                 marker.touch(exist_ok=True)
             _chown_if_possible(directory, recursive=False)
             if marker.exists():
@@ -84,19 +89,3 @@ def ensure_permissions_and_drop_privileges(logger: logging.Logger) -> None:
         )
 
     raise RuntimeError("Neither runuser nor su is available for privilege drop")
-
-
-def safe_kill_process(process: Optional[subprocess.Popen]) -> None:
-    """Terminate a child process if running."""
-    if process is None:
-        return
-    if process.poll() is None:
-        process.terminate()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            try:
-                process.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                pass
