@@ -158,7 +158,16 @@ ARM64 images are published with dedicated experimental tags:
 
 Both images run the application and `asa-ctrl` on Python 3.14. ARM64 builds checksum-verified CPython against Ubuntu 24.04 in a separate stage and installs its runtime under `/usr/local`; it does not replace Ubuntu's `/usr/bin/python3`. Compilers, development headers and PPA setup helpers stay out of the final image. The application uses `python`/`python3.14`; `python3` is reserved for the Ubuntu-provided x86 guest interpreter so Proton's shebang cannot escape FEX through a native interpreter.
 
-The ARM64 stage installs a pinned FEX build and an x86 RootFS built from signed Ubuntu 24.04 packages. The guest contains explicit 32-bit SteamCMD and 64-bit Proton libraries, Python and headless Wine dependencies, without desktop applications, Mesa drivers or LLVM. Builds no longer depend on a dated FEX CDN snapshot. Guest identity and mount files are removed so the container's users, DNS and game volumes remain visible. The RootFS is copied as a directory; no privileged mode or `/dev/fuse` mount is required. QEMU is used only to build this AMD64 guest stage on the ARM64 CI runner; the runtime and acceptance checks use native ARM64 FEX. Native AMD64 keeps its existing Python base image and launch behavior.
+The ARM64 stage installs the current ARMv8.0 FEX package from its signed official PPA and an x86 RootFS built from signed Ubuntu 24.04 packages. The guest contains explicit 32-bit SteamCMD and 64-bit Proton libraries, Python and headless Wine dependencies, without desktop applications, Mesa drivers or LLVM. Builds no longer depend on a dated FEX CDN snapshot. Guest identity and mount files are removed so the container's users, DNS and game volumes remain visible. The RootFS is copied as a directory; no privileged mode or `/dev/fuse` mount is required. QEMU is used only to build this AMD64 guest stage on the ARM64 CI runner; the runtime and acceptance checks use native ARM64 FEX. Native AMD64 keeps its existing Python base image and launch behavior.
+
+FEX comes from the signed official PPA's current `fex-emu-armv8.0` package.
+The PPA removes superseded versions, so builds do not pin a version it may no
+longer publish. CI refreshes this installation on every ARM64 image build,
+logs the installed package version, and requires native translation checks
+before publication. Ordinary builds retain Python and guest RootFS caches;
+the weekly refresh still rebuilds all stages without cache.
+Use a published image digest to keep a deployed FEX build fixed; rebuilding
+the same source can resolve a newer PPA package.
 
 Behavior on ARM64:
 - Startup performs a SteamCMD translation probe before full updates/downloads.

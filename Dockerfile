@@ -73,7 +73,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Keep all emulation dependencies out of the stable AMD64 image.
 FROM ubuntu:24.04 AS runtime-arm64
 ARG DEBIAN_FRONTEND=noninteractive
-ARG FEX_EMU_VERSION="2609.1-1~n"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     gnupg \
@@ -86,7 +85,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libncursesw6 libreadline8t64 libsqlite3-0 libssl3t64 libzstd1 libuuid1 zlib1g \
     && add-apt-repository -y ppa:fex-emu/fex \
     && apt-get update \
-    && apt-get install -y --no-install-recommends "fex-emu-armv8.0=${FEX_EMU_VERSION}" \
+    && apt-get install -y --no-install-recommends fex-emu-armv8.0 \
+    && dpkg-query --show fex-emu-armv8.0 \
     && apt-get purge -y --auto-remove software-properties-common gnupg \
     && rm -rf /var/lib/apt/lists/* \
     && echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen \

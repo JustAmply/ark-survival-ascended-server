@@ -129,6 +129,15 @@ Both images run the application and `asa-ctrl` on Python 3.14. ARM64 builds chec
 
 The ARM64 image uses FEX translation for SteamCMD/Proton execution. Its x86 RootFS is built from signed Ubuntu 24.04 packages with explicit 32-bit SteamCMD and 64-bit Proton libraries, guest Python and headless Wine dependencies. It does not download a dated snapshot from the FEX CDN. Desktop applications, Mesa drivers and LLVM are excluded; guest identity and mount files are removed so FEX uses the container's users, DNS and game volumes. The directory is copied into the image, so runtime does not require FUSE or a privileged container. CI reports the extracted RootFS and final image sizes. The runtime performs a translator probe before full startup and fails early with actionable logs if translation is unavailable. Only translated launches use the early-crash retry policy: two short server runs trigger one retry with the safe profile; another early exit stops the supervisor. Preparation failures do not count as server crashes. Native AMD64 retains its existing restart behavior.
 
+FEX comes from the signed official PPA's current `fex-emu-armv8.0` package.
+The PPA removes superseded versions, so builds do not pin a version it may no
+longer publish. CI refreshes this installation on every ARM64 image build,
+logs the installed package version, and requires native translation checks
+before publication. Ordinary builds retain Python and guest RootFS caches;
+the weekly refresh still rebuilds all stages without cache.
+Use a published image digest to keep a deployed FEX build fixed; rebuilding
+the same source can resolve a newer PPA package.
+
 Translated probes and server launches use isolated process groups. A probe
 timeout kills its whole group. After `saveworld` and its save delay, translated
 restart and shutdown first request `wineboot --end-session --shutdown` through

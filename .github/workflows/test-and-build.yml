@@ -257,6 +257,9 @@ jobs:
           load: true
           pull: true
           no-cache: ${{ github.event_name == 'schedule' }}
+          # The rolling FEX PPA removes superseded versions. Verify its current
+          # ARMv8.0 package on every build; retain other caches on ordinary builds.
+          no-cache-filters: runtime-arm64
           tags: asa-linux-server:arm64-smoke
           build-args: |
             VERSION=${{ needs.test-and-build.outputs.version }}

@@ -16,7 +16,16 @@ on Python 3.14 on both architectures. Build checksum-verified CPython against
 Ubuntu 24.04 in a separate stage for ARM64, then copy its runtime under
 `/usr/local`. Do not overwrite Ubuntu's system Python or copy a newer Debian
 libc-dependent interpreter into Ubuntu. Build tooling and PPA setup helpers
-are absent from the final image. Install pinned FEX only in the ARM64 stage.
+are absent from the final image. Install the current ARMv8.0 FEX package from
+its signed official PPA only in the ARM64 stage. The PPA is rolling: a version
+pin can become unresolvable when its superseded package leaves the index.
+Keep the CPU baseline fixed by package name rather than silently selecting a
+higher ARM ISA. Ordinary CI builds invalidate only the ARM64 runtime stage's
+cache before their smoke build so package availability is checked on every
+image build. The weekly refresh still rebuilds all stages without cache.
+Log the installed version and gate publication on native translation checks;
+the subsequent publication build reuses those tested layers. Deployments that
+need an unchanged FEX build should use the published image digest.
 Build the x86 RootFS in a separate AMD64 Ubuntu stage from signed distribution
 packages. Declare the 32-bit SteamCMD and 64-bit Proton library closure and keep
 guest Python, font, Vulkan-loader and X11 libraries for headless Wine. Exclude
@@ -53,7 +62,11 @@ behaviour remains unchanged.
 
 AMD64 keeps its current OS, package set, environment and restart behavior.
 The extracted RootFS needs more image space but avoids privileged mounts.
-FEX pins and the guest package set must be updated with native smoke verification.
+FEX package updates and the guest package set require native smoke verification.
+The FEX runtime stage is refreshed while Python and guest build stages remain
+cacheable on ordinary builds. Source revisions do not pin the rolling PPA's
+resolved FEX version;
+published image digests preserve a verified runtime.
 Python compilation and guest preparation are cached independently of application
 code. CI reports the final image and RootFS sizes to make growth reviewable.
 Image checks cannot replace an ARK startup and soak test on the target host.
