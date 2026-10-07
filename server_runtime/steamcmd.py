@@ -21,6 +21,7 @@ from .constants import (
     VALIDATE_NEVER,
     RuntimeSettings,
 )
+from .translation import ExecutionContext, format_execution_error, run_probe_command, wrap_command
 
 
 def ensure_steamcmd(logger: logging.Logger) -> None:
@@ -76,7 +77,9 @@ def should_validate(settings: RuntimeSettings, logger: logging.Logger) -> bool:
 
 
 def update_server_files(
-    logger: logging.Logger, settings: Optional[RuntimeSettings] = None
+    logger: logging.Logger,
+    settings: Optional[RuntimeSettings] = None,
+    execution_context: Optional[ExecutionContext] = None,
 ) -> None:
     """Run SteamCMD update (optionally with validation) for ASA server files."""
     settings = settings or RuntimeSettings.from_env()
@@ -100,4 +103,21 @@ def update_server_files(
     if validate:
         command.append("validate")
     command.append("+quit")
-    subprocess.run(command, cwd=STEAMCMD_DIR, check=True)
+    if execution_context is not None:
+        command = wrap_command(execution_context, command)
+    try:
+        subprocess.run(command, cwd=STEAMCMD_DIR, check=True)
+    except OSError as exc:
+        if execution_context is None or not execution_context.translation_enabled:
+            raise
+        raise RuntimeError(format_execution_error("SteamCMD update", exc, execution_context)) from exc
+
+
+def probe_steamcmd_translation(execution_context: ExecutionContext, logger: logging.Logger) -> None:
+    """Probe the same SteamCMD wrapper used for updates, preserving its library setup."""
+    if not execution_context.translation_enabled:
+        return
+    script = Path(STEAMCMD_DIR) / "steamcmd.sh"
+    if not script.is_file():
+        raise RuntimeError(f"SteamCMD translation probe cannot run because '{script}' is missing.")
+    run_probe_command(execution_context, [str(script), "+quit"], STEAMCMD_DIR, logger, "SteamCMD")

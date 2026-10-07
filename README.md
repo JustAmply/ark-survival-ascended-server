@@ -31,6 +31,8 @@ docker compose up -d
 docker logs -f asa-server-1
 ```
 
+On ARM64 hosts, use the experimental image tag first: `ghcr.io/justamply/asa-linux-server:arm64-experimental`.
+
 Your server will be discoverable in the "Unofficial" server browser once setup is complete (~5-10 minutes).
 
 ## ✨ Key Features
@@ -111,6 +113,34 @@ You can also mix the two: `ASA_START_PARAMS` provides the base launch line and
 any `ASA_*` variable you set overrides the matching entry. That makes it easy to
 rotate just the admin password, or move one server in a cluster to a new port,
 without touching the rest of the string.
+
+## 🧪 ARM64 (Experimental)
+
+ARM64 support is published separately as experimental tags to avoid impacting stable AMD64 users:
+
+- `ghcr.io/justamply/asa-linux-server:arm64-experimental`
+- `ghcr.io/justamply/asa-linux-server:<version>-arm64-experimental`
+
+- **Translator mode**: `ASA_TRANSLATOR_MODE=auto|fex|none` (default `auto`; selects FEX on ARM64).
+- **Translator probe timeout**: `ASA_TRANSLATOR_PROBE_TIMEOUT=20` seconds.
+- **Proton profile**: `ASA_PROTON_PROFILE=balanced|safe`; `safe` forces esync/fsync off.
+
+Both images run the application and `asa-ctrl` on Python 3.14. ARM64 builds checksum-verified CPython against Ubuntu 24.04 in a separate stage and installs its runtime under `/usr/local`; it does not replace Ubuntu's `/usr/bin/python3`. Compilers, development headers and PPA setup helpers stay out of the final image. The application uses `python`/`python3.14`; `python3` is reserved for the Ubuntu-provided x86 guest interpreter so Proton's shebang cannot escape FEX through a native interpreter.
+
+The ARM64 image uses FEX translation for SteamCMD/Proton execution. Its x86 RootFS is built from signed Ubuntu 24.04 packages with explicit 32-bit SteamCMD and 64-bit Proton libraries, guest Python and headless Wine dependencies. It does not download a dated snapshot from the FEX CDN. Desktop applications, Mesa drivers and LLVM are excluded; guest identity and mount files are removed so FEX uses the container's users, DNS and game volumes. The directory is copied into the image, so runtime does not require FUSE or a privileged container. CI reports the extracted RootFS and final image sizes. The runtime performs a translator probe before full startup and fails early with actionable logs if translation is unavailable. Only translated launches use the early-crash retry policy: two short server runs trigger one retry with the safe profile; another early exit stops the supervisor. Preparation failures do not count as server crashes. Native AMD64 retains its existing restart behavior.
+
+Translated probes and server launches use isolated process groups. A probe
+timeout kills its whole group. After `saveworld` and its save delay, translated
+restart and shutdown first request `wineboot --end-session --shutdown` through
+the installed Proton launcher, with a 30-second request timeout. This reaches
+Windows applications in the same prefix even if they left the launcher's group.
+An unsuccessful request is logged and shutdown continues. It then sends SIGTERM to the
+group and force-stop remaining children when the launcher exits or the shutdown
+timeout expires. Translated cleanup also stops the Wine session for that server's
+prefix, so Wine children that created their own sessions cannot survive a
+relaunch. This keeps retries from overlapping orphaned work.
+
+Native ARM64 CI additionally runs the real SteamCMD self-update and anonymous login, then a Windows command through checksum-verified GE-Proton and FEX, as UID 25000 without privileged mode. Every image check uses the pinned fallback Proton version as a reproducible baseline; the weekly refresh also exercises the default latest-release selection, including its production preflight fallback. Both paths require an actual Windows execution marker. Translated lifecycle checks exercise the production supervisor with guest Python children and a long-lived Windows command: restart, graceful SIGTERM, forced cleanup of a stubborn child, and detection of living descendants after shutdown. The fixtures replace ARK preparation and RCON, so they do not establish game saving or shutdown compatibility. ARM64 remains experimental until a real target host has completed an ARK startup and soak test.
 
 ## 🎮 Server Management
 
@@ -221,7 +251,8 @@ Images are published after smoke tests pass, including two parallel supervisor
 lifecycle cases. Draft, fork and Dependabot PRs validate the image without
 publishing it; ready PRs from this repository retain their preview tags. Obsolete
 PR runs are cancelled, main/tag runs finish in sequence, and jobs have a
-15-minute timeout. See [local image validation](SETUP.md#local-image-validation)
+15-minute AMD64 and 45-minute ARM64 job timeouts. Each ARM64 translation check
+has a separate 15-minute timeout. See [local image validation](SETUP.md#local-image-validation)
 for the equivalent Docker checks.
 
 ## 📞 Support

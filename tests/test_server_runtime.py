@@ -7,7 +7,8 @@ import stat
 import subprocess
 import tarfile
 import zipfile
-from unittest.mock import Mock
+from dataclasses import replace
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -19,6 +20,7 @@ from server_runtime import params as runtime_params
 from server_runtime import permissions as runtime_permissions
 from server_runtime import proton as runtime_proton
 from server_runtime import steamcmd as runtime_steamcmd
+from server_runtime import translation as runtime_translation
 from server_runtime import supervisor as runtime_supervisor
 from server_runtime import wine_sync as runtime_wine_sync
 from server_runtime.archive_utils import safe_extract_archive
@@ -154,6 +156,7 @@ def test_main_preserves_startup_order_and_cleans_up_after_failure(monkeypatch):
 
 
 def test_prepare_start_params_applies_complete_contract(monkeypatch, tmp_path):
+    _clear_launch_env(monkeypatch)
     mods_path = tmp_path / "mods.json"
     mods_path.write_text(
         '[{"mod_id": 1, "enabled": true}, {"mod_id": 2, "enabled": true}]',
@@ -173,6 +176,7 @@ def test_prepare_start_params_applies_complete_contract(monkeypatch, tmp_path):
 
 
 def test_prepare_start_params_uses_default_payload_when_empty(monkeypatch, tmp_path):
+    _clear_launch_env(monkeypatch)
     monkeypatch.delenv("ASA_START_PARAMS", raising=False)
     monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(tmp_path / "mods.json"))
     monkeypatch.setenv("ASA_GAME_USER_SETTINGS_PATH", str(tmp_path / "missing.ini"))
@@ -186,6 +190,7 @@ def test_prepare_start_params_uses_default_payload_when_empty(monkeypatch, tmp_p
 
 
 def test_prepare_start_params_preserves_ini_password_and_nosteam(monkeypatch, tmp_path):
+    _clear_launch_env(monkeypatch)
     ini_path = tmp_path / "GameUserSettings.ini"
     ini_path.write_text("[ServerSettings]\nServerAdminPassword=secret\n", encoding="utf-8")
     monkeypatch.setenv("ASA_GAME_USER_SETTINGS_PATH", str(ini_path))
@@ -200,6 +205,7 @@ def test_prepare_start_params_preserves_ini_password_and_nosteam(monkeypatch, tm
 
 
 def test_prepare_start_params_skips_corrupt_mod_database(monkeypatch, tmp_path, caplog):
+    _clear_launch_env(monkeypatch)
     mods_path = tmp_path / "mods.json"
     mods_path.write_text("not-json", encoding="utf-8")
     monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(mods_path))
@@ -215,6 +221,7 @@ def test_prepare_start_params_skips_corrupt_mod_database(monkeypatch, tmp_path, 
 
 def test_prepare_start_params_merges_mods_into_an_existing_flag(monkeypatch, tmp_path):
     """A -mods= flag in the start params must not be duplicated by mods.json."""
+    _clear_launch_env(monkeypatch)
     mods_path = tmp_path / "mods.json"
     mods_path.write_text('[{"mod_id": 900, "enabled": true}]', encoding="utf-8")
     monkeypatch.setenv("ASA_START_PARAMS", "Map?listen?ServerAdminPassword=x -mods=100,200")
@@ -311,7 +318,7 @@ def test_resolve_proton_version_detected_latest(monkeypatch):
         "_fetch_json",
         lambda _url: {"tag_name": "GE-Proton9-20"},
     )
-    monkeypatch.setattr(runtime_proton, "_check_release_assets", lambda _version: True)
+    monkeypatch.setattr(runtime_proton, "_check_release_assets", lambda _version, execution_context=None: True)
     logger = logging.getLogger("test")
 
     selection = runtime_proton.resolve_proton_version(logger, _proton_settings())
@@ -323,7 +330,7 @@ def test_resolve_proton_version_detected_latest(monkeypatch):
 
 def test_resolve_proton_version_fallback(monkeypatch):
     monkeypatch.setattr(runtime_proton, "_fetch_json", lambda _url: None)
-    monkeypatch.setattr(runtime_proton, "find_latest_release_with_assets", lambda skip_version=None: None)
+    monkeypatch.setattr(runtime_proton, "find_latest_release_with_assets", lambda skip_version=None, execution_context=None: None)
     logger = logging.getLogger("test")
 
     selection = runtime_proton.resolve_proton_version(logger, _proton_settings())
@@ -343,9 +350,13 @@ def test_verify_sha512_ok(tmp_path):
     assert runtime_proton._verify_sha512(archive, checksum) is True
 
 
-def test_scheduler_contract_exports_env(monkeypatch):
+@pytest.mark.parametrize("warnings", [None, ""])
+def test_scheduler_contract_exports_env(monkeypatch, warnings):
     monkeypatch.setenv("SERVER_RESTART_CRON", "0 4 * * *")
-    monkeypatch.delenv("SERVER_RESTART_WARNINGS", raising=False)
+    if warnings is None:
+        monkeypatch.delenv("SERVER_RESTART_WARNINGS", raising=False)
+    else:
+        monkeypatch.setenv("SERVER_RESTART_WARNINGS", warnings)
     logger = logging.getLogger("test")
     settings = RuntimeSettings.from_env()
     supervisor = ServerSupervisor(settings, logger)
@@ -375,7 +386,7 @@ def test_scheduler_contract_exports_env(monkeypatch):
     assert calls["env"]["ASA_SUPERVISOR_PID_FILE"]
     assert calls["env"]["ASA_SERVER_PID_FILE"]
     assert calls["env"]["SERVER_RESTART_WARNINGS"] == "30,5,1"
-    assert "SERVER_RESTART_WARNINGS" not in os.environ
+    assert os.environ.get("SERVER_RESTART_WARNINGS") == warnings
 
 
 def test_configure_runtime_logging_invalid_level_warns(monkeypatch, caplog):
@@ -463,6 +474,66 @@ def test_shutdown_sequence_saves_waits_then_terminates(monkeypatch):
     assert events == ["saveworld", ("sleep", 3), ("stop", process)]
 
 
+@pytest.mark.parametrize("request_fails", [False, True])
+@pytest.mark.parametrize("saveworld_succeeds", [False, True])
+def test_translated_shutdown_ends_wine_session_after_save_delay_before_process_signals(monkeypatch, caplog, request_fails, saveworld_succeeds):
+    events = []
+    supervisor = ServerSupervisor(
+        RuntimeSettings.from_env({"ASA_TRANSLATOR_MODE": "none", "ASA_SHUTDOWN_SAVEWORLD_DELAY": "3"}),
+        logging.getLogger("test-wine-shutdown"),
+    )
+    supervisor.execution_context = replace(supervisor.execution_context, translator_mode="fex")
+    supervisor.server_process = Mock(pid=4242)
+    supervisor.proton = ProtonSelection("10-34", runtime_proton.ORIGIN_PINNED)
+    supervisor.server_env = {"STEAM_COMPAT_DATA_PATH": "/fixture/prefix"}
+    monkeypatch.setattr(supervisor, "_server_is_running", lambda _: True)
+    monkeypatch.setattr(supervisor, "_send_saveworld", lambda: events.append("saveworld") or saveworld_succeeds)
+    monkeypatch.setattr(runtime_supervisor.time, "sleep", lambda seconds: events.append(("sleep", seconds)))
+
+    def request(proton_name, context, environment, logger):
+        assert proton_name == supervisor.proton.directory_name
+        assert context is supervisor.execution_context
+        assert environment is supervisor.server_env
+        events.append("wine-session")
+        if request_fails:
+            raise RuntimeError("fixture Wine session timeout")
+
+    monkeypatch.setattr(runtime_supervisor, "end_proton_session", request)
+    monkeypatch.setattr(supervisor, "_stop_server_process", lambda _: events.append("stop"))
+
+    supervisor._perform_shutdown_sequence(signal.SIGTERM, "container shutdown")
+
+    assert events == ["saveworld", *([("sleep", 3)] if saveworld_succeeds else []), "wine-session", "stop"]
+    if request_fails:
+        assert "fixture Wine session timeout" in caplog.text
+        assert "Continuing with server process shutdown" in caplog.text
+
+
+def test_translated_shutdown_reaches_the_prefix_after_its_process_group_exited(monkeypatch):
+    supervisor = ServerSupervisor(
+        RuntimeSettings.from_env({"ASA_TRANSLATOR_MODE": "none", "ASA_SHUTDOWN_SAVEWORLD_DELAY": "0"}),
+        logging.getLogger("test-detached-wine"),
+    )
+    supervisor.execution_context = replace(supervisor.execution_context, translator_mode="fex")
+    supervisor.server_process = Mock(pid=4242)
+    supervisor.proton = ProtonSelection("10-34", runtime_proton.ORIGIN_PINNED)
+    supervisor.server_env = {"STEAM_COMPAT_DATA_PATH": "/fixture/prefix"}
+    monkeypatch.setattr(supervisor, "_server_is_running", lambda _: False)
+    saveworld = Mock(return_value=True)
+    monkeypatch.setattr(supervisor, "_send_saveworld", saveworld)
+    request = Mock()
+    monkeypatch.setattr(runtime_supervisor, "end_proton_session", request)
+
+    supervisor._perform_shutdown_sequence(signal.SIGTERM, "container shutdown")
+
+    saveworld.assert_called_once_with()
+    request.assert_called_once_with(
+        supervisor.proton.directory_name, supervisor.execution_context, supervisor.server_env, supervisor.logger
+    )
+    supervisor.server_process.terminate.assert_not_called()
+    supervisor.server_process.kill.assert_not_called()
+
+
 def test_shutdown_escalates_to_sigkill_after_timeout(monkeypatch):
     supervisor = ServerSupervisor(
         RuntimeSettings.from_env({"ASA_SHUTDOWN_TIMEOUT": "2"}),
@@ -486,14 +557,20 @@ def test_supervisor_log_hides_password_but_launches_with_it(monkeypatch, tmp_pat
     supervisor = ServerSupervisor(RuntimeSettings.from_env({}), logger)
     process = Mock(pid=4242)
     process.wait.return_value = 0
+    proton_dir = tmp_path / "GE-Protontest"
+    proton_dir.mkdir()
+    launcher = proton_dir / "proton"
+    launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+    launcher.chmod(0o755)
+    monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(tmp_path))
 
-    monkeypatch.setattr(runtime_supervisor, "update_server_files", lambda *_: None)
+    monkeypatch.setattr(runtime_supervisor, "update_server_files", lambda *_, **kwargs: None)
     monkeypatch.setattr(runtime_supervisor, "prepare_start_params", lambda *_: params)
-    monkeypatch.setattr(runtime_supervisor, "prepare_proton", lambda *_: ProtonSelection("test", runtime_proton.ORIGIN_PINNED))
+    monkeypatch.setattr(runtime_supervisor, "prepare_proton", lambda *_, **kwargs: ProtonSelection("test", runtime_proton.ORIGIN_PINNED))
     monkeypatch.setattr(runtime_supervisor, "ensure_proton_compat_data", lambda *_: None)
     monkeypatch.setattr(runtime_supervisor, "resolve_launch_binary", lambda *_: "ArkAscendedServer.exe")
     monkeypatch.setattr(runtime_supervisor, "PID_FILE", str(tmp_path / "server.pid"))
-    monkeypatch.setattr(runtime_supervisor.LaunchEnvironment, "for_server", lambda _self, line: {"ASA_START_PARAMS": line})
+    monkeypatch.setattr(runtime_supervisor.LaunchEnvironment, "for_server", lambda _self, line, **kwargs: {"ASA_START_PARAMS": line})
     monkeypatch.setattr(runtime_supervisor, "configure_wine_sync", lambda *_: None)
     monkeypatch.setattr(supervisor, "_start_log_streamer", lambda: None)
     monkeypatch.setattr(runtime_supervisor.subprocess, "Popen", Mock(return_value=process))
@@ -736,36 +813,6 @@ def test_verify_sha512_requires_exact_filename_match(tmp_path):
     assert runtime_proton._verify_sha512(archive, checksum) is False
 
 
-def test_scheduler_contract_defaults_warnings_when_empty(monkeypatch):
-    monkeypatch.setenv("SERVER_RESTART_CRON", "0 4 * * *")
-    monkeypatch.setenv("SERVER_RESTART_WARNINGS", "")
-    logger = logging.getLogger("test")
-    settings = RuntimeSettings.from_env()
-    supervisor = ServerSupervisor(settings, logger)
-
-    class DummyProcess:
-        pid = 999
-
-        @staticmethod
-        def poll():
-            return None
-
-    captured = {}
-
-    def fake_popen(command, *args, **kwargs):
-        captured["env"] = kwargs["env"]
-        return DummyProcess()
-
-    monkeypatch.setattr(os.path, "isfile", lambda path: True)
-    monkeypatch.setattr(os, "access", lambda path, mode: True)
-    monkeypatch.setattr("server_runtime.supervisor.ASA_CTRL_BIN", "/usr/local/bin/asa-ctrl")
-    monkeypatch.setattr("server_runtime.supervisor.subprocess.Popen", fake_popen)
-
-    supervisor.start_restart_scheduler()
-
-    assert captured["env"]["SERVER_RESTART_WARNINGS"] == "30,5,1"
-
-
 def test_chown_path_uses_no_symlink_follow(monkeypatch, tmp_path):
     calls = []
 
@@ -934,6 +981,154 @@ def test_ensure_machine_id_write_error_is_non_fatal(monkeypatch, tmp_path, caplo
 
     assert "Failed to initialize /etc/machine-id" in caplog.text
 
+def test_run_probe_command_raises_on_nonzero(monkeypatch):
+    context = runtime_translation.ExecutionContext(
+        architecture="arm64",
+        translator_mode="fex",
+        runner_prefix=("/usr/bin/FEXInterpreter",),
+        wraps_with_shell=False,
+        probe_timeout=20,
+    )
+
+    result = MagicMock(returncode=1)
+    result.__enter__.return_value = result
+    result.communicate.return_value = (None, "failed")
+    monkeypatch.setattr(runtime_translation.subprocess, "Popen", lambda *args, **kwargs: result)
+
+    with pytest.raises(RuntimeError, match="translation probe failed"):
+        runtime_translation.run_probe_command(
+            context,
+            ["/home/gameserver/steamcmd/linux32/steamcmd", "+quit"],
+            "/home/gameserver/steamcmd",
+            logging.getLogger("test-probe"),
+            "SteamCMD",
+        )
+
+
+def test_build_launch_command_wraps_proton_for_translator(monkeypatch, tmp_path):
+    proton_root = tmp_path / "compat" / "GE-ProtonX"
+    proton_root.mkdir(parents=True, exist_ok=True)
+    proton_path = proton_root / "proton"
+    proton_path.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(tmp_path / "compat"))
+    monkeypatch.setattr(runtime_proton.os, "access", lambda path, mode: True)
+
+    context = runtime_translation.ExecutionContext(
+        architecture="arm64",
+        translator_mode="fex",
+        runner_prefix=("/usr/bin/FEXBash", "-c"),
+        wraps_with_shell=True,
+        probe_timeout=20,
+    )
+
+    command = runtime_proton.build_launch_command(
+        "GE-ProtonX",
+        "ArkAscendedServer.exe",
+        "Map?listen -nosteam",
+        context,
+    )
+
+    assert command[:2] == ["/usr/bin/FEXBash", "-c"]
+    assert str(proton_path) in command[2]
+    assert "run ArkAscendedServer.exe" in command[2]
+
+
+def test_supervisor_switches_to_safe_profile_after_two_early_crashes(monkeypatch):
+    logger = logging.getLogger("test-safe-switch")
+    settings = RuntimeSettings.from_env()
+    context = runtime_translation.ExecutionContext(
+        architecture="arm64",
+        translator_mode="fex",
+        runner_prefix=("/usr/bin/FEXInterpreter",),
+        wraps_with_shell=False,
+        probe_timeout=20,
+    )
+
+    monkeypatch.setattr("server_runtime.supervisor.resolve_execution_context", lambda _logger, _settings: context)
+    supervisor = ServerSupervisor(settings, logger)
+
+    runs = {"count": 0}
+
+    def fake_launch():
+        runs["count"] += 1
+        supervisor.last_run_duration = 30
+        if runs["count"] >= 3:
+            supervisor.supervisor_exit_requested = True
+        return 1
+
+    monkeypatch.setattr(supervisor, "_launch_server_once", fake_launch)
+    monkeypatch.setattr("server_runtime.supervisor.time.sleep", lambda _seconds: None)
+
+    code = supervisor.run()
+
+    assert code == 1
+    assert runs["count"] == 3
+    assert supervisor.proton_profile == "safe"
+
+
+def test_supervisor_fails_fast_after_early_crash_in_safe_profile(monkeypatch):
+    logger = logging.getLogger("test-safe-failfast")
+    settings = RuntimeSettings.from_env({"ASA_PROTON_PROFILE": "safe"})
+    context = runtime_translation.ExecutionContext(
+        architecture="arm64",
+        translator_mode="fex",
+        runner_prefix=("/usr/bin/FEXInterpreter",),
+        wraps_with_shell=False,
+        probe_timeout=20,
+    )
+
+    monkeypatch.setattr("server_runtime.supervisor.resolve_execution_context", lambda _logger, _settings: context)
+    supervisor = ServerSupervisor(settings, logger)
+    launches = []
+
+    def fake_launch():
+        launches.append(supervisor.proton_profile)
+        supervisor.last_run_duration = 25
+        if len(launches) >= 3:
+            supervisor.supervisor_exit_requested = True
+        return 1
+
+    monkeypatch.setattr(supervisor, "_launch_server_once", fake_launch)
+    monkeypatch.setattr("server_runtime.supervisor.time.sleep", lambda _seconds: None)
+
+    code = supervisor.run()
+
+    assert code == 1
+    assert launches == ["safe"]
+
+
+@pytest.mark.parametrize("profile", ["balanced", "safe"])
+def test_supervisor_startup_exceptions_do_not_escalate_crash_profile(monkeypatch, profile):
+    logger = logging.getLogger("test-safe-failfast-exception")
+    settings = RuntimeSettings.from_env({"ASA_PROTON_PROFILE": profile})
+    context = runtime_translation.ExecutionContext(
+        architecture="arm64",
+        translator_mode="fex",
+        runner_prefix=("/usr/bin/FEXInterpreter",),
+        wraps_with_shell=False,
+        probe_timeout=20,
+    )
+
+    monkeypatch.setattr("server_runtime.supervisor.resolve_execution_context", lambda _logger, _settings: context)
+    supervisor = ServerSupervisor(settings, logger)
+
+    runs = {"count": 0}
+
+    def fake_launch():
+        runs["count"] += 1
+        if runs["count"] >= 4:
+            supervisor.supervisor_exit_requested = True
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(supervisor, "_launch_server_once", fake_launch)
+    monkeypatch.setattr("server_runtime.supervisor.time.sleep", lambda _seconds: None)
+
+    code = supervisor.run()
+
+    assert code == 1
+    assert runs["count"] == 4
+    assert supervisor.proton_profile == profile
 
 def _write_proton_script(tmp_path, proton_dir_name):
     proton_dir = tmp_path / proton_dir_name
@@ -1010,7 +1205,7 @@ def test_proton_install_rejects_unverified_archive_before_extraction(
         checksum_url="https://example.invalid/GE-Proton11-5.sha512sum",
     )
     monkeypatch.setattr(runtime_proton, "STEAM_COMPAT_DIR", str(tmp_path))
-    monkeypatch.setattr(runtime_proton, "find_release_archive", lambda _: release)
+    monkeypatch.setattr(runtime_proton, "find_release_archive", lambda _, execution_context=None: release)
 
     def fake_download(url, destination):
         if url == release.checksum_url and checksum_content is None:
@@ -1110,9 +1305,10 @@ def test_find_missing_proton_library_can_be_skipped(monkeypatch, tmp_path):
 
 def _stub_proton_install(monkeypatch, missing):
     """Record install calls and answer the preflight with `missing`."""
+    monkeypatch.setenv("PROTON_VERSION", "")
     installed = []
 
-    def fake_install(version, _logger, _settings):
+    def fake_install(version, _logger, _settings, execution_context=None):
         installed.append(version)
         return f"GE-Proton{version}"
 
@@ -1120,7 +1316,7 @@ def _stub_proton_install(monkeypatch, missing):
     monkeypatch.setattr(
         runtime_proton,
         "find_missing_proton_library",
-        lambda proton_dir_name, _logger, _settings: missing(proton_dir_name),
+        lambda proton_dir_name, _logger, _settings, execution_context=None: missing(proton_dir_name),
     )
     return installed
 
@@ -1129,7 +1325,7 @@ def test_prepare_proton_returns_verified_install(monkeypatch):
     monkeypatch.setattr(
         runtime_proton,
         "resolve_proton_version",
-        lambda _logger, _settings, _previous=None: ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO),
+        lambda _logger, _settings, _previous=None, execution_context=None: ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO),
     )
     _stub_proton_install(monkeypatch, lambda _name: None)
 
@@ -1143,7 +1339,7 @@ def test_prepare_proton_falls_back_when_detected_build_is_unsupported(monkeypatc
     monkeypatch.setattr(
         runtime_proton,
         "resolve_proton_version",
-        lambda _logger, _settings, _previous=None: ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO),
+        lambda _logger, _settings, _previous=None, execution_context=None: ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO),
     )
     installed = _stub_proton_install(
         monkeypatch,
@@ -1162,14 +1358,10 @@ def test_prepare_proton_falls_back_when_detected_build_is_unsupported(monkeypatc
 
 
 def test_prepare_proton_keeps_the_fallback_across_relaunches(monkeypatch):
-    """The supervisor's relaunch loop must not re-probe a build already rejected."""
-    resolved = []
-
-    def fake_resolve(_logger, settings, previous=None):
-        resolved.append(previous)
-        return previous or ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO)
-
-    monkeypatch.setattr(runtime_proton, "resolve_proton_version", fake_resolve)
+    """A carried fallback selection must not re-probe a build already rejected."""
+    fetch = Mock(return_value={"tag_name": "GE-Proton11-3"})
+    monkeypatch.setattr(runtime_proton, "_fetch_json", fetch)
+    monkeypatch.setattr(runtime_proton, "_asset_exists", lambda _url: True)
     installed = _stub_proton_install(
         monkeypatch,
         lambda name: "libvulkan.so.1" if name == "GE-Proton11-3" else None,
@@ -1184,7 +1376,9 @@ def test_prepare_proton_keeps_the_fallback_across_relaunches(monkeypatch):
     assert second.origin == runtime_proton.ORIGIN_FALLBACK
     # The rejected 11-3 build is installed once, on the first launch only.
     assert installed == ["11-3", runtime_proton.FALLBACK_PROTON_VERSION, runtime_proton.FALLBACK_PROTON_VERSION]
-    assert resolved == [None, first]
+    fetch.assert_called_once_with(
+        f"https://api.github.com/repos/{runtime_proton.PROTON_REPO}/releases/latest"
+    )
 
 
 def test_prepare_proton_does_not_swap_pinned_version(monkeypatch):
@@ -1204,7 +1398,7 @@ def test_resolve_proton_version_reuses_an_earlier_selection(monkeypatch):
         return {"tag_name": "GE-Proton11-3"}
 
     monkeypatch.setattr(runtime_proton, "_fetch_json", fake_fetch)
-    monkeypatch.setattr(runtime_proton, "_check_release_assets", lambda _version: True)
+    monkeypatch.setattr(runtime_proton, "_check_release_assets", lambda _version, execution_context=None: True)
     logger = logging.getLogger("test-resolve")
     settings = _proton_settings()
 

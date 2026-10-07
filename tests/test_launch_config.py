@@ -119,9 +119,14 @@ def test_value_prefers_query_segment_over_flags():
     assert config.value("Port") == "7777"
 
 
-def test_value_reads_flags_when_query_has_no_entry():
-    config = LaunchConfiguration.parse("Map?listen -WinLiveMaxPlayers=50")
-    assert config.value("WinLiveMaxPlayers") == "50"
+@pytest.mark.parametrize(
+    "key, value",
+    [("WinLiveMaxPlayers", "50"), ("ServerAdminPassword", "mypass123")],
+)
+def test_value_reads_flags_when_query_has_no_entry(key, value):
+    config = LaunchConfiguration.parse(f"Map?listen -{key}={value}")
+    assert config.value(key) == value
+    assert config.value("NonExistent") is None
 
 
 def test_value_does_not_match_a_longer_key_suffix():

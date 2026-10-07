@@ -18,6 +18,7 @@ to know which variable belongs to which child.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,9 +26,11 @@ from typing import Mapping, Optional
 
 from .constants import (
     ASA_COMPAT_DATA,
+    DEFAULT_PROTON_PROFILE,
     PID_FILE,
     STEAM_HOME_DIR,
     SUPERVISOR_PID_FILE,
+    VALID_PROTON_PROFILES,
     RuntimeSettings,
 )
 
@@ -39,6 +42,19 @@ HEADLESS_DEFAULTS = {
     "SDL_AUDIODRIVER": "dummy",
     "XDG_SESSION_TYPE": "headless",
 }
+
+
+def resolve_proton_profile(raw_profile: str, logger: logging.Logger) -> str:
+    """Normalize the configured stability profile independently of translation."""
+    profile = (raw_profile or DEFAULT_PROTON_PROFILE).strip().lower()
+    if profile not in VALID_PROTON_PROFILES:
+        logger.warning(
+            "Invalid ASA_PROTON_PROFILE %r; falling back to %r.",
+            raw_profile,
+            DEFAULT_PROTON_PROFILE,
+        )
+        return DEFAULT_PROTON_PROFILE
+    return profile
 
 
 def _resolve_runtime_dir(base: Mapping[str, str]) -> str:
@@ -84,7 +100,9 @@ class LaunchEnvironment:
         source: Mapping[str, str] = os.environ if base is None else base
         return cls(base=dict(source), settings=settings)
 
-    def for_server(self, launch_line: str = "") -> dict[str, str]:
+    def for_server(
+        self, launch_line: str = "", *, proton_profile: str | None = None
+    ) -> dict[str, str]:
         """The environment the ASA server runs under Proton with.
 
         Creates `XDG_RUNTIME_DIR` as a side effect, because the directory has to
@@ -98,6 +116,14 @@ class LaunchEnvironment:
             env.setdefault(key, value)
         if launch_line:
             env["ASA_START_PARAMS"] = launch_line
+        profile = resolve_proton_profile(
+            self.settings.proton_profile if proton_profile is None else proton_profile,
+            logging.getLogger(__name__),
+        )
+        if profile == "safe":
+            env["PROTON_NO_ESYNC"] = "1"
+            env["PROTON_NO_FSYNC"] = "1"
+            env.setdefault("WINEDEBUG", "-all")
         return env
 
     def for_scheduler(self) -> dict[str, str]:

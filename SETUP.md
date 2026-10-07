@@ -42,6 +42,8 @@ Your complete guide to getting an amazing ARK server up and running! This covers
 
    **Tip:** The container already passes `-nosteam` in `ASA_START_PARAMS` (also required if you roll your own launch line) to avoid the startup `Error 3` where Steam refuses to fire up inside the container.
 
+   **ARM64 tip:** Use `ghcr.io/justamply/asa-linux-server:arm64-experimental` for ARM64 hosts while support is experimental.
+
 4. **Watch it come to life:**
    ```bash
    docker logs -f asa-server-1
@@ -137,12 +139,45 @@ cluster member to a new port.
 
 **Other options:**
 - **🕒 Timezone**: Set `TZ=Europe/Berlin` (or your region) so server logs follow your local time (default: `UTC`)
+- **🧭 Translator mode**: `ASA_TRANSLATOR_MODE=auto|fex|none` (default `auto`; resolves to `fex` on ARM64)
+- **⏱️ Translator probe timeout**: `ASA_TRANSLATOR_PROBE_TIMEOUT=20` (seconds)
+- **🛡️ Proton stability profile**: `ASA_PROTON_PROFILE=balanced|safe` (`safe` disables esync/fsync)
 
 ### 📂 File Locations
 
 Your server files are stored in Docker volumes:
 - **Server files**: `/var/lib/docker/volumes/asa-server_server-files-1/_data/`
 - **Config files**: `/var/lib/docker/volumes/asa-server_server-files-1/_data/ShooterGame/Saved/Config/WindowsServer/`
+
+## 🧪 ARM64 Experimental Mode
+
+ARM64 images are published with dedicated experimental tags:
+
+- `ghcr.io/justamply/asa-linux-server:arm64-experimental`
+- `ghcr.io/justamply/asa-linux-server:<version>-arm64-experimental`
+
+Both images run the application and `asa-ctrl` on Python 3.14. ARM64 builds checksum-verified CPython against Ubuntu 24.04 in a separate stage and installs its runtime under `/usr/local`; it does not replace Ubuntu's `/usr/bin/python3`. Compilers, development headers and PPA setup helpers stay out of the final image. The application uses `python`/`python3.14`; `python3` is reserved for the Ubuntu-provided x86 guest interpreter so Proton's shebang cannot escape FEX through a native interpreter.
+
+The ARM64 stage installs a pinned FEX build and an x86 RootFS built from signed Ubuntu 24.04 packages. The guest contains explicit 32-bit SteamCMD and 64-bit Proton libraries, Python and headless Wine dependencies, without desktop applications, Mesa drivers or LLVM. Builds no longer depend on a dated FEX CDN snapshot. Guest identity and mount files are removed so the container's users, DNS and game volumes remain visible. The RootFS is copied as a directory; no privileged mode or `/dev/fuse` mount is required. QEMU is used only to build this AMD64 guest stage on the ARM64 CI runner; the runtime and acceptance checks use native ARM64 FEX. Native AMD64 keeps its existing Python base image and launch behavior.
+
+Behavior on ARM64:
+- Startup performs a SteamCMD translation probe before full updates/downloads.
+- `Exec format error` typically indicates translator setup mismatch; verify `ASA_TRANSLATOR_MODE` and FEX availability.
+- Keep persistent volumes mounted so SteamCMD/Proton caches are reused between restarts.
+
+Translated probes and servers run in isolated process groups. Probe timeouts
+terminate all children. After `saveworld` and its save delay, translated restart
+and shutdown first use the installed Proton launcher to request
+`wineboot --end-session --shutdown` for the same prefix. The request has a
+30-second timeout and also reaches applications outside the launcher's group,
+including when that group has already exited. If it fails, shutdown logs the
+error and continues. It then sends SIGTERM to the whole server
+group. SIGKILL removes remaining group members when the launcher exits or
+`ASA_SHUTDOWN_TIMEOUT` expires. Translated cleanup also stops and waits for the
+prefix-specific Wine session, including Wine children outside the launcher's
+process group.
+
+Native ARM64 CI verifies real SteamCMD self-update and anonymous login plus a Windows command through checksum-verified GE-Proton and FEX, without privileged mode or an ARK download. It also exercises the production supervisor with translated guest Python children and a long-lived Windows command, checking restart, graceful SIGTERM, forced cleanup of a stubborn child and absence of living descendants. These fixtures replace ARK preparation and RCON. Every image check pins the fallback Proton baseline; the weekly refresh additionally tests the default latest-release selection and its preflight fallback through actual Windows execution. ARM64 acceptance still requires the full ARK install, startup and soak test on the target host. The early-crash fallback applies only to translated server runs; download and preparation errors do not trigger a profile change.
 
 ## 🌐 Port Configuration
 
@@ -345,6 +380,9 @@ docker run --rm --entrypoint /usr/local/bin/asa-ctrl asa-linux-server:smoke --he
 docker run --rm --user 25000:25000 --entrypoint python \
   --mount "type=bind,src=${PWD}/scripts/verify_runtime_lifecycle.py,dst=/tmp/verify_runtime_lifecycle.py,readonly" \
   asa-linux-server:smoke /tmp/verify_runtime_lifecycle.py
+docker run --rm --user 25000:25000 --entrypoint python \
+  --mount "type=bind,src=${PWD}/scripts/verify_translated_lifecycle.py,dst=/tmp/verify_translated_lifecycle.py,readonly" \
+  asa-linux-server:smoke /tmp/verify_translated_lifecycle.py --native-fixture
 ```
 
 The lifecycle check runs the discrete launch settings and legacy fallback cases
@@ -352,6 +390,27 @@ in parallel, each with its own temporary files and child processes. It verifies
 authenticated RCON, scheduler warnings, restart, the real save delay, shutdown
 and cleanup. It replaces SteamCMD, Proton and the game binary at their external
 interfaces; it does not download or launch ARK or use existing server volumes.
+The additional native fixture check exercises the translated supervisor's
+process-group policy with Linux Python children. It verifies graceful signals
+and forced cleanup, but provides no evidence about FEX or Proton.
+
+On a native ARM64 host, build the ARM64 image and run the translated checks in a
+disposable container with both scripts mounted. This downloads SteamCMD and
+checksum-verified Proton, then checks Windows execution and translated lifecycle
+cleanup without installing ARK:
+
+```bash
+docker build --platform linux/arm64 -t asa-linux-server:arm64-smoke .
+docker run --rm --user 25000:25000 --entrypoint python \
+  --mount "type=bind,src=${PWD}/scripts/verify_arm64_translation.py,dst=/tmp/verify_arm64_translation.py,readonly" \
+  --mount "type=bind,src=${PWD}/scripts/verify_translated_lifecycle.py,dst=/tmp/verify_translated_lifecycle.py,readonly" \
+  asa-linux-server:arm64-smoke /tmp/verify_arm64_translation.py
+```
+
+Add `--proton-version auto` after the script path to check the same Proton
+selection as a default container start, including the preflight fallback. CI
+runs this additional check weekly; ordinary image checks retain the reproducible
+pinned baseline.
 
 CI skips Docker for documentation-only and test-only changes. Release
 tags and a weekly refresh always run all checks; the refresh rebuilds without

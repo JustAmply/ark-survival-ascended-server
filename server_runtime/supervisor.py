@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shlex
 import signal
 import subprocess
 import sys
@@ -21,19 +20,27 @@ from .bootstrap import configure_timezone, ensure_machine_id, maybe_debug_hold
 from .constants import (
     ASA_BINARY_DIR,
     ASA_CTRL_BIN,
+    EARLY_CRASH_THRESHOLD_SECONDS,
     LOG_DIR,
     PID_FILE,
-    STEAM_COMPAT_DIR,
     SUPERVISOR_PID_FILE,
     RuntimeSettings,
 )
-from .launch_env import LaunchEnvironment
+from .launch_env import LaunchEnvironment, resolve_proton_profile
 from .logging_utils import configure_runtime_logging
 from .params import prepare_start_params
 from .permissions import ensure_permissions_and_drop_privileges
 from .plugins import resolve_launch_binary
-from .proton import ProtonSelection, ensure_proton_compat_data, prepare_proton
-from .steamcmd import ensure_steamcmd, update_server_files
+from .proton import (
+    ProtonSelection,
+    build_launch_command,
+    end_proton_session,
+    ensure_proton_compat_data,
+    prepare_proton,
+    stop_proton_session,
+)
+from .steamcmd import ensure_steamcmd, probe_steamcmd_translation, update_server_files
+from .translation import format_execution_error, resolve_execution_context
 from .wine_sync import configure_wine_sync
 
 
@@ -55,6 +62,12 @@ class ServerSupervisor:
         self.shutdown_in_progress = False
         self.supervisor_exit_requested = False
         self.restart_requested = False
+        self.execution_context = resolve_execution_context(logger, settings)
+        self.proton_profile = resolve_proton_profile(settings.proton_profile, logger)
+        self.logger.info("Effective Proton profile: %s", self.proton_profile)
+        self.translator_probe_complete = False
+        self.quick_crash_count = 0
+        self.last_run_duration = 0.0
 
     def register_supervisor_pid(self) -> None:
         Path(SUPERVISOR_PID_FILE).write_text(f"{os.getpid()}\n", encoding="utf-8")
@@ -103,36 +116,44 @@ class ServerSupervisor:
             stderr=subprocess.DEVNULL,
         )
 
-    def _build_launch_command(self, proton_dir_name: str, launch_binary: str, params: str) -> list[str]:
-        proton_path = str(Path(STEAM_COMPAT_DIR) / proton_dir_name / "proton")
-        # launch_binary is intentionally a filename; process cwd is ASA_BINARY_DIR.
-        command = [proton_path, "run", launch_binary]
-        if params.strip():
-            command.extend(shlex.split(params))
-        return command
-
     def _launch_server_once(self) -> int:
         started = time.monotonic()
-        update_server_files(self.logger, self.settings)
+        if self.execution_context.translation_enabled and not self.translator_probe_complete:
+            probe_steamcmd_translation(self.execution_context, self.logger)
+            self.translator_probe_complete = True
+        update_server_files(self.logger, self.settings, execution_context=self.execution_context)
         self.logger.info("Server file update completed in %.1fs.", time.monotonic() - started)
         params = prepare_start_params(self.logger)
         started = time.monotonic()
-        self.proton = prepare_proton(self.logger, self.settings, self.proton)
+        self.proton = prepare_proton(
+            self.logger, self.settings, self.proton, execution_context=self.execution_context
+        )
         proton_dir_name = self.proton.directory_name
         ensure_proton_compat_data(proton_dir_name, self.logger)
         self.logger.info("Proton preparation completed in %.1fs.", time.monotonic() - started)
-        self.server_env = LaunchEnvironment.from_process(self.settings).for_server(params)
+        self.server_env = LaunchEnvironment.from_process(self.settings).for_server(
+            params, proton_profile=self.proton_profile
+        )
         # The server inherits the raised limit, which is what esync needs.
-        configure_wine_sync(self.logger)
+        configure_wine_sync(self.logger, self.server_env)
         launch_binary = resolve_launch_binary(self.logger)
         self._start_log_streamer()
 
         self.logger.info("Starting ASA dedicated server.")
         self.logger.info("Start parameters: %s", LaunchConfiguration.parse(params).render_for_logging())
         command = self._build_launch_command(proton_dir_name, launch_binary, params)
-        self.server_process = subprocess.Popen(command, cwd=ASA_BINARY_DIR, env=self.server_env)
+        start_time = time.monotonic()
+        try:
+            self.server_process = subprocess.Popen(
+                command, cwd=ASA_BINARY_DIR, env=self.server_env,
+                start_new_session=self.execution_context.translation_enabled,
+            )
+        except OSError as exc:
+            raise RuntimeError(format_execution_error("Proton launch", exc, self.execution_context)) from exc
         Path(PID_FILE).write_text(f"{self.server_process.pid}\n", encoding="utf-8")
-        return self.server_process.wait()
+        exit_code = self.server_process.wait()
+        self.last_run_duration = max(0.0, time.monotonic() - start_time)
+        return exit_code
 
     def _perform_shutdown_sequence(self, sig: int, purpose: str) -> None:
         if self.shutdown_in_progress:
@@ -145,13 +166,24 @@ class ServerSupervisor:
             purpose,
         )
 
-        if self.server_process is None or self.server_process.poll() is not None:
+        owns_wine_session = (
+            self.execution_context.translation_enabled and self.server_process is not None
+            and self.proton is not None and self.server_env is not None
+        )
+        if not self._server_is_running(self.server_process) and not owns_wine_session:
             self.logger.info("Shutdown requested before launch or after stop; no server process to stop.")
             return
 
         saveworld_sent = self._send_saveworld()
         if saveworld_sent:
             time.sleep(max(self.settings.shutdown_saveworld_delay, 0))
+        if owns_wine_session:
+            try:
+                end_proton_session(
+                    self.proton.directory_name, self.execution_context, self.server_env, self.logger
+                )
+            except RuntimeError as exc:
+                self.logger.warning("%s Continuing with server process shutdown.", exc)
         self._stop_server_process(self.server_process)
 
     def _rcon_settings(self) -> Optional[AsaSettings]:
@@ -179,24 +211,68 @@ class ServerSupervisor:
         return ok
 
     def _stop_server_process(self, process: Optional[subprocess.Popen]) -> None:
-        if process is None or process.poll() is not None:
+        if process is None or not self._server_is_running(process):
             self.logger.info("Server process already stopped.")
             return
 
         self.logger.info("Sending SIGTERM to server process PID %s", process.pid)
-        process.terminate()
+        if self.execution_context.translation_enabled:
+            self._signal_server_group(process, signal.SIGTERM)
+        else:
+            process.terminate()
         timeout = self.settings.shutdown_timeout
         deadline = time.time() + max(timeout, 1)
-        while process.poll() is None and time.time() < deadline:
+        while self._server_is_running(process) and time.time() < deadline:
             time.sleep(1)
 
-        if process.poll() is None:
+        if self._server_is_running(process):
             self.logger.warning(
                 "Server did not stop within %ss; sending SIGKILL to PID %s",
                 timeout,
                 process.pid,
             )
-            process.kill()
+            if self.execution_context.translation_enabled:
+                self._signal_server_group(process, signal.SIGKILL)
+            else:
+                process.kill()
+
+    @staticmethod
+    def _signal_server_group(process: subprocess.Popen, sig: int) -> None:
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            pass
+
+    def _server_is_running(self, process: Optional[subprocess.Popen]) -> bool:
+        if process is None:
+            return False
+        if not self.execution_context.translation_enabled:
+            return process.poll() is None
+        # A translator or Proton wrapper can exit while its children are still
+        # handling SIGTERM. Zombies have exited and must not exhaust the timeout.
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            if fields[0] != "Z" and int(fields[2]) == process.pid:
+                return True
+        return False
+
+    def _cleanup_server_process(self) -> None:
+        if self.execution_context.translation_enabled and self.server_process is not None:
+            # A wrapper can exit before its Wine/FEX children. Its process group
+            # still belongs to this run and must be gone before the next launch.
+            self._signal_server_group(self.server_process, signal.SIGKILL)
+            self.server_process.wait(timeout=5)
+            if self.proton is not None and self.server_env is not None:
+                stop_proton_session(
+                    self.proton.directory_name, self.execution_context, self.server_env, self.logger
+                )
+        else:
+            self._terminate_process(self.server_process)
 
     @staticmethod
     def _signal_name(sig: int) -> str:
@@ -227,13 +303,50 @@ class ServerSupervisor:
         self.restart_requested = True
         self._perform_shutdown_sequence(sig, "scheduled restart")
 
+    def _build_launch_command(self, proton_dir_name: str, launch_binary: str, params: str) -> list[str]:
+        return build_launch_command(
+            proton_dir_name, launch_binary, params, self.execution_context
+        )
+
+    def _apply_early_crash_policy(self, exit_code: int) -> int | None:
+        # The experimental stability policy must not change native restart behavior.
+        if not self.execution_context.translation_enabled:
+            return None
+        if self.last_run_duration >= EARLY_CRASH_THRESHOLD_SECONDS:
+            self.quick_crash_count = 0
+            return None
+
+        if self.proton_profile == "safe":
+            self.logger.error(
+                "Server exited after %.1fs while ASA_PROTON_PROFILE=safe. "
+                "Failing fast to avoid an endless restart loop.",
+                self.last_run_duration,
+            )
+            return exit_code if exit_code != 0 else 1
+
+        self.quick_crash_count += 1
+        self.logger.warning(
+            "Early server exit detected after %.1fs (%s/2) with ASA_PROTON_PROFILE=%s.",
+            self.last_run_duration,
+            self.quick_crash_count,
+            self.proton_profile,
+        )
+
+        if self.quick_crash_count >= 2:
+            self.proton_profile = "safe"
+            self.quick_crash_count = 0
+            self.logger.warning(
+                "Switching ASA_PROTON_PROFILE to 'safe' after repeated early crashes."
+            )
+        return None
+
     def _cleanup_after_run(self) -> None:
-        self._terminate_process(self.server_process)
+        self._cleanup_server_process()
         Path(PID_FILE).unlink(missing_ok=True)
         self.server_process = None
 
     def cleanup(self) -> None:
-        self._terminate_process(self.server_process)
+        self._cleanup_server_process()
         self._terminate_process(self.log_streamer_process)
         self._terminate_process(self.restart_scheduler_process)
         Path(PID_FILE).unlink(missing_ok=True)
@@ -249,10 +362,17 @@ class ServerSupervisor:
 
         while True:
             exit_code = 1
+            server_ran = False
             try:
                 exit_code = self._launch_server_once()
-                self.logger.info("Server process exited with code %s.", exit_code)
+                server_ran = True
+                self.logger.info(
+                    "Server process exited with code %s after %.1fs.",
+                    exit_code,
+                    self.last_run_duration,
+                )
             except Exception:
+                self.last_run_duration = 0.0
                 self.logger.exception("Unhandled exception during server run; will attempt restart.")
             finally:
                 self._cleanup_after_run()
@@ -266,12 +386,18 @@ class ServerSupervisor:
                     "Scheduled restart completed; relaunching after %ss.",
                     self.settings.server_restart_delay,
                 )
+                self.quick_crash_count = 0
             else:
+                fail_fast_code = self._apply_early_crash_policy(exit_code) if server_ran else None
+                if fail_fast_code is not None:
+                    return fail_fast_code
+
                 self.logger.info(
                     "Server exited unexpectedly with code %s; restarting after %ss.",
                     exit_code,
                     self.settings.server_restart_delay,
                 )
+
             self.restart_requested = False
             self.shutdown_in_progress = False
             time.sleep(max(self.settings.server_restart_delay, 0))

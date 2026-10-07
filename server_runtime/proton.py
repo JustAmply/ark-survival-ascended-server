@@ -8,6 +8,8 @@ import logging
 import os
 import platform
 import re
+import shlex
+import signal
 import shutil
 import subprocess
 import sys
@@ -17,7 +19,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from .archive_utils import safe_extract_archive
 from .constants import (
@@ -30,12 +32,14 @@ from .constants import (
     RuntimeSettings,
 )
 from .native_libs import warn_about_missing_native_libraries
+from .translation import ExecutionContext, format_execution_error, normalize_architecture, wrap_command
 
 _SAFE_VERSION_PATTERN = re.compile(r"^[0-9][0-9A-Za-z._-]*$")
 _MISSING_LIBRARY_PATTERN = re.compile(
     r"([A-Za-z0-9_.+-]+\.so(?:\.[0-9]+)*): cannot open shared object file"
 )
 PROTON_PREFLIGHT_TIMEOUT = 60
+PROTON_SHUTDOWN_TIMEOUT = 30
 # Build metadata that cannot identify a rebuild, so results keyed on it are
 # never reused.
 UNCACHEABLE_IMAGE_VERSIONS = frozenset({"", "unknown"})
@@ -103,31 +107,39 @@ class ReleaseArchive:
     checksum_url: str
 
 
-def _architecture_suffixes() -> tuple[str, ...]:
-    machine = platform.machine().lower()
-    if machine in {"x86_64", "amd64"}:
+def _architecture_suffixes(execution_context: Optional[ExecutionContext] = None) -> tuple[str, ...]:
+    # FEX executes x86 Proton in its guest rootfs, even on an ARM64 host.
+    if execution_context is not None:
+        architecture = (
+            "amd64" if execution_context.translation_enabled else execution_context.architecture
+        )
+    else:
+        architecture = normalize_architecture(platform.machine())
+    if architecture == "amd64":
         return ("-x86_64",)
-    if machine in {"aarch64", "arm64"}:
+    if architecture == "arm64":
         return ("-aarch64",)
     return ()
 
 
-def _asset_bases(version: str) -> list[str]:
+def _asset_bases(version: str, execution_context: Optional[ExecutionContext] = None) -> list[str]:
     """Candidate asset names, oldest naming scheme first.
 
     Releases used to ship a single ``GE-ProtonX-Y.tar.gz``; newer ones publish
     per-architecture assets such as ``GE-ProtonX-Y-x86_64.tar.gz``.
     """
     plain = f"GE-Proton{version}"
-    return [plain, *(f"{plain}{suffix}" for suffix in _architecture_suffixes())]
+    return [plain, *(f"{plain}{suffix}" for suffix in _architecture_suffixes(execution_context))]
 
 
-def find_release_archive(version: str) -> Optional[ReleaseArchive]:
+def find_release_archive(
+    version: str, execution_context: Optional[ExecutionContext] = None
+) -> Optional[ReleaseArchive]:
     """Return the first published asset pair usable on this architecture."""
     if not version or not _SAFE_VERSION_PATTERN.match(version):
         return None
     base = f"https://github.com/{PROTON_REPO}/releases/download/GE-Proton{version}"
-    for asset_base in _asset_bases(version):
+    for asset_base in _asset_bases(version, execution_context):
         archive_url = f"{base}/{asset_base}.tar.gz"
         checksum_url = f"{base}/{asset_base}.sha512sum"
         if _asset_exists(archive_url) and _asset_exists(checksum_url):
@@ -140,8 +152,8 @@ def find_release_archive(version: str) -> Optional[ReleaseArchive]:
     return None
 
 
-def _check_release_assets(version: str) -> bool:
-    return find_release_archive(version) is not None
+def _check_release_assets(version: str, execution_context: Optional[ExecutionContext] = None) -> bool:
+    return find_release_archive(version, execution_context=execution_context) is not None
 
 
 def _extract_versions(tags: Iterable[str]) -> list[str]:
@@ -153,7 +165,9 @@ def _extract_versions(tags: Iterable[str]) -> list[str]:
     return versions
 
 
-def find_latest_release_with_assets(skip_version: Optional[str] = None) -> Optional[str]:
+def find_latest_release_with_assets(
+    skip_version: Optional[str] = None, execution_context: Optional[ExecutionContext] = None
+) -> Optional[str]:
     for page in (1, 2, 3):
         url = f"https://api.github.com/repos/{PROTON_REPO}/releases?per_page=10&page={page}"
         payload = _fetch_json(url)
@@ -163,7 +177,7 @@ def find_latest_release_with_assets(skip_version: Optional[str] = None) -> Optio
         for version in _extract_versions(tags):
             if skip_version and version == skip_version:
                 continue
-            if _check_release_assets(version):
+            if _check_release_assets(version, execution_context=execution_context):
                 return version
     return None
 
@@ -188,6 +202,7 @@ def resolve_proton_version(
     logger: logging.Logger,
     settings: RuntimeSettings,
     previous: Optional[ProtonSelection] = None,
+    execution_context: Optional[ExecutionContext] = None,
 ) -> ProtonSelection:
     """Decide which GE-Proton build to run.
 
@@ -213,7 +228,7 @@ def resolve_proton_version(
     if isinstance(payload, dict):
         tag = str(payload.get("tag_name", ""))
         detected = tag.removeprefix("GE-Proton")
-    if detected and _check_release_assets(detected):
+    if detected and _check_release_assets(detected, execution_context=execution_context):
         version = detected
         logger.info("Detected latest GE-Proton version: %s", version)
     elif detected:
@@ -221,9 +236,11 @@ def resolve_proton_version(
             "Latest GE-Proton tag '%s' missing required assets, searching previous releases.",
             detected,
         )
-        version = find_latest_release_with_assets(skip_version=detected) or ""
+        version = find_latest_release_with_assets(
+            skip_version=detected, execution_context=execution_context
+        ) or ""
     else:
-        version = find_latest_release_with_assets() or ""
+        version = find_latest_release_with_assets(execution_context=execution_context) or ""
 
     if not version:
         version = FALLBACK_PROTON_VERSION
@@ -265,6 +282,7 @@ def install_proton_if_needed(
     version: str,
     logger: logging.Logger,
     settings: RuntimeSettings,
+    execution_context: Optional[ExecutionContext] = None,
 ) -> str:
     """Install Proton if missing and return installed directory name."""
     proton_dir_name = f"GE-Proton{version}"
@@ -272,7 +290,7 @@ def install_proton_if_needed(
     if proton_dir.exists():
         return proton_dir_name
 
-    release = find_release_archive(version)
+    release = find_release_archive(version, execution_context=execution_context)
     if release is None:
         raise RuntimeError(
             f"No downloadable GE-Proton{version} release assets found for "
@@ -389,7 +407,10 @@ def _write_preflight_cache(
 
 
 def find_missing_proton_library(
-    proton_dir_name: str, logger: logging.Logger, settings: RuntimeSettings
+    proton_dir_name: str,
+    logger: logging.Logger,
+    settings: RuntimeSettings,
+    execution_context: Optional[ExecutionContext] = None,
 ) -> Optional[str]:
     """Return a shared library GE-Proton needs but this container cannot load.
 
@@ -410,6 +431,8 @@ def find_missing_proton_library(
         return None
 
     image_version = _cacheable_image_version(settings)
+    if image_version and execution_context and execution_context.translation_enabled:
+        image_version += ":" + shlex.join(execution_context.runner_prefix)
     cached = _read_preflight_cache(proton_dir_name, image_version)
     if cached is not None:
         logger.debug("Reusing cached Proton preflight result for %s.", proton_dir_name)
@@ -417,9 +440,13 @@ def find_missing_proton_library(
 
     env = dict(os.environ)
     env.pop("STEAM_COMPAT_DATA_PATH", None)
+    command = [sys.executable, str(script)]
+    if execution_context and execution_context.translation_enabled:
+        # Use the guest Python so ctypes probes the same x86 libraries as the launcher.
+        command = wrap_command(execution_context, ["/usr/bin/python3", str(script)])
     try:
         completed = subprocess.run(
-            [sys.executable, str(script)],
+            command,
             env=env,
             capture_output=True,
             text=True,
@@ -441,6 +468,7 @@ def prepare_proton(
     logger: logging.Logger,
     settings: RuntimeSettings,
     previous: Optional[ProtonSelection] = None,
+    execution_context: Optional[ExecutionContext] = None,
 ) -> ProtonSelection:
     """Resolve, install and validate Proton; return the usable selection.
 
@@ -453,11 +481,15 @@ def prepare_proton(
     Pass the previous return value back on a relaunch: a selection already
     settled on is reused rather than resolved again.
     """
-    selection = resolve_proton_version(logger, settings, previous)
-    install_proton_if_needed(selection.version, logger, settings)
+    selection = resolve_proton_version(
+        logger, settings, previous, execution_context=execution_context
+    )
+    install_proton_if_needed(selection.version, logger, settings, execution_context=execution_context)
     _export_proton_version(selection.version)
 
-    missing = find_missing_proton_library(selection.directory_name, logger, settings)
+    missing = find_missing_proton_library(
+        selection.directory_name, logger, settings, execution_context=execution_context
+    )
     if not missing:
         return selection
 
@@ -484,8 +516,10 @@ def prepare_proton(
         FALLBACK_PROTON_VERSION,
     )
     fallback = ProtonSelection(version=FALLBACK_PROTON_VERSION, origin=ORIGIN_FALLBACK)
-    install_proton_if_needed(fallback.version, logger, settings)
-    fallback_missing = find_missing_proton_library(fallback.directory_name, logger, settings)
+    install_proton_if_needed(fallback.version, logger, settings, execution_context=execution_context)
+    fallback_missing = find_missing_proton_library(
+        fallback.directory_name, logger, settings, execution_context=execution_context
+    )
     if fallback_missing:
         raise RuntimeError(
             f"GE-Proton{selection.version} and fallback GE-Proton{FALLBACK_PROTON_VERSION} both "
@@ -495,3 +529,101 @@ def prepare_proton(
 
     _export_proton_version(fallback.version)
     return fallback
+
+
+def build_launch_command(
+    proton_dir_name: str,
+    launch_binary: str,
+    params: str,
+    execution_context: ExecutionContext,
+) -> list[str]:
+    """Build the Proton command, using the guest shell when translation is enabled."""
+    proton_path = Path(STEAM_COMPAT_DIR) / proton_dir_name / "proton"
+    if not proton_path.is_file():
+        raise RuntimeError(f"Proton launcher not found at '{proton_path}'.")
+    if not os.access(proton_path, os.X_OK):
+        raise RuntimeError(f"Proton launcher at '{proton_path}' is not executable.")
+    return wrap_command(execution_context, [str(proton_path), "run", launch_binary, *shlex.split(params)])
+
+
+def end_proton_session(
+    proton_dir_name: str,
+    execution_context: ExecutionContext,
+    server_env: Mapping[str, str],
+    logger: logging.Logger,
+) -> None:
+    """Ask the launched prefix's Windows applications to close their session.
+
+    runinprefix preserves Proton's library and Wine synchronization settings
+    without updating the prefix. --shutdown prevents wineboot from booting a
+    new session after delivering the Windows shutdown notifications.
+    """
+    launcher = Path(STEAM_COMPAT_DIR) / proton_dir_name / "proton"
+    command = wrap_command(execution_context, [
+        str(launcher), "runinprefix", "wineboot", "--end-session", "--shutdown",
+    ])
+    logger.info("Requesting graceful shutdown of the server's Proton Wine session.")
+    try:
+        process = subprocess.Popen(
+            command, env=dict(server_env), start_new_session=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            exit_code = process.wait(timeout=PROTON_SHUTDOWN_TIMEOUT)
+        except subprocess.TimeoutExpired as exc:
+            # The translator/Proton wrapper may spawn children. End the whole
+            # request group before proceeding to server shutdown escalation.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+            raise RuntimeError(
+                f"Graceful Proton Wine session shutdown timed out after {PROTON_SHUTDOWN_TIMEOUT}s."
+            ) from exc
+    except OSError as exc:
+        raise RuntimeError(
+            format_execution_error("Graceful Proton Wine session shutdown", exc, execution_context)
+        ) from exc
+    if exit_code != 0:
+        raise RuntimeError(f"Graceful Proton Wine session shutdown failed with exit code {exit_code}.")
+
+
+def stop_proton_session(
+    proton_dir_name: str,
+    execution_context: ExecutionContext,
+    server_env: Mapping[str, str],
+    logger: logging.Logger,
+) -> None:
+    """Stop and wait for the Wine session belonging to this server's prefix.
+
+    Wine children can create their own sessions, escaping the Proton launcher's
+    process group. The installed wineserver reaches them through the prefix
+    instead of signalling unrelated Wine processes on the host.
+    """
+    env = dict(server_env)
+    env["WINEPREFIX"] = str(Path(server_env["STEAM_COMPAT_DATA_PATH"]) / "pfx")
+    wineserver = Path(STEAM_COMPAT_DIR) / proton_dir_name / "files" / "bin" / "wineserver"
+    logger.info("Stopping the server's Proton Wine session.")
+    for operation in ("-k", "-w"):
+        command = wrap_command(execution_context, [str(wineserver), operation])
+        try:
+            subprocess.run(
+                command, env=env, capture_output=True, text=True,
+                check=True, timeout=PROTON_SHUTDOWN_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"Proton Wine session shutdown timed out after {PROTON_SHUTDOWN_TIMEOUT}s "
+                f"during wineserver {operation}."
+            ) from exc
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or "").strip()
+            raise RuntimeError(
+                f"Proton Wine session shutdown failed during wineserver {operation} "
+                f"with exit code {exc.returncode}" + (f": {detail}" if detail else ".")
+            ) from exc
+        except OSError as exc:
+            raise RuntimeError(
+                format_execution_error("Proton Wine session shutdown", exc, execution_context)
+            ) from exc

@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import platform
-from typing import Optional, Tuple
+from typing import Mapping, Optional, Tuple
 
 try:  # pragma: no cover - present on every platform the image runs on
     import resource
@@ -51,18 +51,21 @@ def kernel_version() -> Optional[Tuple[int, int]]:
         return None
 
 
-def _disabled(name: str) -> bool:
-    return os.environ.get(name) == "1"
+def _disabled(name: str, environ: Mapping[str, str]) -> bool:
+    return environ.get(name) == "1"
 
 
-def log_sync_mode(logger: logging.Logger, soft_limit: int) -> str:
+def log_sync_mode(
+    logger: logging.Logger, soft_limit: int, environ: Optional[Mapping[str, str]] = None
+) -> str:
     """Log which Wine sync backend this container can use, and return its name."""
+    source = os.environ if environ is None else environ
     version = kernel_version()
-    if not _disabled("PROTON_NO_FSYNC") and version is not None and version >= FSYNC_MIN_KERNEL:
+    if not _disabled("PROTON_NO_FSYNC", source) and version is not None and version >= FSYNC_MIN_KERNEL:
         logger.info("Wine synchronisation: fsync (kernel %s.%s).", *version)
         return "fsync"
 
-    if not _disabled("PROTON_NO_ESYNC") and soft_limit >= ESYNC_RECOMMENDED_NOFILE:
+    if not _disabled("PROTON_NO_ESYNC", source) and soft_limit >= ESYNC_RECOMMENDED_NOFILE:
         logger.info("Wine synchronisation: esync (%s file descriptors).", soft_limit)
         return "esync"
 
@@ -78,7 +81,9 @@ def log_sync_mode(logger: logging.Logger, soft_limit: int) -> str:
     return "server"
 
 
-def configure_wine_sync(logger: logging.Logger) -> str:
+def configure_wine_sync(
+    logger: logging.Logger, environ: Optional[Mapping[str, str]] = None
+) -> str:
     """Raise the descriptor budget and report the resulting sync backend."""
     soft, _hard = raise_file_descriptor_limit(logger)
-    return log_sync_mode(logger, soft)
+    return log_sync_mode(logger, soft, environ)

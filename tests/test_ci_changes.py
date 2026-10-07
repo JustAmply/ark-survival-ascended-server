@@ -33,14 +33,48 @@ def test_selects_required_checks(paths, expected):
     assert ci_changes.required_checks(paths) == expected
 
 
-def test_missing_base_runs_all_checks(monkeypatch, tmp_path):
+@pytest.mark.parametrize("base", [None, "not-a-commit", "0" * 40, "e" * 40])
+def test_unusable_base_runs_all_checks(monkeypatch, tmp_path, base):
     output = tmp_path / "outputs"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     monkeypatch.setenv("CI_EVENT_NAME", "push")
     monkeypatch.setenv("CI_REF_TYPE", "branch")
-    monkeypatch.setenv("CI_BASE_SHA", "0" * 40)
+    if base is None:
+        monkeypatch.delenv("CI_BASE_SHA", raising=False)
+    else:
+        monkeypatch.setenv("CI_BASE_SHA", base)
     ci_changes.main()
     assert output.read_text() == "python=true\ndocker=true\n"
+
+
+def test_missing_git_runs_all_checks(monkeypatch, tmp_path):
+    output = tmp_path / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setenv("CI_EVENT_NAME", "pull_request")
+    monkeypatch.setenv("CI_REF_TYPE", "branch")
+    monkeypatch.setenv("CI_BASE_SHA", "a" * 40)
+
+    def fail_git(*args, **kwargs):
+        raise FileNotFoundError("git unavailable")
+
+    monkeypatch.setattr(ci_changes.subprocess, "run", fail_git)
+    ci_changes.main()
+    assert output.read_text() == "python=true\ndocker=true\n"
+
+
+def test_documentation_change_appends_skipped_checks_to_github_output(monkeypatch, tmp_path):
+    output = tmp_path / "outputs"
+    output.write_text("existing=value\n")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setenv("CI_EVENT_NAME", "pull_request")
+    monkeypatch.setenv("CI_REF_TYPE", "branch")
+    monkeypatch.setenv("CI_BASE_SHA", "a" * 40)
+    monkeypatch.setattr(
+        ci_changes.subprocess, "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, stdout=b"README.md\0"),
+    )
+    ci_changes.main()
+    assert output.read_text() == "existing=value\npython=false\ndocker=false\n"
 
 
 @pytest.mark.parametrize(("event", "ref_type"), [("schedule", "branch"), ("push", "tag")])

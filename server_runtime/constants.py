@@ -32,6 +32,12 @@ STEAM_COMPAT_DIR = f"{STEAM_HOME_DIR}/compatibilitytools.d"
 ASA_BINARY_NAME = "ArkAscendedServer.exe"
 ASA_PLUGIN_BINARY_NAME = "AsaApiLoader.exe"
 FALLBACK_PROTON_VERSION = "10-34"
+DEFAULT_TRANSLATOR_MODE = "auto"
+DEFAULT_TRANSLATOR_PROBE_TIMEOUT = 20
+DEFAULT_PROTON_PROFILE = "balanced"
+EARLY_CRASH_THRESHOLD_SECONDS = 120
+VALID_TRANSLATOR_MODES = ("auto", "fex", "none")
+VALID_PROTON_PROFILES = ("balanced", "safe")
 
 PID_FILE = "/home/gameserver/.asa-server.pid"
 SUPERVISOR_PID_FILE = "/home/gameserver/.asa-supervisor.pid"
@@ -79,6 +85,9 @@ class RuntimeSettings:
     image_version: str
     log_level: str
     timezone: str
+    translator_mode: str = DEFAULT_TRANSLATOR_MODE
+    translator_probe_timeout: int = DEFAULT_TRANSLATOR_PROBE_TIMEOUT
+    proton_profile: str = DEFAULT_PROTON_PROFILE
 
     @classmethod
     def from_env(cls, environ: Optional[Mapping[str, str]] = None) -> "RuntimeSettings":
@@ -103,6 +112,11 @@ class RuntimeSettings:
             image_version=text(IMAGE_VERSION_ENV),
             log_level=text("ASA_LOG_LEVEL", "INFO").upper(),
             timezone=text("TZ"),
+            translator_mode=text("ASA_TRANSLATOR_MODE", DEFAULT_TRANSLATOR_MODE),
+            translator_probe_timeout=coerce_int(
+                source.get("ASA_TRANSLATOR_PROBE_TIMEOUT"), DEFAULT_TRANSLATOR_PROBE_TIMEOUT
+            ),
+            proton_profile=text("ASA_PROTON_PROFILE", DEFAULT_PROTON_PROFILE),
         )
 
     def restart_warnings_or_default(self) -> str:

@@ -59,7 +59,6 @@ def game(root: Path) -> None:
     configured_password = settings.get_start_param_value("ServerAdminPassword") or settings.get_server_setting("ServerAdminPassword")
     assert configured_password == password, "Game did not receive the expected fixture credential"
     port = int(settings.get_start_param_value("RCONPort"))
-    assert password
     assert "STEAM_COMPAT_DATA_PATH" in os.environ
     assert os.environ["SDL_VIDEODRIVER"] == "dummy"
     assert (Path(os.environ["XDG_RUNTIME_DIR"]).stat().st_mode & 0o777) == 0o700
@@ -147,29 +146,32 @@ def scheduler(root: Path) -> None:
 
 
 def supervisor(root: Path) -> None:
-    from server_runtime import launch_env
+    from server_runtime import launch_env, proton
     from server_runtime import supervisor as runtime
     from server_runtime.constants import RuntimeSettings
     from server_runtime.proton import ORIGIN_PINNED, ProtonSelection
 
     runtime.PID_FILE = launch_env.PID_FILE = str(root / "server.pid")
     runtime.SUPERVISOR_PID_FILE = launch_env.SUPERVISOR_PID_FILE = str(root / "supervisor.pid")
-    runtime.STEAM_COMPAT_DIR = str(root / "proton")
+    proton.STEAM_COMPAT_DIR = str(root / "proton")
     runtime.ASA_BINARY_DIR = str(root)
     runtime.LOG_DIR = str(root / "logs")
     runtime.ASA_CTRL_BIN = str(root / "scheduler")
-    runtime.update_server_files = lambda *_: None
+    runtime.update_server_files = lambda *_, **kwargs: None
     runtime.ensure_proton_compat_data = lambda *_: None
     runtime.resolve_launch_binary = lambda *_: "ArkAscendedServer.exe"
 
-    def prepare(_logger, _settings, previous=None):
+    def prepare(_logger, _settings, previous=None, execution_context=None):
         if previous is None:
             record(root, "proton_selection")
         return previous or ProtonSelection("test", ORIGIN_PINNED)
 
     runtime.prepare_proton = prepare
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    owner = runtime.ServerSupervisor(RuntimeSettings.from_env(), logging.getLogger("lifecycle"))
+    settings = RuntimeSettings.from_env()
+    # The fixture uses native Python children; CI probes FEX execution separately.
+    settings.translator_mode = "none"
+    owner = runtime.ServerSupervisor(settings, logging.getLogger("lifecycle"))
     original_environment = dict(os.environ)
     owner.register_supervisor_pid()
     owner.start_restart_scheduler()
@@ -265,9 +267,9 @@ def verify_case(case: str) -> None:
                 raise AssertionError("Scheduler remains after shutdown")
             assert not (root / "server.pid").exists()
             assert not (root / "supervisor.pid").exists()
-            if "<redacted>" in log:
-                assert "test-private-password" not in log
-                assert "ServerAdminPassword=changeme" not in log
+            assert "ServerAdminPassword=<redacted>" in log, "Admin password was not redacted"
+            assert "test-private-password" not in log
+            assert "ServerAdminPassword=changeme" not in log
             print(f"PASS {case}: warnings, authenticated RCON, save delay, restart, shutdown and cleanup")
 
 

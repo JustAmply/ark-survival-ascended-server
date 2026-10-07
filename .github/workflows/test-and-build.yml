@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   test-and-build:
-    name: Run tests and build Docker image
+    name: Run tests and build AMD64 Docker image
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -36,6 +36,9 @@ jobs:
     outputs:
       image-tags: ${{ steps.metadata.outputs.tags }}
       version: ${{ steps.version.outputs.version }}
+      build-date: ${{ steps.version.outputs.build-date }}
+      docker: ${{ steps.changes.outputs.docker }}
+      publish-image: ${{ env.PUBLISH_IMAGE }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -96,7 +99,7 @@ jobs:
             FINAL_VERSION="${VERSION}"
           fi
 
-          echo "version=${FINAL_VERSION}" >> $GITHUB_OUTPUT
+          echo "version=${FINAL_VERSION}" >> "$GITHUB_OUTPUT"
           echo "build-date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
           echo "Determined version: ${FINAL_VERSION}"
 
@@ -135,6 +138,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
+          platforms: linux/amd64
           load: true
           pull: true
           no-cache: ${{ github.event_name == 'schedule' }}
@@ -143,8 +147,13 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ steps.version.outputs.build-date }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,scope=amd64,mode=max
+
+      - name: Verify application Python version and standard library
+        if: steps.changes.outputs.docker == 'true'
+        run: |
+          docker run --rm --entrypoint python asa-linux-server:smoke -c "import sys, ssl, ctypes, bz2, lzma, sqlite3, zlib; from compression import zstd; from zoneinfo import ZoneInfo; assert sys.version_info[:2] == (3, 14), sys.version; ssl.create_default_context(); ZoneInfo('Europe/Berlin'); print(sys.version)"
 
       - name: Verify native GE-Proton runtime dependencies
         if: steps.changes.outputs.docker == 'true'
@@ -163,6 +172,13 @@ jobs:
             --mount "type=bind,src=${PWD}/scripts/verify_runtime_lifecycle.py,dst=/tmp/verify_runtime_lifecycle.py,readonly" \
             asa-linux-server:smoke /tmp/verify_runtime_lifecycle.py
 
+      - name: Verify translated lifecycle policy with native fixtures
+        if: steps.changes.outputs.docker == 'true'
+        run: |
+          docker run --rm --user 25000:25000 --entrypoint python \
+            --mount "type=bind,src=${PWD}/scripts/verify_translated_lifecycle.py,dst=/tmp/verify_translated_lifecycle.py,readonly" \
+            asa-linux-server:smoke /tmp/verify_translated_lifecycle.py --native-fixture
+
       - name: Log in to GHCR
         if: steps.changes.outputs.docker == 'true' && env.PUBLISH_IMAGE == 'true'
         uses: docker/login-action@v4
@@ -171,11 +187,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and push AMD64 Docker image
         if: steps.changes.outputs.docker == 'true' && env.PUBLISH_IMAGE == 'true'
         uses: docker/build-push-action@v7
         with:
           context: .
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           build-args: |
@@ -184,3 +201,146 @@ jobs:
             BUILD_DATE=${{ steps.version.outputs.build-date }}
           # The same builder already holds the tested layers. Preserve BuildKit
           # provenance on publication without a second remote cache export.
+
+  build-arm64-experimental:
+    name: Build and verify ARM64 experimental Docker image
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    needs: test-and-build
+    if: needs.test-and-build.outputs.docker == 'true'
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_BASENAME: ${{ github.repository_owner }}/asa-linux-server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Only the AMD64 guest build stage needs QEMU. Runtime checks below run
+      # native ARM64 FEX processes and do not use QEMU for x86 execution.
+      - name: Set up QEMU for the x86 RootFS build
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: amd64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Generate ARM64 experimental image metadata
+        id: metadata
+        run: |
+          IMAGE_BASE="${{ env.REGISTRY }}/$(echo '${{ env.IMAGE_BASENAME }}' | tr '[:upper:]' '[:lower:]')"
+          VERSION="${{ needs.test-and-build.outputs.version }}"
+          TAGS="${IMAGE_BASE}:${VERSION}-arm64-experimental"
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            PR_SHA="${{ github.event.pull_request.head.sha }}"
+            PR_SHA_SHORT="${PR_SHA:0:7}"
+            TAGS="${TAGS}"$'\n'"${IMAGE_BASE}:pr-${PR_NUMBER}-arm64-experimental"
+            TAGS="${TAGS}"$'\n'"${IMAGE_BASE}:pr-${PR_NUMBER}-${PR_SHA_SHORT}-arm64-experimental"
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            TAGS="${TAGS}"$'\n'"${IMAGE_BASE}:arm64-experimental"
+          fi
+
+          {
+            echo "tags<<__EOF__"
+            echo "${TAGS}"
+            echo "__EOF__"
+          } >> "$GITHUB_OUTPUT"
+          echo "Generated ARM64 tags: ${TAGS//$'\n'/, }"
+
+      - name: Build ARM64 image for smoke test
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true
+          pull: true
+          no-cache: ${{ github.event_name == 'schedule' }}
+          tags: asa-linux-server:arm64-smoke
+          build-args: |
+            VERSION=${{ needs.test-and-build.outputs.version }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ needs.test-and-build.outputs.build-date }}
+          cache-from: type=gha,scope=arm64
+          # Retain the native Python compiler stage for unchanged rebuilds.
+          cache-to: type=gha,scope=arm64,mode=max
+
+      - name: Disable QEMU before native ARM64 acceptance checks
+        run: |
+          docker run --privileged --rm tonistiigi/binfmt --uninstall 'qemu-*'
+          test ! -e /proc/sys/fs/binfmt_misc/qemu-x86_64
+          test ! -e /proc/sys/fs/binfmt_misc/qemu-i386
+
+      - name: Report ARM64 image and guest RootFS size
+        run: |
+          docker image inspect asa-linux-server:arm64-smoke --format 'Uncompressed image bytes: {{.Size}}'
+          docker run --rm --entrypoint du asa-linux-server:arm64-smoke -sx /opt/fex-rootfs
+
+      - name: Verify application Python version and standard library
+        run: |
+          docker run --rm --entrypoint python asa-linux-server:arm64-smoke -c "import sys, ssl, ctypes, bz2, lzma, sqlite3, zlib; from compression import zstd; from zoneinfo import ZoneInfo; assert sys.version_info[:2] == (3, 14), sys.version; ssl.create_default_context(); ZoneInfo('Europe/Berlin'); print(sys.version)"
+
+      - name: Verify native GE-Proton runtime dependencies
+        run: |
+          docker run --rm --entrypoint python asa-linux-server:arm64-smoke -m server_runtime.native_libs
+
+      - name: Verify image control wrapper
+        run: |
+          docker run --rm --entrypoint /usr/local/bin/asa-ctrl asa-linux-server:arm64-smoke --help
+
+      - name: Verify x86 execution through FEX without privileged mounts
+        run: |
+          ARCH=$(docker run --rm --user 25000:25000 --entrypoint FEXBash \
+            asa-linux-server:arm64-smoke -c '/usr/bin/uname -m')
+          test "$ARCH" = "x86_64"
+          docker run --rm --user 25000:25000 --entrypoint FEXBash \
+            asa-linux-server:arm64-smoke -c 'exec /lib/ld-linux.so.2 --help'
+          docker run --rm --user 25000:25000 --entrypoint FEXBash \
+            asa-linux-server:arm64-smoke -c 'exec python3 -c "import os, platform, sys; assert platform.machine() == \"x86_64\"; assert sys.executable == os.environ[\"FEX_ROOTFS\"] + \"/usr/bin/python3\", sys.executable; print(sys.version)"'
+
+      - name: Verify supervisor lifecycle
+        run: |
+          docker run --rm --user 25000:25000 --entrypoint python \
+            --mount "type=bind,src=${PWD}/scripts/verify_runtime_lifecycle.py,dst=/tmp/verify_runtime_lifecycle.py,readonly" \
+            asa-linux-server:arm64-smoke /tmp/verify_runtime_lifecycle.py
+
+      - name: Verify pinned SteamCMD, Proton and translated lifecycle through FEX
+        timeout-minutes: 15
+        run: |
+          timeout --signal=TERM --kill-after=30s 14m \
+            docker run --rm --user 25000:25000 --entrypoint python \
+            --mount "type=bind,src=${PWD}/scripts/verify_arm64_translation.py,dst=/tmp/verify_arm64_translation.py,readonly" \
+            --mount "type=bind,src=${PWD}/scripts/verify_translated_lifecycle.py,dst=/tmp/verify_translated_lifecycle.py,readonly" \
+            asa-linux-server:arm64-smoke /tmp/verify_arm64_translation.py
+
+      - name: Verify default latest Proton selection and translated lifecycle through FEX
+        if: github.event_name == 'schedule'
+        timeout-minutes: 15
+        run: |
+          timeout --signal=TERM --kill-after=30s 14m \
+            docker run --rm --user 25000:25000 --entrypoint python \
+            --mount "type=bind,src=${PWD}/scripts/verify_arm64_translation.py,dst=/tmp/verify_arm64_translation.py,readonly" \
+            --mount "type=bind,src=${PWD}/scripts/verify_translated_lifecycle.py,dst=/tmp/verify_translated_lifecycle.py,readonly" \
+            asa-linux-server:arm64-smoke /tmp/verify_arm64_translation.py --proton-version auto
+
+      - name: Log in to GHCR
+        if: needs.test-and-build.outputs.publish-image == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ARM64 experimental Docker image
+        if: needs.test-and-build.outputs.publish-image == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          build-args: |
+            VERSION=${{ needs.test-and-build.outputs.version }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ needs.test-and-build.outputs.build-date }}

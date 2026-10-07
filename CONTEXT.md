@@ -58,8 +58,9 @@ The environment a child process is started with
 Two children need two different slices, which is what earns the seam:
 
 - **`for_server`** — Steam compatibility paths, a writable `XDG_RUNTIME_DIR`,
-  headless SDL defaults, and the resolved launch line. The headless values are
-  defaults: an operator who supplies their own keeps them.
+  headless SDL defaults, the effective Proton profile, and the resolved launch
+  line. The headless values are defaults: an operator who supplies their own
+  keeps them.
 - **`for_scheduler`** — the PID files the [Restart scheduler](#restart-scheduler)
   signals through, and its warning cadence.
 
@@ -77,6 +78,17 @@ The container-level process owner (`server_runtime.supervisor.ServerSupervisor`)
 It registers PID files, starts the restart scheduler and the log streamer,
 launches the server through Proton, and handles the graceful shutdown sequence
 (`saveworld` over RCON, then SIGTERM, then SIGKILL).
+
+A translated launch owns a process group as well as its prefix-specific Wine
+session. After the RCON save and save delay, a translated shutdown requests
+Windows end-session notifications through Proton's `runinprefix wineboot
+--end-session --shutdown` before sending process signals. The bounded request
+uses the same prefix and synchronization environment; it also runs when only
+detached Wine processes remain. Failure proceeds to the existing escalation.
+Graceful shutdown waits for living group members, including children
+whose wrapper already exited. Cleanup ends the Wine session before the next
+launch so detached Wine processes cannot survive a restart or retain the
+previous synchronisation profile. Native process supervision is unchanged.
 
 ## Proton selection
 
@@ -128,3 +140,18 @@ restart window is reached. It communicates with the supervisor through PID files
 The JSON file at `/home/gameserver/server-files/mods.json` holding
 `ModRecord` entries. Enabled mod ids are merged into the launch line's single
 `-mods=` flag at startup.
+
+## Execution context
+
+The architecture and optional translation runner used for SteamCMD, Proton
+preflight and server launch (`server_runtime.translation.ExecutionContext`).
+Runtime settings supply its translator mode and probe timeout.
+On native AMD64 the runner is empty. On ARM64, FEX executes x86 programs using
+an extracted RootFS prepared by the separate image build stage. The supervisor
+carries this immutable context across restarts. Probe completion, the effective
+Proton profile and the early-crash count are supervisor state, separate from
+the execution context. The profile is normalized from runtime settings and
+applied when building the server launch environment; a retry may switch it to
+`safe` without changing runtime settings or the container environment. Only
+completed translated server runs participate in the experimental early-crash
+policy.
