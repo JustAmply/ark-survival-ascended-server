@@ -2,9 +2,6 @@
 Constants and exit codes for ASA Control.
 """
 
-import os
-
-
 class ExitCodes:
     """Exit codes for different error conditions."""
     OK = 0
@@ -45,10 +42,3 @@ DEFAULT_LAUNCH_BASE = (
 DEFAULT_START_PARAMS = (
     f"{DEFAULT_LAUNCH_BASE}?ServerAdminPassword={DEFAULT_ADMIN_PASSWORD}"
 )
-
-
-def get_mod_database_path():
-    """
-    Returns the current mod database path, checking the environment variable dynamically.
-    """
-    return os.environ.get('ASA_MOD_DATABASE_PATH', DEFAULT_MOD_DATABASE_PATH)

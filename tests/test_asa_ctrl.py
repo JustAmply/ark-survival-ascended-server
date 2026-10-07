@@ -1,22 +1,16 @@
 #!/usr/bin/env python3
-"""Test suite for asa_ctrl package.
-
-Migrated from repository root to tests/ directory.
-Run with: `py -m tests.test_asa_ctrl` or `py tests/test_asa_ctrl.py`.
-"""
+"""Behavioral contracts for the asa_ctrl package and CLI."""
 
 from __future__ import annotations
 
 import json
 import os
 import sys
-import tempfile
 import logging
 import struct
+import socket
 import time
-from pathlib import Path
-from types import MethodType
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
@@ -28,12 +22,9 @@ if PROJECT_ROOT not in sys.path:
 import asa_ctrl as asa_ctrl_package  # noqa: E402
 from asa_ctrl.core.mods import ModDatabase, ModRecord, format_mod_list_for_server  # noqa: E402
 from asa_ctrl.common.config import AsaSettings, parse_ini  # noqa: E402
-from asa_ctrl.common.launch_config import LaunchConfiguration  # noqa: E402
-from asa_ctrl.common.constants import ExitCodes, get_mod_database_path  # noqa: E402
+from asa_ctrl.common.constants import ExitCodes  # noqa: E402
 from asa_ctrl.common.logging_config import configure_logging  # noqa: E402
 from asa_ctrl.cli_helpers import exit_with_error, map_exception_to_exit_code  # noqa: E402
-from asa_ctrl.cli_commands.mods_command import ModsCommand  # noqa: E402
-from asa_ctrl.cli_commands.rcon_command import RconCommand  # noqa: E402
 from asa_ctrl.cli import main as cli_main  # noqa: E402
 from asa_ctrl.core.rcon import RconClient, RconPacket, RconPacketCodec, execute_rcon_command  # noqa: E402
 from asa_ctrl.common.errors import (  # noqa: E402
@@ -46,184 +37,85 @@ from asa_ctrl.common.errors import (  # noqa: E402
     CorruptedModsDatabaseError,
     ModAlreadyEnabledError,
 )
-from asa_ctrl.common.constants import RconPacketTypes  # noqa: E402
 
 
-def test_launch_configuration_lookups():
-    """Start parameter lookups, through the module that owns them."""
-    test_params = (
-        "TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True "
-        "-WinLiveMaxPlayers=50 -ServerAdminPassword=mypass123"
+def test_parse_ini_tolerates_duplicate_keys(tmp_path):
+    """ARK writes duplicate INI keys; the last value wins."""
+    ini_path = tmp_path / "GameUserSettings.ini"
+    ini_path.write_text(
+        "[/Script/ShooterGame.ShooterGameUserSettings]\n"
+        "LastJoinedSessionPerCategory=\n"
+        "LastJoinedSessionPerCategory=test_value\n"
+        "RCONPort=27020\n\n"
+        "[ServerSettings]\nServerAdminPassword=testpass\n",
+        encoding="utf-8",
     )
-    config = LaunchConfiguration.parse(test_params)
-
-    assert config.value("RCONPort") == "27020"
-    assert config.value("ServerAdminPassword") == "mypass123"
-    assert config.value("WinLiveMaxPlayers") == "50"
-    assert config.value("NonExistent") is None
-
-    parsed = config.as_mapping()
-    assert parsed.get('_map') == 'TheIsland_WP'
-    assert parsed.get('RCONPort') == '27020'
-    assert parsed.get('WinLiveMaxPlayers') == '50'
+    config = parse_ini(str(ini_path))
+    assert config is not None
+    assert config['/Script/ShooterGame.ShooterGameUserSettings']['LastJoinedSessionPerCategory'] == 'test_value'
+    assert config['/Script/ShooterGame.ShooterGameUserSettings']['RCONPort'] == '27020'
+    assert config['ServerSettings']['ServerAdminPassword'] == 'testpass'
 
 
-def test_parse_ini_tolerates_duplicate_keys():
-    """ARK writes duplicate keys into GameUserSettings.ini; the last one wins."""
-    # Create a test INI file with duplicate keys (similar to ARK GameUserSettings.ini)
-    ini_content = """[/Script/ShooterGame.ShooterGameUserSettings]
-LastJoinedSessionPerCategory=
-LastJoinedSessionPerCategory=test_value
-RCONPort=27020
+def test_mod_database_mutations_persist(tmp_path):
+    db_path = tmp_path / "mods.json"
+    db = ModDatabase(str(db_path))
+    assert db.get_all_mods() == []
 
-[ServerSettings]
-RCONPort=27020
-ServerAdminPassword=testpass
-"""
-
-    temp_path = None
-
-    try:
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
-            f.write(ini_content)
-            f.flush()
-            temp_path = f.name
-
-        # This should now work with the fix (strict=False)
-        config = parse_ini(temp_path)
-        assert config is not None, "Config should not be None"
-        assert len(config.sections()) == 2, "Should have 2 sections"
-
-        # Test that duplicate key uses the last value
-        game_section = config['/Script/ShooterGame.ShooterGameUserSettings']
-        assert game_section['LastJoinedSessionPerCategory'] == 'test_value', "Should use last duplicate value"
-        assert game_section['RCONPort'] == '27020', "RCONPort should be accessible"
-
-        # Test ServerSettings section
-        server_section = config['ServerSettings']
-        assert server_section['ServerAdminPassword'] == 'testpass', "ServerAdminPassword should be accessible"
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            os.unlink(temp_path)
+    db.enable_mod(123)
+    assert ModDatabase(str(db_path)).is_mod_enabled(123)
+    db.disable_mod(123)
+    assert not ModDatabase(str(db_path)).is_mod_enabled(123)
+    db.enable_mod(123)
+    assert ModDatabase(str(db_path)).is_mod_enabled(123)
+    assert db.remove_mod(123)
+    assert ModDatabase(str(db_path)).get_all_mods() == []
 
 
-
-def test_mod_database():
-    """Test mod database functionality."""
-    print("Testing ModDatabase...")
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = os.path.join(temp_dir, "mods.json")
-        db = ModDatabase(db_path)
-        assert db.get_all_mods() == []
-
-        db.enable_mod(123)
-        assert db.mod_exists(123) is True
-        assert db.is_mod_enabled(123) is True
-
-        # Enabling an existing disabled mod should flip the flag.
-        db.disable_mod(123)
-        assert db.is_mod_enabled(123) is False
-        db.enable_mod(123)
-        assert db.is_mod_enabled(123) is True
-
-        # Remove and verify persistence to disk by reloading.
-        assert db.remove_mod(123) is True
-        assert db.get_mod(123) is None
-        reloaded = ModDatabase(db_path)
-        assert reloaded.get_all_mods() == []
+def test_mod_database_loads_legacy_records_with_defaults(tmp_path):
+    db_path = tmp_path / "mods.json"
+    db_path.write_text('[{"mod_id": 12345}, {"mod_id": 67890, "enabled": true}]', encoding="utf-8")
+    db = ModDatabase(str(db_path))
+    assert db.get_all_mods() == [
+        ModRecord(12345, name="unknown", enabled=False, scanned=False),
+        ModRecord(67890, name="unknown", enabled=True, scanned=False),
+    ]
+    assert [mod.mod_id for mod in db.get_enabled_mods()] == [67890]
 
 
-def test_cli_mods_string():
-    """Test the hidden 'mods-string' CLI helper outputs correct formatting."""
-    print("Testing CLI mods-string helper...")
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = os.path.join(temp_dir, 'mods.json')
-        os.environ['ASA_MOD_DATABASE_PATH'] = db_path
-        try:
-            db = ModDatabase(db_path)
-            db.enable_mod(111)
-            db.enable_mod(222)
-            # Capture stdout
-            from io import StringIO
-            import contextlib
-            buf = StringIO()
-            with contextlib.redirect_stdout(buf):
-                cli_main(['mods-string'])
-            out = buf.getvalue().strip()
-            assert out in ('-mods=111,222', '-mods=222,111')  # order not guaranteed
-        finally:
-            os.environ.pop('ASA_MOD_DATABASE_PATH', None)
-    print("OK CLI mods-string tests passed")
+def test_cli_mods_string(tmp_path, monkeypatch, capsys):
+    db_path = tmp_path / "mods.json"
+    monkeypatch.setenv('ASA_MOD_DATABASE_PATH', str(db_path))
+    db = ModDatabase(str(db_path))
+    db.enable_mod(111)
+    db.enable_mod(222)
+    db.disable_mod(111)
 
-    print("Testing CLI mods removal...")
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = os.path.join(temp_dir, 'mods.json')
-        os.environ['ASA_MOD_DATABASE_PATH'] = db_path
-        try:
-            db = ModDatabase(db_path)
+    cli_main(['mods-string'])
 
-            mod_id = 98765
-            db.enable_mod(mod_id)
-            assert db.get_mod(mod_id) is not None
-
-            from io import StringIO
-            import contextlib
-
-            buf = StringIO()
-            with contextlib.redirect_stdout(buf):
-                cli_main(['mods', 'remove', str(mod_id)])
-            refreshed = ModDatabase(db_path)
-            assert refreshed.get_mod(mod_id) is None
-            output = buf.getvalue()
-            assert "Removed mod id" in output
-        finally:
-            os.environ.pop('ASA_MOD_DATABASE_PATH', None)
-
-    print("OK CLI mods removal tests passed")
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = os.path.join(temp_dir, "mods.json")
-        db = ModDatabase(db_path)
-        assert len(db.get_all_mods()) == 0
-
-        db.enable_mod(12345)
-        db.enable_mod(67890)
-
-        first = db.get_mod(12345)
-        assert isinstance(first, ModRecord)
-        serialized = first.to_dict()
-        restored = ModRecord.from_dict(serialized)
-        assert restored.mod_id == first.mod_id
-
-        enabled_mods = db.get_enabled_mods()
-        assert len(enabled_mods) == 2
-        assert {m.mod_id for m in enabled_mods} == {12345, 67890}
-
-        # Disable and verify
-        db.disable_mod(12345)
-        enabled_mods = db.get_enabled_mods()
-        assert len(enabled_mods) == 1
-        assert enabled_mods[0].mod_id == 67890
-
-    print("OK ModDatabase tests passed")
+    # The runtime consumes stdout as one raw token, without a newline.
+    assert capsys.readouterr().out == '-mods=222'
 
 
-def test_mod_database_from_settings_respects_env():
-    """Ensure ModDatabase respects environment overrides."""
-    print("Testing ModDatabase.from_settings() with environment override...")
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = Path(temp_dir) / 'mods.json'
-        os.environ['ASA_MOD_DATABASE_PATH'] = str(db_path)
-        try:
-            db = ModDatabase.from_settings()
-            assert db.database_path == db_path
+def test_cli_mods_remove_persists(tmp_path, monkeypatch, capsys):
+    db_path = tmp_path / "mods.json"
+    monkeypatch.setenv('ASA_MOD_DATABASE_PATH', str(db_path))
+    db = ModDatabase(str(db_path))
+    db.enable_mod(98765)
 
-            db.enable_mod(42)
-            assert db.database_path.exists()
-        finally:
-            os.environ.pop('ASA_MOD_DATABASE_PATH', None)
+    cli_main(['mods', 'remove', '98765'])
 
-    print("OK ModDatabase.from_settings() environment override tests passed")
+    assert ModDatabase(str(db_path)).get_mod(98765) is None
+    assert "Removed mod id" in capsys.readouterr().out
+
+
+def test_mod_database_from_settings_respects_env(tmp_path, monkeypatch):
+    db_path = tmp_path / 'mods.json'
+    monkeypatch.setenv('ASA_MOD_DATABASE_PATH', str(db_path))
+    db = ModDatabase.from_settings()
+    assert db.database_path == db_path
+    db.enable_mod(42)
+    assert ModDatabase(str(db_path)).is_mod_enabled(42)
 
 
 def test_mod_database_load_rejects_non_list_json(tmp_path):
@@ -274,30 +166,21 @@ def test_mod_database_load_rejects_bad_json(tmp_path):
     assert "mods.json file is corrupted" in str(exc.value)
 
 
-def test_format_mod_list_for_server_empty(tmp_path):
+@pytest.mark.parametrize("enabled", [[], [200, 100]])
+def test_format_mod_list_for_server(tmp_path, enabled):
     db_path = tmp_path / "mods.json"
-    os.environ["ASA_MOD_DATABASE_PATH"] = str(db_path)
-    try:
-        assert format_mod_list_for_server() == ""
-    finally:
-        os.environ.pop("ASA_MOD_DATABASE_PATH", None)
-
-
-def test_format_mod_list_for_server_sorted_ids(tmp_path):
-    db_path = tmp_path / "mods.json"
-    os.environ["ASA_MOD_DATABASE_PATH"] = str(db_path)
-    try:
-        db = ModDatabase(str(db_path))
-        db.enable_mod(200)
-        db.enable_mod(100)
-        output = format_mod_list_for_server()
+    settings = AsaSettings({"ASA_MOD_DATABASE_PATH": str(db_path)})
+    db = ModDatabase.from_settings(settings)
+    for mod_id in enabled:
+        db.enable_mod(mod_id)
+    output = format_mod_list_for_server(settings)
+    if not enabled:
+        assert output == ""
+    else:
         assert output in ("-mods=200,100", "-mods=100,200")
-    finally:
-        os.environ.pop("ASA_MOD_DATABASE_PATH", None)
 
 
 def test_exit_codes():
-    print("Testing ExitCodes...")
     assert ExitCodes.OK == 0
     assert ExitCodes.CORRUPTED_MODS_DATABASE == 1
     assert ExitCodes.MOD_ALREADY_ENABLED == 2
@@ -307,25 +190,24 @@ def test_exit_codes():
     assert ExitCodes.RCON_CONNECTION_FAILED == 6
     assert ExitCodes.RCON_PACKET_ERROR == 7
     assert ExitCodes.RCON_TIMEOUT == 8
-    print("OK ExitCodes tests passed")
-
-
-def test_constants_get_mod_database_path_env_override(tmp_path):
-    override_path = tmp_path / "mods.json"
-    os.environ["ASA_MOD_DATABASE_PATH"] = str(override_path)
-    try:
-        assert get_mod_database_path() == str(override_path)
-    finally:
-        os.environ.pop("ASA_MOD_DATABASE_PATH", None)
 
 
 def test_logging_config_env_and_explicit(monkeypatch):
     monkeypatch.setenv("ASA_LOG_LEVEL", "DEBUG")
-    configure_logging(force=True)
-    assert logging.getLogger().level == logging.DEBUG
+    root_logger = logging.getLogger()
+    previous_level = root_logger.level
+    # Do not close pytest's existing handlers when exercising force=True.
+    monkeypatch.setattr(root_logger, "handlers", [])
+    try:
+        configure_logging(force=True)
+        assert root_logger.level == logging.DEBUG
 
-    configure_logging(level="WARNING", force=True)
-    assert logging.getLogger().level == logging.WARNING
+        configure_logging(level="WARNING", force=True)
+        assert root_logger.level == logging.WARNING
+    finally:
+        for handler in root_logger.handlers:
+            handler.close()
+        root_logger.setLevel(previous_level)
 
 
 def test_cli_helpers_exit_with_error(capsys):
@@ -348,125 +230,60 @@ def test_cli_helpers_map_exception_to_exit_code():
     assert map_exception_to_exit_code(ValueError("x")) is None
 
 
-def test_rcon_validation():
-    """Test RCON client validation functions."""
-    print("Testing RCON validation...")
-
-    client = RconClient(port=27020, password="secret", retry_count=0)
-
-    # Test IP validation
-    assert client._validate_ip('127.0.0.1') == '127.0.0.1'
-    assert client._validate_ip('localhost') == 'localhost'
-
-    try:
-        client._validate_ip('')
-        assert False, "Should have raised ValueError for empty IP"
-    except ValueError:
-        pass  # Expected
-
-    try:
-        client._validate_ip(None)  # type: ignore
-        assert False, "Should have raised ValueError for None IP"
-    except ValueError:
-        pass  # Expected
-
-    # Test command validation
-    assert client._validate_command('saveworld') == 'saveworld'
-    assert client._validate_command('  broadcast Hello  ') == 'broadcast Hello'
-
-    try:
-        client._validate_command('')
-        assert False, "Should have raised ValueError for empty command"
-    except ValueError:
-        pass  # Expected
-
-    try:
-        client._validate_command('x' * 2000)  # Too long
-        assert False, "Should have raised ValueError for long command"
-    except ValueError:
-        pass  # Expected
-
-    try:
-        client._validate_command('\x00\x01\x02')  # Control characters
-        assert False, "Should have raised ValueError for control characters only"
-    except ValueError:
-        pass  # Expected
-
-    # Test packet validation
-    try:
-        client._validate_packet_data(b'')
-        assert False, "Should have raised RconPacketError for empty data"
-    except RconPacketError:
-        pass  # Expected
-
-    try:
-        client._validate_packet_data(b'abc')  # Too small
-        assert False, "Should have raised RconPacketError for small packet"
-    except RconPacketError:
-        pass  # Expected
-
-    print("OK RCON validation tests passed")
+@pytest.mark.parametrize("server_ip", ["127.0.0.1", "localhost"])
+def test_rcon_client_accepts_ip_and_hostname(server_ip):
+    assert RconClient(server_ip, port=27020, password="secret").server_ip == server_ip
 
 
-def test_rcon_connect_propagates_auth_failure():
-    """Ensure connect() surfaces authentication failures."""
+@pytest.mark.parametrize("server_ip", ["", None])
+def test_rcon_client_rejects_empty_address(server_ip):
+    with pytest.raises(ValueError, match="IP address"):
+        RconClient(server_ip, port=27020, password="secret")
 
-    client = RconClient(server_ip='127.0.0.1', port=27020, password='secret', retry_count=0)
 
-    def fake_send_packet(self, data, packet_type):
-        assert packet_type == RconPacketTypes.AUTH
-        return RconPacket(10, -1, RconPacketTypes.AUTH_RESPONSE, "")
+def test_rcon_connect_propagates_auth_failure(monkeypatch):
+    """Decode a wire-level signed -1, rather than providing a decoded packet."""
+    client = RconClient(port=27020, password='secret', retry_count=0)
+    transport = Mock()
+    transport.recv.side_effect = [
+        bytes.fromhex('0a00'), bytes.fromhex('0000'),
+        bytes.fromhex('ffffffff020000000000'),
+    ]
+    monkeypatch.setattr('asa_ctrl.core.rcon.socket.socket', lambda *_args: transport)
+    monkeypatch.setattr(time, 'time', lambda: 123)
 
-    client._send_packet = MethodType(fake_send_packet, client)
+    with pytest.raises(RconAuthenticationError, match="-1 response ID"):
+        client.connect()
 
-    class DummySocket:
-        def __init__(self, *args, **kwargs):
-            self.closed = False
-
-        def settimeout(self, value):  # pragma: no cover - trivial setter
-            self.timeout = value
-
-        def connect(self, address):  # pragma: no cover - trivial connector
-            self.address = address
-
-        def close(self):  # pragma: no cover - trivial closer
-            self.closed = True
-
-    with patch('asa_ctrl.core.rcon.socket.socket', return_value=DummySocket()):
-        try:
-            client.connect()
-            assert False, "connect() should raise RconAuthenticationError when auth fails"
-        except RconAuthenticationError:
-            assert client._authenticated is False
+    assert not client.is_connected()
+    transport.sendall.assert_called_once_with(
+        bytes.fromhex('100000007b000000030000007365637265740000')
+    )
 
 
 def test_rcon_identify_port_rejects_invalid_start_params():
-    """Ensure invalid start parameter ports surface a consistent error."""
-    os.environ['ASA_START_PARAMS'] = "TheIsland_WP?listen?RCONPort=notanint"
-    try:
-        with pytest.raises(RconPortNotFoundError) as exc:
-            RconClient(port=None, password="secret", retry_count=0)
-        assert "Invalid port in start parameters: notanint" in str(exc.value)
-    finally:
-        os.environ.pop('ASA_START_PARAMS', None)
+    settings = AsaSettings({'ASA_START_PARAMS': 'TheIsland_WP?listen?RCONPort=notanint'})
+    with pytest.raises(RconPortNotFoundError, match="Invalid port in start parameters: notanint"):
+        RconClient(password="secret", retry_count=0, settings=settings)
 
 
-def test_rcon_packet_codec_round_trip():
-    codec = RconPacketCodec(4096, 12)
-    packet = codec.encode(123, RconPacketTypes.EXEC_COMMAND, "saveworld")
-    decoded = codec.decode(packet)
-    assert decoded.id == 123
-    assert decoded.type == RconPacketTypes.EXEC_COMMAND
-    assert decoded.body == "saveworld"
+def test_rcon_packet_codec_encodes_protocol_bytes():
+    assert RconPacketCodec(4096, 12).encode(123, 2, "saveworld") == bytes.fromhex(
+        '130000007b0000000200000073617665776f726c640000'
+    )
 
 
-def test_rcon_packet_codec_rejects_size_mismatch():
-    codec = RconPacketCodec(4096, 12)
-    packet = bytearray(codec.encode(1, RconPacketTypes.EXEC_COMMAND, "hi"))
-    # Corrupt size to force mismatch
-    packet[0] = packet[0] + 1
+def test_rcon_packet_codec_decodes_protocol_bytes():
+    decoded = RconPacketCodec(4096, 12).decode(
+        bytes.fromhex('130000007b0000000000000073617665776f726c640000')
+    )
+    assert decoded == RconPacket(19, 123, 0, "saveworld")
+
+
+@pytest.mark.parametrize("packet", [b'', b'abc', bytes.fromhex('0d000000010000000200000068690000')])
+def test_rcon_packet_codec_rejects_invalid_frames(packet):
     with pytest.raises(RconPacketError):
-        codec.decode(bytes(packet))
+        RconPacketCodec(4096, 12).decode(packet)
 
 
 def test_rcon_identify_password_from_start_params():
@@ -537,30 +354,25 @@ def test_rcon_identify_port_from_ini(tmp_path):
     assert client.port == 27021
 
 
-def test_rcon_with_retry_resets_state(monkeypatch):
+def test_rcon_connect_retries_after_timeout(monkeypatch):
     client = RconClient(port=27020, password="secret", retry_count=1, retry_delay=0.01)
-    client._connected = True
-    client._authenticated = True
+    failed_transport, retry_transport = Mock(), Mock()
+    failed_transport.connect.side_effect = socket.timeout("no response")
+    retry_transport.recv.side_effect = [
+        bytes.fromhex('0a000000'), bytes.fromhex('7b000000020000000000'),
+    ]
+    monkeypatch.setattr('asa_ctrl.core.rcon.socket.socket', Mock(side_effect=[failed_transport, retry_transport]))
+    sleeps = []
+    monkeypatch.setattr(time, "sleep", sleeps.append)
 
-    def fail_once():
-        raise RconTimeoutError("nope")
+    client.connect()
 
-    monkeypatch.setattr(time, "sleep", lambda _value: None)
-    with pytest.raises(RconTimeoutError):
-        client._with_retry(fail_once)
-    assert client._connected is False
-    assert client._authenticated is False
-
-
-def test_rcon_receive_exact_reads_full_buffer():
-    from unittest.mock import Mock
-    client = RconClient(port=27020, password="secret", retry_count=0)
-
-    mock_socket = Mock()
-    mock_socket.recv.side_effect = [b"ab", b"cd"]
-    object.__setattr__(client, 'socket', mock_socket)
-    data = client._receive_exact(4)
-    assert data == b"abcd"
+    assert client.is_connected()
+    failed_transport.close.assert_called_once()
+    assert sleeps == [0.1]
+    client.close()
+    retry_transport.close.assert_called_once()
+    assert not client.is_connected()
 
 
 @pytest.mark.parametrize(
@@ -572,18 +384,25 @@ def test_rcon_receive_exact_reads_full_buffer():
         ([b"ab", b""], "Connection closed"),
     ],
 )
-def test_rcon_receive_full_packet_rejects_bad_or_truncated_frames(chunks, error):
+def test_rcon_connect_rejects_bad_or_truncated_frames(chunks, error, monkeypatch):
     client = RconClient(port=27020, password="secret", retry_count=0)
-    client.socket = Mock()
-    client.socket.recv.side_effect = chunks
+    transport = Mock()
+    transport.recv.side_effect = chunks
+    monkeypatch.setattr('asa_ctrl.core.rcon.socket.socket', lambda *_args: transport)
 
     with pytest.raises((RconPacketError, RconConnectionError), match=error):
-        client._receive_full_packet()
+        client.connect()
+    assert not client.is_connected()
 
 
-def test_rcon_execute_command_raises_on_invalid_command():
+@pytest.mark.parametrize("command", ["", "x" * 2000, "\x00\x01\x02"])
+def test_rcon_execute_command_rejects_invalid_command_before_connect(command, monkeypatch):
+    def unexpected_client(*_args, **_kwargs):
+        pytest.fail("Invalid command reached the network client")
+
+    monkeypatch.setattr("asa_ctrl.core.rcon.RconClient", unexpected_client)
     with pytest.raises(ValueError):
-        execute_rcon_command("")
+        execute_rcon_command(command)
 
 
 def test_execute_rcon_command_uses_client(monkeypatch):
@@ -607,7 +426,7 @@ def test_execute_rcon_command_uses_client(monkeypatch):
 
     monkeypatch.setattr("asa_ctrl.core.rcon.RconClient", DummyClient)
     settings = AsaSettings({})
-    assert execute_rcon_command("listplayers", "ark.local", settings=settings) == "ok"
+    assert execute_rcon_command("  listplayers  ", "ark.local", settings=settings) == "ok"
     assert responses == ["listplayers"]
     assert captured == {"server_ip": "ark.local", "settings": settings}
 
@@ -644,24 +463,7 @@ def test_retired_helpers_still_delegate_to_the_live_modules():
 
     line = "TheIsland_WP?listen?RCONPort=27020"
     assert helper.get_value(line, "RCONPort") == "27020"
-    assert legacy_parse(line) == LaunchConfiguration.parse(line).as_mapping()
-
-
-def test_live_config_module_no_longer_carries_the_shims():
-    """The pass-throughs are gone from the module that owns the behaviour."""
-    from asa_ctrl.common import config
-
-    for retired in (
-        "StartParamsHelper",
-        "IniConfigHelper",
-        "parse_start_params",
-        "get_game_user_settings_path",
-        "get_game_ini_path",
-    ):
-        assert not hasattr(config, retired), f"{retired} should have been retired"
-
-    assert not hasattr(AsaSettings, "_get_start_param_value")
-    assert not hasattr(AsaSettings, "_parse_start_params")
+    assert legacy_parse(line) == {"_map": "TheIsland_WP", "RCONPort": "27020"}
 
 
 def test_unknown_root_attribute_still_raises():
@@ -708,35 +510,50 @@ def test_cli_mods_no_action_prints_help(capsys):
     assert "Please specify a mod action" in captured.out
 
 
-def test_mods_command_enable_disable_list(tmp_path, capsys):
+def test_cli_mods_enable_disable_persists(tmp_path, monkeypatch, capsys):
     db_path = tmp_path / "mods.json"
-    settings = AsaSettings({"ASA_MOD_DATABASE_PATH": str(db_path)})
+    monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(db_path))
 
-    args = type("Args", (), {"mod_action": "enable", "mod_id": 123, "settings": settings})
-    ModsCommand.execute(args)
+    cli_main(["mods", "enable", "123"])
     out = capsys.readouterr().out
     assert "Enabled mod id" in out
+    assert ModDatabase(str(db_path)).is_mod_enabled(123)
 
-    args = type("Args", (), {"mod_action": "disable", "mod_id": 123, "settings": settings})
-    ModsCommand.execute(args)
+    cli_main(["mods", "disable", "123"])
     out = capsys.readouterr().out
     assert "Disabled mod id" in out
-
-    args = type("Args", (), {"mod_action": "list", "enabled_only": True, "settings": settings})
-    ModsCommand.execute(args)
-    out = capsys.readouterr().out
-    assert "Enabled mods:" in out
+    assert not ModDatabase(str(db_path)).is_mod_enabled(123)
 
 
-def test_mods_command_already_enabled_exit_code(tmp_path, capsys):
+@pytest.mark.parametrize("enabled_only", [False, True])
+def test_cli_mods_list_filters_disabled_records(tmp_path, monkeypatch, capsys, enabled_only):
     db_path = tmp_path / "mods.json"
-    settings = AsaSettings({"ASA_MOD_DATABASE_PATH": str(db_path)})
+    monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(db_path))
+    db = ModDatabase(str(db_path))
+    db.enable_mod(123)
+    db.enable_mod(456)
+    db.disable_mod(456)
+
+    cli_main(["mods", "list"] + (["--enabled-only"] if enabled_only else []))
+
+    out = capsys.readouterr().out
+    assert "123: unknown (enabled)" in out
+    if enabled_only:
+        assert "Enabled mods:" in out
+        assert "456" not in out
+    else:
+        assert "All mods:" in out
+        assert "456: unknown (disabled)" in out
+
+
+def test_cli_mods_already_enabled_exit_code(tmp_path, monkeypatch, capsys):
+    db_path = tmp_path / "mods.json"
+    monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(db_path))
     db = ModDatabase(str(db_path))
     db.enable_mod(999)
 
-    args = type("Args", (), {"mod_action": "enable", "mod_id": 999, "settings": settings})
     with pytest.raises(SystemExit) as exc:
-        ModsCommand.execute(args)
+        cli_main(["mods", "enable", "999"])
     assert exc.value.code == ExitCodes.MOD_ALREADY_ENABLED
     assert "already enabled" in capsys.readouterr().err.lower()
 
@@ -746,9 +563,8 @@ def test_rcon_command_errors_map_to_exit_codes(capsys, monkeypatch):
         raise RconPasswordNotFoundError("missing")
 
     monkeypatch.setattr("asa_ctrl.cli_commands.rcon_command.execute_rcon_command", raise_password_error)
-    args = type("Args", (), {"command": "listplayers"})
     with pytest.raises(SystemExit) as exc:
-        RconCommand.execute(args)
+        cli_main(["rcon", "--exec", "listplayers"])
     assert exc.value.code == ExitCodes.RCON_PASSWORD_NOT_FOUND
     assert "could not read rcon password" in capsys.readouterr().err.lower()
 
@@ -758,42 +574,19 @@ def test_rcon_authentication_error_names_admin_password(capsys, monkeypatch):
         raise RconAuthenticationError("wrong password")
 
     monkeypatch.setattr("asa_ctrl.cli_commands.rcon_command.execute_rcon_command", raise_auth_error)
-    args = type("Args", (), {"command": "listplayers"})
-
     with pytest.raises(SystemExit) as exc:
-        RconCommand.execute(args)
+        cli_main(["rcon", "--exec", "listplayers"])
 
     assert exc.value.code == ExitCodes.RCON_PASSWORD_WRONG
     assert "ServerAdminPassword" in capsys.readouterr().err
 
 
-def test_ini_config_helper_missing_file_returns_none(tmp_path):
+def test_parse_ini_missing_file_returns_none(tmp_path):
     missing = tmp_path / "missing.ini"
     assert parse_ini(str(missing)) is None
 
 
-def test_ini_config_helper_invalid_file_returns_none(tmp_path):
+def test_parse_ini_invalid_file_returns_none(tmp_path):
     invalid = tmp_path / "invalid.ini"
     invalid.write_text("missing section header", encoding="utf-8")
     assert parse_ini(str(invalid)) is None
-
-
-def main():  # pragma: no cover - simple runner
-    print("Running asa_ctrl tests...\n")
-    try:
-        test_start_params_helper()
-        test_ini_config_helper_duplicate_keys()
-        test_mod_database()
-        test_rcon_validation()
-        test_exit_codes()
-        print("\nAll tests passed.")
-        return 0
-    except Exception as e:  # noqa: BLE001
-        print(f"Test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return 1
-
-
-if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())

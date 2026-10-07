@@ -16,11 +16,6 @@ from asa_ctrl.core.restart_scheduler import (
     CronSchedule,
     parse_warning_offsets,
     run_scheduler,
-    _read_pid_from_file,
-    _is_process_alive,
-    _announce,
-    _announce_now,
-    _trigger_restart,
 )
 
 
@@ -75,115 +70,108 @@ def test_parse_warning_offsets_dedup_and_sort():
     assert parse_warning_offsets("5,1,5,10") == [10, 5, 1]
 
 
-def test_read_pid_from_file_missing(tmp_path):
-    assert _read_pid_from_file(str(tmp_path / "missing.pid")) is None
+@pytest.mark.parametrize(
+    "environment, message",
+    [
+        ({}, "Restart scheduler disabled"),
+        ({"SERVER_RESTART_CRON": "invalid"}, "Invalid SERVER_RESTART_CRON"),
+        ({"SERVER_RESTART_CRON": "* * * * *", "SERVER_RESTART_WARNINGS": "0"}, "Invalid restart warning"),
+    ],
+)
+def test_run_scheduler_inactive_configuration_has_no_side_effects(monkeypatch, caplog, environment, message):
+    def unexpected_effect(*_args, **_kwargs):
+        pytest.fail("Inactive scheduler reached sleep, RCON or process signalling")
 
+    monkeypatch.setattr(scheduler.time, "sleep", unexpected_effect)
+    monkeypatch.setattr(scheduler, "execute_rcon_command", unexpected_effect)
+    monkeypatch.setattr(scheduler.os, "kill", unexpected_effect)
 
-def test_read_pid_from_file_invalid(tmp_path):
-    pid_path = tmp_path / "pid.txt"
-    pid_path.write_text("not-an-int", encoding="utf-8")
-    assert _read_pid_from_file(str(pid_path)) is None
-
-
-def test_is_process_alive_false(monkeypatch):
-    def fake_kill(_pid, _sig):
-        raise OSError("nope")
-
-    monkeypatch.setattr(os, "kill", fake_kill)
-    assert _is_process_alive(12345) is False
-
-
-def test_trigger_restart_missing_pid_file(caplog):
-    with caplog.at_level("ERROR"):
-        _trigger_restart(None, scheduler.get_logger(__name__))
-    assert "Cannot trigger restart" in "\n".join(caplog.messages)
-
-
-def test_announce_helpers(monkeypatch):
-    calls = []
-
-    def fake_run(command, _logger, _settings):
-        calls.append(command)
-        return True
-
-    monkeypatch.setattr(scheduler, "_run_rcon_command", fake_run)
-    settings = scheduler.AsaSettings({})
-    now = datetime(2024, 1, 1, 12, 0)
-    _announce(5, now, scheduler.get_logger(__name__), settings)
-    _announce_now(now, scheduler.get_logger(__name__), settings)
-    assert any("restart in 5 minutes" in command for command in calls)
-    assert any("restarting now" in command for command in calls)
-
-
-def test_run_rcon_command_uses_command_interface(monkeypatch):
-    calls = []
-    settings = scheduler.AsaSettings({})
-
-    def fake_execute(command, *, settings):
-        calls.append((command, settings))
-        return "ok"
-
-    monkeypatch.setattr(scheduler, "execute_rcon_command", fake_execute)
-
-    assert scheduler._run_rcon_command("saveworld", scheduler.get_logger(__name__), settings) is True
-    assert calls == [("saveworld", settings)]
-
-
-def test_run_scheduler_no_cron_exits_quickly(monkeypatch):
-    # Ensure the scheduler returns immediately when no cron is configured
-    monkeypatch.setenv("SERVER_RESTART_CRON", "")
-    # Speed up logging to avoid output clutter
-    run_scheduler()
-
-
-def test_run_scheduler_invalid_cron(monkeypatch, caplog):
-    monkeypatch.setenv("SERVER_RESTART_CRON", "invalid")
     with caplog.at_level("INFO"):
-        run_scheduler()
-    assert "Invalid SERVER_RESTART_CRON" in "\n".join(caplog.messages)
+        run_scheduler(scheduler.AsaSettings(environment))
+
+    assert message in caplog.text
 
 
-def test_run_scheduler_announces_and_triggers(monkeypatch):
-    base_time = datetime(2024, 1, 1, 12, 0)
-
+@pytest.mark.parametrize(
+    "supervisor_state, server_alive, rcon_fails",
+    [
+        ("alive", True, False),
+        ("missing", True, False),
+        ("invalid", True, False),
+        ("dead", True, False),
+        ("alive", False, False),
+        ("alive", True, True),
+    ],
+)
+def test_run_scheduler_orders_notifications_and_guards_restart(
+    tmp_path, monkeypatch, supervisor_state, server_alive, rcon_fails
+):
+    """Exercise PID guards and announcement ordering through the scheduler owner."""
     class FakeDateTime(datetime):
-        current = base_time
+        current = datetime(2024, 1, 1, 12, 0)
 
         @classmethod
         def now(cls):
             return cls.current
 
-        @classmethod
-        def advance(cls, seconds: float) -> None:
-            cls.current = cls.current + timedelta(seconds=seconds)
+    class WindowComplete(Exception):
+        pass
 
-    def fast_sleep(seconds: float) -> None:
-        FakeDateTime.advance(seconds)
+    sleeps = []
 
-    calls = []
+    def fast_sleep(seconds):
+        sleeps.append(seconds)
+        if FakeDateTime.current >= datetime(2024, 1, 1, 12, 5) or not server_alive:
+            raise WindowComplete
+        assert len(sleeps) < 30, "Scheduler did not finish its first restart window"
+        FakeDateTime.current += timedelta(seconds=seconds)
 
-    def fake_run_rcon(command: str, _logger, _settings) -> bool:
-        calls.append(command)
-        return True
+    supervisor_path = tmp_path / "supervisor.pid"
+    if supervisor_state != "missing":
+        supervisor_path.write_text("not-an-int" if supervisor_state == "invalid" else "12345", encoding="utf-8")
+    server_path = tmp_path / "server.pid"
+    server_path.write_text("23456", encoding="utf-8")
+    settings = scheduler.AsaSettings({
+        "SERVER_RESTART_CRON": "5 12 * * *",
+        "SERVER_RESTART_WARNINGS": "5,1",
+        "ASA_SUPERVISOR_PID_FILE": str(supervisor_path),
+        "ASA_SERVER_PID_FILE": str(server_path),
+    })
+    events = []
 
-    stop_marker = object()
+    def fake_execute(command, *, settings):
+        assert settings is configured_settings
+        events.append(("rcon", command))
+        if rcon_fails:
+            raise scheduler.AsaCtrlError("RCON unavailable")
+        return "ok"
 
-    def fake_trigger(_path, _logger):
-        raise RuntimeError(stop_marker)
+    def fake_kill(pid, signum):
+        if signum == 0:
+            if (pid == 23456 and not server_alive) or (pid == 12345 and supervisor_state == "dead"):
+                raise ProcessLookupError(pid)
+            assert pid in (12345, 23456)
+        else:
+            events.append(("signal", pid, signum))
 
-    monkeypatch.setenv("SERVER_RESTART_CRON", "* * * * *")
-    monkeypatch.setenv("SERVER_RESTART_WARNINGS", "1")
-    monkeypatch.setenv("ASA_SUPERVISOR_PID_FILE", "/tmp/unused.pid")
-
+    configured_settings = settings
+    # The image is Linux; provide its signal constant on Windows without sending it.
+    monkeypatch.setattr(scheduler.signal, "SIGUSR1", 10, raising=False)
     monkeypatch.setattr(scheduler, "datetime", FakeDateTime)
     monkeypatch.setattr(scheduler.time, "sleep", fast_sleep)
-    monkeypatch.setattr(scheduler, "_run_rcon_command", fake_run_rcon)
-    monkeypatch.setattr(scheduler, "_trigger_restart", fake_trigger)
+    monkeypatch.setattr(scheduler, "execute_rcon_command", fake_execute)
+    monkeypatch.setattr(scheduler.os, "kill", fake_kill)
 
-    with pytest.raises(RuntimeError) as exc:
-        run_scheduler()
+    with pytest.raises(WindowComplete):
+        run_scheduler(settings)
 
-    assert exc.value.args and exc.value.args[0] is stop_marker
-    # Expect warning and final announcement
-    assert any("restart in 1 minute" in message for message in calls)
-    assert any("restarting now" in message for message in calls)
+    expected = []
+    if server_alive:
+        expected = [
+            ("rcon", "serverchat Server restart in 5 minutes (scheduled 12:05)."),
+            ("rcon", "serverchat Server restart in 1 minute (scheduled 12:05)."),
+            ("rcon", "serverchat Server restarting now (scheduled 12:05)."),
+        ]
+        if supervisor_state == "alive":
+            expected.append(("signal", 12345, 10))
+    assert events == expected
