@@ -85,7 +85,7 @@ def _resolve_fex_runner() -> tuple[tuple[str, ...], bool]:
         if not binary:
             continue
         if candidate in {"FEXBash", "fexbash"}:
-            # The pinned FEXBash forwards arguments to the guest /bin/sh.
+            # FEXBash forwards arguments to the guest /bin/sh.
             return (binary, "-c"), True
         return (binary, "/bin/sh", "-c"), True
     raise RuntimeError(
