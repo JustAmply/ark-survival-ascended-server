@@ -1,114 +1,84 @@
-# 🚀 ARK: Survival Ascended Server Setup Guide
+# Setup and administration
 
-Your complete guide to getting an amazing ARK server up and running! This covers everything from basic setup to advanced cluster configurations.
+This guide covers running the published image. For source changes, tests and
+image builds, use the [development guide](docs/development.md).
 
-## 📋 What You'll Need
+- [Installation](#installation)
+- [Server configuration](#server-configuration)
+- [Storage and backups](#storage-and-backups)
+- [Networking](#networking)
+- [Server management](#server-management)
+- [Multi-server clusters](#multi-server-clusters)
+- [Restarts and shutdown](#restarts-and-shutdown)
+- [Startup and Proton](#startup-and-proton)
+- [ARM64 experimental](#arm64-experimental)
+- [Resource tuning and debug mode](#resource-tuning-and-debug-mode)
 
-### 💻 System Requirements
-- **RAM**: ~13 GB per server (more = better performance!)
-- **Storage**: ~31 GB for server files + space for saves
-- **OS**: Any Linux with Docker support
-- **Tested on**: Ubuntu 24.04, Debian 12
+## Installation
 
-**⚠️ Avoid Ubuntu 22.04** - Known issues cause high CPU usage and server startup failures.
+Use a host with Docker and Docker Compose and enough memory and disk space for
+the game, saves and mods. Budget roughly 13 GB RAM and 31 GB disk for a server as
+a starting estimate; map, player count, mods and game updates change the actual
+requirements. Leave additional disk space for downloads and backups.
 
-### 🐳 Prerequisites
-- Docker and Docker Compose installed on your system
-- Basic command line knowledge
-- Root access for initial setup
+Follow the [README quick start](README.md#quick-start) to download the Compose
+file, configure `.env` and start the container. Startup automatically prepares
+SteamCMD and GE-Proton, downloads the game and launches it. Download and world
+loading time depend on the host and connection; a launch message alone does not
+mean the game is ready for players.
 
-## 🎯 Quick Setup
-
-### 📥 Download & Start
-
-1. **Create your server directory:**
-   ```bash
-   mkdir asa-server && cd asa-server
-   wget https://raw.githubusercontent.com/JustAmply/ark-survival-ascended-server/main/docker-compose.yml
-   wget https://raw.githubusercontent.com/JustAmply/ark-survival-ascended-server/main/.env.example
-   ```
-
-2. **Set a unique admin password:**
-   ```bash
-   cp .env.example .env
-   vi .env
-   ```
-   Fill in `ASA_SERVER_ADMIN_PASSWORD` and keep `.env` private. Compose stops with an error if the value is missing or empty.
-
-3. **Launch your server:**
-   ```bash
-   docker compose up -d
-   ```
-
-   **Tip:** The container already passes `-nosteam` in `ASA_START_PARAMS` (also required if you roll your own launch line) to avoid the startup `Error 3` where Steam refuses to fire up inside the container.
-
-   **ARM64 tip:** Use `ghcr.io/justamply/asa-linux-server:arm64-experimental` for ARM64 hosts while support is experimental.
-
-4. **Watch it come to life:**
-   ```bash
-   docker logs -f asa-server-1
-   ```
-   
-   *Press `Ctrl+C` to exit logs (server keeps running)*
-
-### 🎉 First Launch
-
-Your server will automatically:
-- ✅ Download Steam & Proton compatibility layer
-- ✅ Download ARK server files (~31GB)
-- ✅ Generate a random server name
-- ✅ Start accepting connections in ~5-10 minutes
-
-Startup is fully automatic through the container's Python runtime entrypoint; no manual startup command is required.
-
-### 🔍 Find Your Server
-
-Once you see `"Starting ASA dedicated server."` in the logs, check your server name:
+Set `ASA_SESSION_NAME` to a recognizable name. If omitted, the game generates
+one. After startup, you can inspect it with:
 
 ```bash
-docker exec asa-server-1 cat server-files/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini | grep SessionName
+docker compose exec asa-server-1 cat /home/gameserver/server-files/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini | grep SessionName
 ```
 
-This shows something like `SessionName=ARK #334850`. Search for that number in the **Unofficial** server browser!
+Find it in the **Unofficial** server browser and enable **Show Player Servers**.
+See [troubleshooting](FAQ.md#server-is-not-visible) if it does not appear.
 
-![Server browser with "Show Player Servers"](assets/show-player-servers.jpg)
+![Server browser with Show Player Servers](assets/show-player-servers.jpg)
 
-## ⚙️ Server Configuration
+## Server configuration
 
-### 🎮 Customize Your Server
-
-Set one environment variable per setting in your `docker-compose.yml`:
+Edit the service's `environment` section in `docker-compose.yml`:
 
 ```yaml
 environment:
   ASA_MAP: TheIsland_WP
+  ASA_SESSION_NAME: My ARK Server
   ASA_PORT: "7777"
   ASA_RCON_PORT: "27020"
   ASA_SERVER_ADMIN_PASSWORD: ${ASA_SERVER_ADMIN_PASSWORD:?Set ASA_SERVER_ADMIN_PASSWORD in .env before starting}
   ASA_MAX_PLAYERS: "50"
+  TZ: Europe/Berlin
 ```
 
-#### 🧩 Launch settings
+Run `docker compose up -d -t 300` after changing Compose settings or `.env` so the
+container is recreated with the new environment. `docker compose restart`
+only restarts the existing container with its existing settings.
+
+### Launch settings
 
 | Variable | Launch line entry | Default |
 | --- | --- | --- |
 | `ASA_MAP` | map name | `TheIsland_WP` |
-| `ASA_SESSION_NAME` | `?SessionName=` | – |
+| `ASA_SESSION_NAME` | `?SessionName=` | Generated by the game when omitted |
 | `ASA_PORT` | `?Port=` | `7777` |
 | `ASA_RCON_PORT` | `?RCONPort=` | `27020` |
 | `ASA_RCON_ENABLED` | `?RCONEnabled=` | `True` |
 | `ASA_SERVER_ADMIN_PASSWORD` | `?ServerAdminPassword=` | Required in the supplied Compose file; legacy runtime fallback: `changeme` |
-| `ASA_SERVER_PASSWORD` | `?ServerPassword=` | – |
-| `ASA_SPECTATOR_PASSWORD` | `?SpectatorPassword=` | – |
-| `ASA_MAX_PLAYERS` | `-WinLiveMaxPlayers=` | – |
-| `ASA_CLUSTER_ID` | `-clusterid=` | – |
-| `ASA_CLUSTER_DIR` | `-ClusterDirOverride=` | – |
-| `ASA_MODS` | `-mods=` | – |
-| `ASA_BATTLEYE` | adds `-NoBattlEye` when `false` | – |
-| `ASA_EXTRA_QUERY_PARAMS` | raw `?Key=Value?…` appended | – |
-| `ASA_EXTRA_FLAGS` | raw `-flag …` appended | – |
+| `ASA_SERVER_PASSWORD` | `?ServerPassword=` | Unset |
+| `ASA_SPECTATOR_PASSWORD` | `?SpectatorPassword=` | Unset |
+| `ASA_MAX_PLAYERS` | `-WinLiveMaxPlayers=` | Unset; supplied Compose file sets `50` |
+| `ASA_CLUSTER_ID` | `-clusterid=` | Unset; supplied Compose file sets `default` |
+| `ASA_CLUSTER_DIR` | `-ClusterDirOverride=` | Unset; supplied Compose file sets `/home/gameserver/cluster-shared` |
+| `ASA_MODS` | `-mods=` | Unset |
+| `ASA_BATTLEYE` | adds `-NoBattlEye` when `false` | Unset |
+| `ASA_EXTRA_QUERY_PARAMS` | raw `?Key=Value?…` entries | Unset |
+| `ASA_EXTRA_FLAGS` | raw `-flag …` entries | Unset |
 
-Anything without a dedicated variable goes through the escape hatches:
+Use the extra parameters for options without a dedicated variable:
 
 ```yaml
 environment:
@@ -116,319 +86,221 @@ environment:
   ASA_EXTRA_FLAGS: "-servergamelog -NoTransferFromFiltering"
 ```
 
-#### 🧵 Using `ASA_START_PARAMS` (still supported)
+### Legacy launch strings and precedence
 
-The single-string launch line keeps working exactly as before:
+`ASA_START_PARAMS` remains supported:
 
 ```yaml
 environment:
   ASA_START_PARAMS: TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50
 ```
 
-It can also be combined with the variables above. `ASA_START_PARAMS` provides
-the base launch line and each variable replaces the matching entry in place,
-leaving everything else untouched — handy for rotating a password or moving one
-cluster member to a new port.
-
-**Precedence**, highest first:
+It supplies the base launch line. Individual variables replace the matching
+entries while preserving unknown options. Precedence, highest first:
 
 1. `ASA_EXTRA_QUERY_PARAMS` / `ASA_EXTRA_FLAGS`
-2. the named `ASA_*` variables
+2. Named `ASA_*` launch variables
 3. `ASA_START_PARAMS`
-4. built-in defaults
+4. Built-in defaults
 
-**Other options:**
-- **🕒 Timezone**: Set `TZ=Europe/Berlin` (or your region) so server logs follow your local time (default: `UTC`)
-- **🧭 Translator mode**: `ASA_TRANSLATOR_MODE=auto|fex|none` (default `auto`; resolves to `fex` on ARM64)
-- **⏱️ Translator probe timeout**: `ASA_TRANSLATOR_PROBE_TIMEOUT=20` (seconds)
-- **🛡️ Proton stability profile**: `ASA_PROTON_PROFILE=balanced|safe` (`safe` disables esync/fsync)
+The runtime always adds `-nosteam` and merges static and dynamic mods into one
+`-mods=` flag. RCON discovery uses the same launch configuration, then falls
+back to INI settings when values are absent.
 
-### 📂 File Locations
+`TZ` controls the container timezone; the supplied Compose file uses
+`Europe/Berlin`. `ASA_LOG_LEVEL` defaults to `INFO`.
 
-Your server files are stored in Docker volumes:
-- **Server files**: `/var/lib/docker/volumes/asa-server_server-files-1/_data/`
-- **Config files**: `/var/lib/docker/volumes/asa-server_server-files-1/_data/ShooterGame/Saved/Config/WindowsServer/`
+## Storage and backups
 
-## 🧪 ARM64 Experimental Mode
+The supplied Compose file uses named volumes:
 
-ARM64 images are published with dedicated experimental tags:
+| Volume | Container path | Contents |
+| --- | --- | --- |
+| `server-files-1` | `/home/gameserver/server-files` | Game files, saves, configuration, `mods.json` and Proton compatibility data |
+| `steam-1` | `/home/gameserver/Steam` | Installed Proton builds |
+| `steamcmd-1` | `/home/gameserver/steamcmd` | SteamCMD installation |
+| `cluster-shared` | `/home/gameserver/cluster-shared` | Shared character and creature transfer data |
 
-- `ghcr.io/justamply/asa-linux-server:arm64-experimental`
-- `ghcr.io/justamply/asa-linux-server:<version>-arm64-experimental`
+Game configuration is under `ShooterGame/Saved/Config/WindowsServer` within
+the server-files volume. Actual volume names include the Compose project prefix;
+host paths also depend on Docker's installation. Inspect the mounts rather than
+assuming a fixed `/var/lib/docker` path:
 
-Both images run the application and `asa-ctrl` on Python 3.14. ARM64 builds checksum-verified CPython against Ubuntu 24.04 in a separate stage and installs its runtime under `/usr/local`; it does not replace Ubuntu's `/usr/bin/python3`. Compilers, development headers and PPA setup helpers stay out of the final image. The application uses `python`/`python3.14`; `python3` is reserved for the Ubuntu-provided x86 guest interpreter so Proton's shebang cannot escape FEX through a native interpreter.
-
-The ARM64 stage installs the current ARMv8.0 FEX package from its signed official PPA and an x86 RootFS built from signed Ubuntu 24.04 packages. The guest contains explicit 32-bit SteamCMD and 64-bit Proton libraries, Python and headless Wine dependencies, without desktop applications, Mesa drivers or LLVM. Builds no longer depend on a dated FEX CDN snapshot. Guest identity and mount files are removed so the container's users, DNS and game volumes remain visible. The RootFS is copied as a directory; no privileged mode or `/dev/fuse` mount is required. QEMU is used only to build this AMD64 guest stage on the ARM64 CI runner; the runtime and acceptance checks use native ARM64 FEX. Native AMD64 keeps its existing Python base image and launch behavior.
-
-FEX comes from the signed official PPA's current `fex-emu-armv8.0` package.
-The PPA removes superseded versions, so builds do not pin a version it may no
-longer publish. CI refreshes this installation on every ARM64 image build,
-logs the installed package version, and requires native translation checks
-before publication. Ordinary builds retain Python and guest RootFS caches;
-the weekly refresh still rebuilds all stages without cache.
-Use a published image digest to keep a deployed FEX build fixed; rebuilding
-the same source can resolve a newer PPA package.
-
-Behavior on ARM64:
-- Startup performs a SteamCMD translation probe before full updates/downloads.
-- `Exec format error` typically indicates translator setup mismatch; verify `ASA_TRANSLATOR_MODE` and FEX availability.
-- Keep persistent volumes mounted so SteamCMD/Proton caches are reused between restarts.
-
-Translated probes and servers run in isolated process groups. Probe timeouts
-terminate all children. After `saveworld` and its save delay, translated restart
-and shutdown first use the installed Proton launcher to request
-`wineboot --end-session --shutdown` for the same prefix. The request has a
-30-second timeout and also reaches applications outside the launcher's group,
-including when that group has already exited. If it fails, shutdown logs the
-error and continues. It then sends SIGTERM to the whole server
-group. SIGKILL removes remaining group members when the launcher exits or
-`ASA_SHUTDOWN_TIMEOUT` expires. Translated cleanup also stops and waits for the
-prefix-specific Wine session, including Wine children outside the launcher's
-process group.
-
-Native ARM64 CI verifies real SteamCMD self-update and anonymous login plus a Windows command through checksum-verified GE-Proton and FEX, without privileged mode or an ARK download. It also exercises the production supervisor with translated guest Python children and a long-lived Windows command, checking restart, graceful SIGTERM, forced cleanup of a stubborn child and absence of living descendants. These fixtures replace ARK preparation and RCON. Every image check pins the fallback Proton baseline; the weekly refresh additionally tests the default latest-release selection and its preflight fallback through actual Windows execution. ARM64 acceptance still requires the full ARK install, startup and soak test on the target host. The early-crash fallback applies only to translated server runs; download and preparation errors do not trigger a profile change.
-
-## 🌐 Port Configuration
-
-### 🏠 Home Setup (Router)
-Forward these ports in your router:
-- **7777/UDP** - Game port (required)
-- **27020/TCP** - RCON port (optional)
-
-### ☁️ Cloud Setup
-No port forwarding needed! Docker handles this automatically.
-
-## 🎛️ Server Management
-
-### 🔄 Basic Operations
 ```bash
-# Start/Stop/Restart
+docker inspect asa-server-1 --format '{{json .Mounts}}'
+```
+
+Stop the relevant servers before copying their persistent data for a consistent
+backup. Include server-files and cluster-shared data and keep the Compose file
+and private `.env` with the backup. Container recreation keeps named volumes;
+removing volumes or running `docker compose down -v` deletes persistent data.
+
+## Networking
+
+| Default port | Protocol | Purpose |
+| --- | --- | --- |
+| `7777` | UDP | Player connections |
+| `27020` | TCP | RCON administration |
+
+Compose publishes these ports on the host. Allow the game port through the
+host firewall and any cloud firewall/security group. Behind a home router,
+forward it to the Docker host. Expose RCON only where remote administration
+is needed; `docker compose exec ... asa-ctrl rcon` runs inside the container.
+
+When changing `ASA_PORT` or `ASA_RCON_PORT`, update the corresponding Compose
+port mapping and firewall/router rules as well.
+
+## Server management
+
+Commands below use the supplied service name `asa-server-1`.
+
+```bash
 docker compose start asa-server-1
-docker compose stop asa-server-1
-docker compose restart asa-server-1
-
-# View logs
-docker logs -f asa-server-1
-
-# Update server (auto-downloads game updates)
-docker restart asa-server-1
+docker compose stop -t 300 asa-server-1
+docker compose restart -t 300 asa-server-1
+docker compose logs -f asa-server-1
 ```
 
-### 🎮 Mod Management
+A server start runs SteamCMD updates. To update the container image itself,
+run `docker compose pull` followed by `docker compose up -d -t 300`.
+See [shutdown timing](#restarts-and-shutdown) for the stop timeout.
 
-**🚀 Dynamic Method (Recommended):**
+### Mods and custom maps
+
+Use CurseForge mod IDs with the dynamic database:
+
 ```bash
-# Enable mods
-docker exec asa-server-1 asa-ctrl mods enable 12345
-docker exec asa-server-1 asa-ctrl mods enable 67891
-
-# List enabled mods
-docker exec asa-server-1 asa-ctrl mods list --enabled-only
-
-# Remove mods that are no longer needed (purges the database entry)
-docker exec asa-server-1 asa-ctrl mods remove 12345
-
-# Restart to download mods
-docker restart asa-server-1
+docker compose exec asa-server-1 asa-ctrl mods enable 12345
+docker compose exec asa-server-1 asa-ctrl mods list --enabled-only
+docker compose exec asa-server-1 asa-ctrl mods remove 12345
+docker compose restart -t 300 asa-server-1
 ```
 
-**⚡ Static Method:**
-Set `ASA_MODS=12345,67891` in `docker-compose.yml`. Ids from `mods.json` are
-merged into the same `-mods=` flag, duplicates dropped.
+Restart after changing the database to download and activate the enabled mods.
+`mods remove` deletes the database entry. Alternatively, set
+`ASA_MODS: "12345,67891"` in Compose and apply it with `docker compose up -d -t 300`.
+Static IDs and enabled database IDs are merged, with duplicates removed;
+removing a database entry does not remove an ID still listed in `ASA_MODS`.
 
-### 🗺️ Custom Maps
-1. Find the mod ID on CurseForge
-2. Enable the map mod: `docker exec asa-server-1 asa-ctrl mods enable MOD_ID`
-3. Set the map name: `ASA_MAP=MapName_WP`
-4. Restart server
+For a custom map, enable its mod ID, set `ASA_MAP` to the map name supplied by
+the mod author, then apply the Compose change. For an official map, set
+`ASA_MAP` directly, for example `ScorchedEarth_WP`.
 
-### 🎯 RCON Commands
+### RCON
+
 ```bash
-# Save world
-docker exec asa-server-1 asa-ctrl rcon --exec 'saveworld'
-
-# Broadcast message
-docker exec asa-server-1 asa-ctrl rcon --exec 'serverchat Hello players!'
-
-# Kick player
-docker exec asa-server-1 asa-ctrl rcon --exec 'kickplayer PlayerName'
+docker compose exec asa-server-1 asa-ctrl rcon --exec 'saveworld'
+docker compose exec asa-server-1 asa-ctrl rcon --exec 'serverchat Hello players!'
+docker compose exec asa-server-1 asa-ctrl rcon --exec 'kickplayer PlayerName'
 ```
 
-## 🔗 Multi-Server Clusters
+The tool discovers the port and admin password from the server configuration.
+See [RCON troubleshooting](FAQ.md#rcon-commands-fail) for connection failures.
 
-Want multiple servers where players can transfer characters and dinos?
+## Multi-server clusters
 
-1. **Uncomment the second server** in your `docker-compose.yml`
-2. **Start both servers**: `docker compose up -d`
-3. **Different cluster ID**: Change `ASA_CLUSTER_ID: default` to something unique like `ASA_CLUSTER_ID: MySecretCluster`
+Uncomment the second service **and its volume declarations** in the supplied
+Compose file. Give each server distinct game/RCON ports and separate server,
+Steam and SteamCMD volumes. All members of a cluster must share the same
+`ASA_CLUSTER_ID`, mount the same `cluster-shared` volume and set
+`ASA_CLUSTER_DIR` to its container path. Choose a cluster ID for the whole
+cluster rather than a different ID for each member.
 
-Each additional server gets its own ports (7778, 7779, etc.) and storage volumes.
+Apply the configuration with `docker compose up -d -t 300` and open each server's game
+port in the firewall/router.
 
-## ⏰ Shutdown Behavior
+## Restarts and shutdown
 
-Stopping the container (e.g., `docker stop`) triggers a `saveworld` via RCON before the server process receives `SIGTERM`. You can fine-tune the shutdown grace period with optional variables:
+The supervisor attempts `saveworld` through RCON, waits, then stops the server.
 
-- `ASA_SHUTDOWN_SAVEWORLD_DELAY=15` – wait time (seconds) after saving before signalling shutdown
-- `ASA_SHUTDOWN_TIMEOUT=180` – graceful shutdown timeout (seconds) before the process is force-killed
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ASA_SHUTDOWN_SAVEWORLD_DELAY` | `15` | Seconds after saving before shutdown |
+| `ASA_SHUTDOWN_TIMEOUT` | `180` | Graceful shutdown seconds before forced cleanup |
+| `SERVER_RESTART_DELAY` | `15` | Seconds before relaunch |
 
-## 🚀 Startup and Restart Speed
+Docker's stop timeout must allow the runtime to complete saving and shutdown.
+The examples use `-t 300`; increase it if you increase the runtime delays.
+For Compose-managed stops and recreation, you can set `stop_grace_period: 300s`
+on each service rather than specifying `-t` for each command.
 
-SteamCMD can checksum every installed file before launch. That reads the whole
-~20 GB installation, so doing it on each supervised relaunch would add minutes
-of downtime to every crash recovery and every scheduled restart. The runtime
-therefore validates only when it has to:
-
-| `ASA_VALIDATE` | Behavior |
-| --- | --- |
-| `first` (default) | Validate the initial install, then plain `app_update` on later starts. New builds are still picked up. |
-| `always` | Validate on every start. Use after a suspected corrupted install. |
-| `never` | Never validate, not even on the first install. |
-
-If files ever do look damaged, one run with `ASA_VALIDATE=always` repairs them.
-
-The Proton preflight check (see below) is likewise cached per image build, so it
-costs a subprocess launch once rather than on every relaunch.
-
-To diagnose a slow start, compare the `Initial ownership setup`, `Server file
-update completed`, and `Proton preparation completed` durations in the container
-logs. Ownership setup is expected only for a new volume. Compare a first launch
-with a restart on the same volumes before changing validation or Proton settings.
-
-## 🔁 Scheduled Restarts
-
-Enable automated maintenance windows with the built-in scheduler:
+The supplied Compose file schedules a restart at 04:00. Configure the schedule
+with a five-field cron expression in the container's `TZ` timezone:
 
 ```yaml
 environment:
-  - SERVER_RESTART_CRON=0 4 * * *
+  SERVER_RESTART_CRON: "0 4 * * *"
+  SERVER_RESTART_WARNINGS: "30,5,1"
 ```
 
-The cron expression follows the standard five-field format (`minute hour day month weekday`). When active, the container:
+Warnings are comma-separated minutes before the restart. The scheduler uses the
+same save and shutdown sequence; the container stays running. Remove or empty
+`SERVER_RESTART_CRON` to disable scheduled restarts.
 
-1. Sends chat warnings 30, 5 and 1 minute before the restart
-2. Executes `saveworld` and waits for the configured grace period
-3. Restarts the server process automatically (the container keeps running)
+## Startup and Proton
 
-Customize the warning cadence with `SERVER_RESTART_WARNINGS=60,15,5,1` (comma-separated minutes) and adjust the relaunch delay with `SERVER_RESTART_DELAY=15` (seconds to wait before booting again). Omit `SERVER_RESTART_CRON` to disable the scheduler entirely.
+| `ASA_VALIDATE` | Behavior |
+| --- | --- |
+| `first` (default) | Validate the initial install, then update without full checksums on later starts |
+| `always` | Validate on every start; use when investigating damaged game files |
+| `never` | Skip validation, including on the first install |
 
-## 🍷 GE-Proton Compatibility Layer
+Full validation reads every installed file. For slow starts, compare the
+`Initial ownership setup`, `Server file update completed` and
+`Proton preparation completed` durations in the logs before changing settings.
+Compare initial setup with a restart using the same volumes.
 
-The container downloads the GE-Proton build that runs the Windows server binary. By default it picks the latest release that publishes assets for your architecture.
+GE-Proton is downloaded automatically. When no version is pinned, the runtime
+selects a compatible latest release and falls back to its known baseline if
+selection or preflight fails. A failed explicitly pinned build causes startup
+to fail instead of silently replacing the pin.
 
 | Variable | Purpose |
 | --- | --- |
-| `PROTON_VERSION` | Pin a specific build, for example `10-34`. Omit it to auto-detect. |
-| `PROTON_SKIP_CHECKSUM` | Set to `1` to bypass archive hash verification (last resort). |
-| `PROTON_SKIP_PREFLIGHT` | Set to `1` to skip the startup check described below. |
+| `PROTON_VERSION` | Pin a build, for example `10-34`; omit for automatic selection |
+| `PROTON_SKIP_CHECKSUM` | `1` bypasses archive verification; use only as a temporary last resort |
+| `PROTON_SKIP_PREFLIGHT` | `1` skips the host-library launch check |
 
-Before each launch the runtime starts the downloaded Proton launcher once to confirm the container can actually load the host libraries it needs. If an auto-detected build fails that check, the missing library is logged by name and the runtime falls back to a known good GE-Proton version instead of restarting in a loop:
+The preflight result is cached for each Proton build and image version, so it
+is not repeated on every restart. If logs report missing libraries, update the
+image; see [startup troubleshooting](FAQ.md#proton-reports-a-missing-library).
 
-```
-ERROR | GE-Proton11-5 cannot start: shared library 'libvulkan.so.1' is missing from this container.
-WARNING | Falling back to known good GE-Proton10-34; set PROTON_VERSION to override.
-```
+## ARM64 experimental
 
-Seeing this means the image should be updated (`docker compose pull`). A `PROTON_VERSION` you pinned yourself is never swapped silently — startup fails with the same message so the pin stays meaningful.
+Set the service image to
+`ghcr.io/justamply/asa-linux-server:arm64-experimental` or
+`ghcr.io/justamply/asa-linux-server:<version>-arm64-experimental`.
+Use a published image digest when you need an unchanged deployed image.
+Translation works without privileged mode or a `/dev/fuse` mount.
 
-## 🧮 Memory and CPU Tuning
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ASA_TRANSLATOR_MODE` | `auto` | Select FEX on ARM64; `fex` requires it explicitly, `none` disables translation |
+| `ASA_TRANSLATOR_PROBE_TIMEOUT` | `20` | Seconds allowed for the startup translation probe |
+| `ASA_PROTON_PROFILE` | `balanced` | `safe` disables esync/fsync |
 
-The ARK server process itself dominates the container's footprint; everything
-the image adds around it stays well under 100 MB.
+The runtime checks translation before downloading the game. Two consecutive
+translated server runs that each exit within 120 seconds switch the retry
+profile to `safe`. An early exit while using `safe` stops the supervisor,
+including when you selected that profile yourself. Preparation errors do not
+trigger the retry policy. Keep persistent volumes for downloaded tools and game data.
 
-**File descriptors.** Wine runs ASA on several hundred threads and implements
-Windows synchronisation objects with *fsync* (Linux 5.16+) or *esync*, which
-needs roughly one descriptor per object. On a small descriptor budget Wine
-silently drops to a much slower path. The runtime raises the soft limit to the
-hard limit on start and logs the mode it ended up with:
+ARM64 remains experimental until full ARK startup, saving and sustained operation
+have been verified on the target host. For errors, see [ARM64 troubleshooting](FAQ.md#arm64-translation-fails).
+Build and translation design details belong to [ADR 0002](docs/adr/0002-isolated-arm64-translation.md).
 
-```
-INFO | Wine synchronisation: fsync (kernel 6.8).
-```
+## Resource tuning and debug mode
 
-If you see the `slow server path` warning instead, raise the limit in
-`docker-compose.yml`:
+The runtime raises the soft file-descriptor limit to the hard limit and logs
+the Wine synchronization backend. The supplied Compose file sets both `nofile`
+limits to `524288`. If logs warn about the slow server path, check those limits.
+Size memory limits and swap to the host, map and mods; monitor actual usage with
+`docker stats asa-server-1` before choosing limits.
 
-```yaml
-ulimits:
-  nofile:
-    soft: 524288
-    hard: 524288
-```
+For an interactive container that holds startup:
 
-**Memory.** ARK touches a large amount of memory while loading the world and
-then leaves much of it cold. Giving the container a limit plus swap lets the
-kernel page the cold part out instead of forcing the host to keep it resident:
+1. Set `ENABLE_DEBUG: "1"` in Compose.
+2. Apply with `docker compose up -d -t 300`.
+3. Open a shell with `docker compose exec asa-server-1 bash`.
 
-```yaml
-mem_limit: 16g
-memswap_limit: 24g
-mem_swappiness: 10
-```
-
-Size these to your host and map — a modded map needs noticeably more than a
-vanilla `TheIsland_WP`. The single most effective way to keep memory in check
-over time remains the scheduled restart, since the server process grows the
-longer it runs.
-
-## 🔧 Debug Mode
-
-For troubleshooting, enable debug mode:
-
-1. Change `ENABLE_DEBUG=0` to `ENABLE_DEBUG=1` in `docker-compose.yml`
-2. Restart: `docker compose up -d`
-3. Access shell: `docker exec -ti asa-server-1 bash`
-
-## Local Image Validation
-
-Build and check the image before submitting runtime or Docker changes:
-
-```bash
-docker build -t asa-linux-server:smoke .
-docker run --rm --entrypoint python asa-linux-server:smoke -c 'from server_runtime.native_libs import main; raise SystemExit(main())'
-docker run --rm --entrypoint /usr/local/bin/asa-ctrl asa-linux-server:smoke --help
-docker run --rm --user 25000:25000 --entrypoint python \
-  --mount "type=bind,src=${PWD}/scripts/verify_runtime_lifecycle.py,dst=/tmp/verify_runtime_lifecycle.py,readonly" \
-  asa-linux-server:smoke /tmp/verify_runtime_lifecycle.py
-docker run --rm --user 25000:25000 --entrypoint python \
-  --mount "type=bind,src=${PWD}/scripts/verify_translated_lifecycle.py,dst=/tmp/verify_translated_lifecycle.py,readonly" \
-  asa-linux-server:smoke /tmp/verify_translated_lifecycle.py --native-fixture
-```
-
-The lifecycle check runs the discrete launch settings and legacy fallback cases
-in parallel, each with its own temporary files and child processes. It verifies
-authenticated RCON, scheduler warnings, restart, the real save delay, shutdown
-and cleanup. It replaces SteamCMD, Proton and the game binary at their external
-interfaces; it does not download or launch ARK or use existing server volumes.
-The additional native fixture check exercises the translated supervisor's
-process-group policy with Linux Python children. It verifies graceful signals
-and forced cleanup, but provides no evidence about FEX or Proton.
-
-On a native ARM64 host, build the ARM64 image and run the translated checks in a
-disposable container with both scripts mounted. This downloads SteamCMD and
-checksum-verified Proton, then checks Windows execution and translated lifecycle
-cleanup without installing ARK:
-
-```bash
-docker build --platform linux/arm64 -t asa-linux-server:arm64-smoke .
-docker run --rm --user 25000:25000 --entrypoint python \
-  --mount "type=bind,src=${PWD}/scripts/verify_arm64_translation.py,dst=/tmp/verify_arm64_translation.py,readonly" \
-  --mount "type=bind,src=${PWD}/scripts/verify_translated_lifecycle.py,dst=/tmp/verify_translated_lifecycle.py,readonly" \
-  asa-linux-server:arm64-smoke /tmp/verify_arm64_translation.py
-```
-
-Add `--proton-version auto` after the script path to check the same Proton
-selection as a default container start, including the preflight fallback. CI
-runs this additional check weekly; ordinary image checks retain the reproducible
-pinned baseline.
-
-CI skips Docker for documentation-only and test-only changes. Release
-tags and a weekly refresh always run all checks; the refresh rebuilds without
-the layer cache. Image metadata is applied after filesystem layers to preserve
-the cache on ordinary builds. Draft, fork and Dependabot PRs do not publish
-images; ready PRs from this repository retain preview images.
-
-## 📖 Need More Help?
-
-- **🐛 Found a bug?** [Open an issue](https://github.com/JustAmply/ark-survival-ascended-server/issues)
-- **❓ Common problems?** Check the [FAQ](FAQ.md)
-- **💬 Questions?** [Start a discussion](https://github.com/JustAmply/ark-survival-ascended-server/discussions)
+Set `ENABLE_DEBUG` back to `"0"` and reapply to resume normal startup.

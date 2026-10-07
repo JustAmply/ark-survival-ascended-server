@@ -1,252 +1,114 @@
-# ❓ ARK: Survival Ascended Server FAQ
+# Troubleshooting
 
-Quick answers to the most common questions and issues! Get your server running smoothly with these solutions.
+For installation and ordinary administration, use the [setup guide](SETUP.md).
+Start with `docker compose logs --tail=200 asa-server-1` and check whether the
+failure occurs during download, Proton preparation or game startup.
 
-## 🔍 Server Visibility Issues
+## Server is not visible
 
-### **Q: I can't find my server in the browser!**
+1. Check that game startup has completed. `Starting ASA dedicated server.`
+   marks the launch attempt, not readiness for players.
+2. Select **Unofficial**, enable **Show Player Servers** and clear map/player
+   filters in the game browser.
+3. Search for your configured `ASA_SESSION_NAME`. If you did not set one, use
+   the [setup guide's name lookup](SETUP.md#installation).
+4. Check the [game port mapping and firewall rules](SETUP.md#networking).
 
-**A:** This is the #1 most common issue. Here's your checklist:
+If `GameUserSettings.ini` does not exist yet, inspect startup logs for download
+or launch failures before waiting longer. A missing file alone does not prove
+that the server is still starting normally.
 
-1. **✅ Wait for startup** - Give it 5-10 minutes after seeing "Starting the ARK server..." in logs
-2. **✅ Search "Unofficial"** - Your server appears in the "Unofficial" section, not "Official"
-3. **✅ Enable player servers** - Check "Show player server settings" in the filter options
-4. **✅ Clear filters** - Remove any map, player count, or other filters
-5. **✅ Search by number** - Find your server number and search for it specifically
+## Joining times out or the browser shows the wrong IP
 
-### **Q: How do I find my server's name/number?**
+Check the game port's UDP mapping, host/cloud firewall and router forwarding.
+If you changed `ASA_PORT`, update all three. To test direct connection, use
+`open YOUR_IP:7777` in the game console, substituting your actual address and
+configured port.
 
-**A:** Run this command:
+On hosts with several interfaces, VPNs or NAT layers, verify that inbound
+traffic reaches the Docker host and replies use the expected interface.
+Docker port publishing does not configure the router or cloud security group.
+See [networking](SETUP.md#networking).
+
+## Startup fails or the server keeps crashing
+
+Read the error immediately before the exit, then inspect host resources:
+
 ```bash
-docker exec asa-server-1 cat server-files/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini | grep SessionName
+docker compose logs --tail=200 asa-server-1
+docker stats --no-stream asa-server-1
 ```
 
-Look for something like `SessionName=ARK #334850` - search for the number part!
-
-### **Q: The command above fails with "No such file"**
-
-**A:** Your server is still starting up! The config file gets created during startup. Wait a few more minutes and try again.
-
-## 🌐 Connection Problems
-
-### **Q: I get "Connection Timeout" when joining**
-
-**A:** Try these solutions in order:
-
-1. **Direct connect**: Open console in ARK (Tab key) and type `open YOUR_IP:7777`
-2. **Check ports**: Make sure port 7777/UDP is forwarded in your router
-3. **Wait longer**: Sometimes it takes up to 10 minutes on first startup
-4. **Restart server**: `docker restart asa-server-1`
-
-### **Q: My server shows the wrong IP address**
-
-**A:** This happens with multiple network interfaces. The quick fix:
-
-1. Check your actual public IP: `curl icanhazip.com`
-2. If it doesn't match what shows in the server browser, you have a routing issue
-3. See our [advanced networking guide](SETUP.md#multi-server-clusters) for the full solution
-
-## 🔧 Technical Issues
-
-### **Q: High CPU usage on Ubuntu 22.04**
-
-**A:** **Don't use Ubuntu 22.04!** It has known issues with this container. Switch to Ubuntu 24.04 or Debian 12.
-
-### **Q: Server won't start/keeps crashing**
-
-**A:** Check these common causes:
+On a Linux host, `df -h` and `free -h` help check disk and memory. An OOM-killed
+container can be identified with:
 
 ```bash
-# View error logs
-docker logs asa-server-1
-
-# Check disk space (need ~31GB)
-df -h
-
-# Check RAM (need ~13GB)
-free -h
-
-# Test if ports are busy
-netstat -tlnp | grep :7777
+docker inspect asa-server-1 --format '{{.State.OOMKilled}}'
 ```
 
-### **Q: The log shows `libvulkan.so.1: cannot open shared object file`**
+If game files appear damaged, run once with `ASA_VALIDATE: "always"`, apply
+with `docker compose up -d -t 300`, then return to `first` after repair.
+For high CPU usage, check the logged Wine synchronization backend and
+[resource settings](SETUP.md#resource-tuning-and-debug-mode) before changing the
+host OS. To hold startup for inspection, use [debug mode](SETUP.md#resource-tuning-and-debug-mode).
 
-**A:** Your container image is older than the GE-Proton build it downloaded. GE-Proton 11 and newer load the Vulkan loader while their launcher starts, so an image without it exits before the game binary runs and the supervisor keeps restarting.
+## Proton reports a missing library
+
+A message such as `libvulkan.so.1: cannot open shared object file` indicates
+that the selected Proton build cannot load a library from the image. Update
+and recreate the container:
 
 ```bash
-# Pull the current image and recreate the container
 docker compose pull
-docker compose up -d
+docker compose up -d -t 300
 ```
 
-Current images ship the library and additionally verify the downloaded GE-Proton build before every launch. If a brand-new GE-Proton release ever needs something the image does not have yet, the runtime logs the missing library by name and automatically falls back to a known good version instead of crash-looping. You can also pin a specific build yourself:
+Automatic Proton selection can fall back after a failed preflight. An
+explicit `PROTON_VERSION` pin stays fixed and fails if it cannot run. Check
+that pin and the logged version; the [Proton reference](SETUP.md#startup-and-proton)
+explains the settings and cached check.
 
-```yaml
-    environment:
-      PROTON_VERSION: "10-34"
-```
+## ARM64 translation fails
 
-A pinned version is never swapped automatically — if it cannot run, the startup fails with a message naming the missing library.
+For `Exec format error`, check that the service uses the ARM64 experimental
+image and `ASA_TRANSLATOR_MODE` is `auto` or `fex`. Inspect the translation
+probe's error in the startup logs; an x86 program needs a working FEX runner.
 
-### **Q: How do I completely reset my server?**
+If the logs specifically report a **probe timeout**, increase
+`ASA_TRANSLATOR_PROBE_TIMEOUT` for the host. If translated Proton/server runs
+crash early, try `ASA_PROTON_PROFILE: "safe"`; this disables esync/fsync but
+does not repair a missing translation path. Apply changes with
+`docker compose up -d -t 300`.
 
-**A:** ⚠️ **This deletes everything!**
+ARM64 translation checks do not establish full game compatibility. See
+[ARM64 setup](SETUP.md#arm64-experimental) for its support boundary.
 
-```bash
-docker stop asa-server-1
-docker rm asa-server-1
-docker volume rm asa-server_server-files-1 asa-server_steam-1 asa-server_steamcmd-1 asa-server_cluster-shared
-docker compose up -d
-```
+## RCON commands fail
 
-### **Q: I'm on ARM64 and see `Exec format error` in logs**
+Check `ASA_RCON_ENABLED`, `ASA_RCON_PORT` and `ASA_SERVER_ADMIN_PASSWORD` in the
+running service's configuration and confirm that the game has started.
+The [launch-setting precedence](SETUP.md#legacy-launch-strings-and-precedence)
+also applies to RCON discovery: changing the INI cannot override a value set in
+the launch configuration. Apply Compose or `.env` changes with
+`docker compose up -d -t 300`.
 
-**A:** This means an x86/x64 binary was started without a working translation path. Check:
+If RCON works inside the container but not remotely, check the TCP port mapping
+and firewall. See [RCON commands](SETUP.md#rcon) for an in-container example.
 
-1. Use the ARM64 experimental image tag: `ghcr.io/justamply/asa-linux-server:arm64-experimental`
-2. Keep `ASA_TRANSLATOR_MODE=auto` (or set `fex` explicitly)
-3. Increase `ASA_TRANSLATOR_PROBE_TIMEOUT` (for example `60`) on very slow hosts
-4. If Proton crashes early, set `ASA_PROTON_PROFILE=safe`
+## Configuration or mod changes have no effect
 
-### **Q: Why is ARM64 marked experimental?**
+`docker compose restart` preserves the container's configured environment.
+After editing Compose or `.env`, run `docker compose up -d -t 300`.
+Changes made through `asa-ctrl mods` need a server restart. A mod still present
+in `ASA_MODS` remains enabled after removing its database entry. See
+[mod management](SETUP.md#mods-and-custom-maps).
 
-**A:** ARM64 currently depends on translated execution (FEX + Proton + SteamCMD), which can vary by kernel/host profile and may perform differently than native AMD64 hosts. Experimental tags let us improve compatibility without destabilizing `latest`.
+## Reporting an unresolved problem
 
-CI checks real SteamCMD login, Windows execution and translated supervisor
-restart/shutdown with descendant cleanup. It tests a pinned Proton baseline on
-every image change and the default latest-release selection weekly. These checks
-use lightweight fixtures and do not download ARK; successful ARK startup, game
-saving and sustained operation still need verification on the target host.
-
-## 🎮 Gameplay Questions
-
-### **Q: How do I add mods?**
-
-**A:** Super easy with the dynamic method:
-
-```bash
-# Enable any mod by ID
-docker exec asa-server-1 asa-ctrl mods enable 12345
-
-# Restart to download
-docker restart asa-server-1
-```
-
-Find mod IDs on the mod's CurseForge page!
-
-### **Q: How do I change the map?**
-
-**A:** Set `ASA_MAP` in your `docker-compose.yml`:
-
-- **The Island**: `TheIsland_WP`
-- **Scorched Earth**: `ScorchedEarth_WP` 
-- **The Center**: `TheCenter_WP`
-- **Aberration**: `Aberration_WP`
-- **Extinction**: `Extinction_WP`
-
-Then restart: `docker compose up -d`
-
-### **Q: How do I increase player limit?**
-
-**A:** Set `ASA_MAX_PLAYERS` to your desired number, then restart.
-
-If your stack still uses the single-string `ASA_START_PARAMS`, either change
-`-WinLiveMaxPlayers=50` inside it or add `ASA_MAX_PLAYERS` alongside it - the
-variable overrides the value in the string.
-
-### **Q: How do I use admin commands?**
-
-**A:** Use RCON instead of in-game admin:
-
-```bash
-# Save world
-docker exec asa-server-1 asa-ctrl rcon --exec 'saveworld'
-
-# Send message
-docker exec asa-server-1 asa-ctrl rcon --exec 'serverchat Hello everyone!'
-
-# Kick player
-docker exec asa-server-1 asa-ctrl rcon --exec 'kickplayer PlayerName'
-```
-
-## 🛠️ Troubleshooting Steps
-
-### **Q: My server was working, now it's broken**
-
-**A:** Follow this diagnosis flow:
-
-1. **Check logs**: `docker logs asa-server-1`
-2. **Try restart**: `docker restart asa-server-1`
-3. **Check updates**: ARK might have updated - restart to download
-4. **Check disk space**: `df -h` - servers need lots of space
-5. **Check ports**: Something else might be using your ports
-
-### **Q: I can't use RCON commands**
-
-**A:** Make sure RCON is properly configured:
-
-1. **Check your start params** include `?RCONEnabled=True` and `?RCONPort=27020`
-2. **Set admin password** in `GameUserSettings.ini`:
-   ```ini
-   [ServerSettings]
-   RCONEnabled=True
-   ServerAdminPassword=your_secret_password
-   RCONPort=27020
-   ```
-3. **Restart server** after changes
-
-### **Q: How do I enable debug mode?**
-
-**A:** For advanced troubleshooting:
-
-1. Change `ENABLE_DEBUG=1` in `docker-compose.yml`
-2. Run `docker compose up -d`
-3. Access container: `docker exec -ti asa-server-1 bash`
-
-## 📖 Still Need Help?
-
-### **Q: None of these solutions worked!**
-
-**A:** We're here to help:
-
-1. **🔍 Search existing issues**: [GitHub Issues](https://github.com/JustAmply/ark-survival-ascended-server/issues)
-2. **📝 Create new issue** with these details:
-   - Your OS and version
-   - Docker version (`docker --version`)
-   - Container logs (`docker logs asa-server-1`)
-   - Your `docker-compose.yml` (remove passwords!)
-   - What you were trying to do when it broke
-
-3. **💬 Join discussions**: [GitHub Discussions](https://github.com/JustAmply/ark-survival-ascended-server/discussions)
-
-### **Q: Is there a Discord/forum?**
-
-**A:** We use GitHub for all support to keep everything searchable and helpful for future users. Please use the links above!
-
-## 🎯 Quick Reference
-
-**Most common fixes:**
-- Server not visible → Wait longer, check "Unofficial" browser
-- Can't connect → Try direct connect with `open IP:7777`  
-- High CPU → Don't use Ubuntu 22.04
-- Admin commands → Use RCON, not in-game admin
-- Add mods → `docker exec asa-server-1 asa-ctrl mods enable MOD_ID`
-- Updates → `docker restart asa-server-1`
-
-**Essential commands:**
-```bash
-# View logs
-docker logs -f asa-server-1
-
-# Restart server
-docker restart asa-server-1
-
-# Find server name
-docker exec asa-server-1 cat server-files/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini | grep SessionName
-
-# Enable mod
-docker exec asa-server-1 asa-ctrl mods enable 12345
-```
-
-Happy gaming! 🦕
+Search [GitHub Issues](https://github.com/JustAmply/ark-survival-ascended-server/issues)
+for the error first. In a new report, include host OS/architecture, Docker
+version, image tag or digest, relevant logs and what changed before the failure.
+Include Compose configuration with passwords and other secrets removed.
+Use [GitHub Discussions](https://github.com/JustAmply/ark-survival-ascended-server/discussions)
+for general setup questions. Preserve persistent volumes while investigating;
+[storage and backups](SETUP.md#storage-and-backups) explains what they contain.

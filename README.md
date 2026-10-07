@@ -4,274 +4,81 @@
 
 # ARK: Survival Ascended Linux Server
 
-🦕 **Easy-to-use Docker container for running ARK: Survival Ascended dedicated servers on Linux**
+Run an ARK: Survival Ascended dedicated server on Linux with Docker Compose.
+The image handles game updates, GE-Proton setup and server supervision. The
+included `asa-ctrl` tool provides RCON, mod management and scheduled restarts
+using only the Python standard library.
 
-This project provides a streamlined way to host ARK: Survival Ascended servers using Docker, with powerful management tools and full cluster support.
+## Quick start
 
-The container startup lifecycle is managed by a standalone Python runtime (`python -m server_runtime`) and auto-runs when the container starts.
-
-## 🚀 Quick Start
-
-Get your ARK server running in minutes:
+Install Docker with Compose, then run:
 
 ```bash
-# 1. Create server directory and download config
 mkdir asa-server && cd asa-server
 wget https://raw.githubusercontent.com/JustAmply/ark-survival-ascended-server/main/docker-compose.yml
 wget https://raw.githubusercontent.com/JustAmply/ark-survival-ascended-server/main/.env.example
-
-# 2. Set a unique admin password in the local, untracked .env file
 cp .env.example .env
 vi .env
+```
 
-# 3. Start your server
+Set a unique `ASA_SERVER_ADMIN_PASSWORD` in `.env` and keep that file private.
+The supplied Compose file requires a non-empty password.
+
+```bash
 docker compose up -d
-
-# 4. Follow the logs to see progress
-docker logs -f asa-server-1
+docker compose logs -f asa-server-1
 ```
 
-On ARM64 hosts, use the experimental image tag first: `ghcr.io/justamply/asa-linux-server:arm64-experimental`.
-
-Your server will be discoverable in the "Unofficial" server browser once setup is complete (~5-10 minutes).
-
-## ✨ Key Features
-
-- **🐳 Docker-based**: Simple deployment with Docker Compose
-- **🔧 Easy Management**: Built-in RCON commands and server control
-- **🎮 Mod Support**: Simple mod management via console
-- **🌐 Cluster Ready**: Multi-server setups with character/dino transfer
-- **🔄 Auto-Updates**: Automatic game updates on container restart
-- **⚡ Fast Restarts**: Full file validation only on the first install, so scheduled restarts come back in seconds instead of minutes
-- **⏰ Scheduled Restarts**: Built-in cron scheduler with in-game warnings
-- **📊 Monitoring**: Debug mode and comprehensive logging
-- **⏱️ Startup timing**: Logs show initial ownership, server update, and Proton preparation durations to help locate slow starts
-- **🔌 Plugin Support**: ServerAPI plugin loader integration
-
-## 📋 System Requirements
-
-- **RAM**: ~13 GB per server instance
-- **Storage**: ~31 GB (server files only)
-- **OS**: Linux with Docker support
-- **Tested on**: Ubuntu 24.04, Debian 12, Docker Desktop on Windows
-
-## 🎯 Main Use Cases
-
-### Single Server Setup
-Perfect for small communities or testing:
-- Easy one-command deployment
-- Built-in RCON management
-- Automatic updates
-
-### Multi-Server Clusters  
-Great for larger communities:
-- Character and dino transfer between servers
-- Shared cluster storage
-- Independent server configuration
-
-### Mod Servers
-Ideal for modded gameplay:
-- Dynamic mod management
-- CurseForge mod support
-- Custom map support
-
-## 🔧 Basic Configuration
-
-Configure the server with one environment variable per setting in your `docker-compose.yml`:
-
-```yaml
-environment:
-  ASA_MAP: TheIsland_WP
-  ASA_PORT: "7777"
-  ASA_RCON_PORT: "27020"
-  ASA_SERVER_ADMIN_PASSWORD: ${ASA_SERVER_ADMIN_PASSWORD:?Set ASA_SERVER_ADMIN_PASSWORD in .env before starting}
-  ASA_MAX_PLAYERS: "50"
-  TZ: Europe/Berlin
-```
-
-### Popular Configuration Changes
-
-- **Change map**: `ASA_MAP=ScorchedEarth_WP` (or `TheCenter_WP`, `Aberration_WP`, `Extinction_WP`, …)
-- **Change ports**: `ASA_PORT=7777`, `ASA_RCON_PORT=27020`
-- **Player limit**: `ASA_MAX_PLAYERS=50`
-- **Admin password**: Set `ASA_SERVER_ADMIN_PASSWORD` in `.env`. The supplied Compose file refuses to start when it is empty or missing. Keep `.env` private.
-- **Timezone**: `TZ=Europe/Berlin` (or your region) to keep server logs and saves in local time (default: `UTC`)
-
-See [SETUP.md](SETUP.md#-server-configuration) for the full list.
-
-### Already using `ASA_START_PARAMS`?
-
-Nothing changes — keep it. The single-string launch line is still fully
-supported and stays the way to express the long tail of ARK launch options:
-
-```yaml
-environment:
-  ASA_START_PARAMS: TheIsland_WP?listen?Port=7777?RCONPort=27020?RCONEnabled=True -WinLiveMaxPlayers=50
-```
-
-You can also mix the two: `ASA_START_PARAMS` provides the base launch line and
-any `ASA_*` variable you set overrides the matching entry. That makes it easy to
-rotate just the admin password, or move one server in a cluster to a new port,
-without touching the rest of the string.
-
-## 🧪 ARM64 (Experimental)
-
-ARM64 support is published separately as experimental tags to avoid impacting stable AMD64 users:
-
-- `ghcr.io/justamply/asa-linux-server:arm64-experimental`
-- `ghcr.io/justamply/asa-linux-server:<version>-arm64-experimental`
-
-- **Translator mode**: `ASA_TRANSLATOR_MODE=auto|fex|none` (default `auto`; selects FEX on ARM64).
-- **Translator probe timeout**: `ASA_TRANSLATOR_PROBE_TIMEOUT=20` seconds.
-- **Proton profile**: `ASA_PROTON_PROFILE=balanced|safe`; `safe` forces esync/fsync off.
-
-Both images run the application and `asa-ctrl` on Python 3.14. ARM64 builds checksum-verified CPython against Ubuntu 24.04 in a separate stage and installs its runtime under `/usr/local`; it does not replace Ubuntu's `/usr/bin/python3`. Compilers, development headers and PPA setup helpers stay out of the final image. The application uses `python`/`python3.14`; `python3` is reserved for the Ubuntu-provided x86 guest interpreter so Proton's shebang cannot escape FEX through a native interpreter.
-
-The ARM64 image uses FEX translation for SteamCMD/Proton execution. Its x86 RootFS is built from signed Ubuntu 24.04 packages with explicit 32-bit SteamCMD and 64-bit Proton libraries, guest Python and headless Wine dependencies. It does not download a dated snapshot from the FEX CDN. Desktop applications, Mesa drivers and LLVM are excluded; guest identity and mount files are removed so FEX uses the container's users, DNS and game volumes. The directory is copied into the image, so runtime does not require FUSE or a privileged container. CI reports the extracted RootFS and final image sizes. The runtime performs a translator probe before full startup and fails early with actionable logs if translation is unavailable. Only translated launches use the early-crash retry policy: two short server runs trigger one retry with the safe profile; another early exit stops the supervisor. Preparation failures do not count as server crashes. Native AMD64 retains its existing restart behavior.
-
-FEX comes from the signed official PPA's current `fex-emu-armv8.0` package.
-The PPA removes superseded versions, so builds do not pin a version it may no
-longer publish. CI refreshes this installation on every ARM64 image build,
-logs the installed package version, and requires native translation checks
-before publication. Ordinary builds retain Python and guest RootFS caches;
-the weekly refresh still rebuilds all stages without cache.
-Use a published image digest to keep a deployed FEX build fixed; rebuilding
-the same source can resolve a newer PPA package.
-
-Translated probes and server launches use isolated process groups. A probe
-timeout kills its whole group. After `saveworld` and its save delay, translated
-restart and shutdown first request `wineboot --end-session --shutdown` through
-the installed Proton launcher, with a 30-second request timeout. This reaches
-Windows applications in the same prefix even if they left the launcher's group.
-An unsuccessful request is logged and shutdown continues. It then sends SIGTERM to the
-group and force-stop remaining children when the launcher exits or the shutdown
-timeout expires. Translated cleanup also stops the Wine session for that server's
-prefix, so Wine children that created their own sessions cannot survive a
-relaunch. This keeps retries from overlapping orphaned work.
-
-Native ARM64 CI additionally runs the real SteamCMD self-update and anonymous login, then a Windows command through checksum-verified GE-Proton and FEX, as UID 25000 without privileged mode. Every image check uses the pinned fallback Proton version as a reproducible baseline; the weekly refresh also exercises the default latest-release selection, including its production preflight fallback. Both paths require an actual Windows execution marker. Translated lifecycle checks exercise the production supervisor with guest Python children and a long-lived Windows command: restart, graceful SIGTERM, forced cleanup of a stubborn child, and detection of living descendants after shutdown. The fixtures replace ARK preparation and RCON, so they do not establish game saving or shutdown compatibility. ARM64 remains experimental until a real target host has completed an ARK startup and soak test.
-
-## 🎮 Server Management
-
-### Add Mods
-
-Set `ASA_MODS` in the `docker-compose.yml`:
-```yaml
-environment:
-  ASA_MODS: "12345,67891"
-```
-
-Changing this list requires editing the compose file and recreating/restarting the container.
-
-Or use the dynamic method:
-```bash
-# Enable mods dynamically (container restart needed for activation)
-docker exec asa-server-1 asa-ctrl mods enable 12345
-docker exec asa-server-1 asa-ctrl mods enable 67891
-
-# List enabled mods
-docker exec asa-server-1 asa-ctrl mods list --enabled-only
-
-# Remove mods you no longer need (deletes the database entry)
-docker exec asa-server-1 asa-ctrl mods remove 12345
-
-# Restart to download and activate mods
-docker restart asa-server-1
-```
-
-Mixing both methods is safe: statically defined mods are merged with dynamically enabled ones into a single `-mods=` flag, and duplicates are dropped.
-
-### RCON Commands
-```bash
-# Save the world
-docker exec asa-server-1 asa-ctrl rcon --exec 'saveworld'
-
-# Broadcast message
-docker exec asa-server-1 asa-ctrl rcon --exec 'serverchat Hello players!'
-
-# Kick player
-docker exec asa-server-1 asa-ctrl rcon --exec 'kickplayer PlayerName'
-```
-
-### Scheduled Restarts
-
-Automate maintenance windows without external tooling by defining a cron expression:
-
-```yaml
-environment:
-  - SERVER_RESTART_CRON=0 4 * * *
-```
-
-The scheduler sends chat alerts 30, 5 and 1 minute before the restart and triggers a safe shutdown (including `saveworld`) so the server comes back online automatically. Adjust the warning offsets via `SERVER_RESTART_WARNINGS` (comma-separated minutes, for example `SERVER_RESTART_WARNINGS=60,15,5,1`). Leave `SERVER_RESTART_CRON` empty to disable the feature.
-
-## 🏗️ Project History
-
-This project is a **complete rewrite** of the original ARK server management tools. Here's the story:
-
-### From Ruby to Python
-
-Originally, I worked with Ruby-based server management tools for ARK, but I wasn't satisfied with their complexity and overhead. The Ruby implementation had several pain points:
-
-- Unknown language for me, hard to read and maintain
-- Complicated build system using KIWI-NG
-- Multiple scattered modules
-- Heavy dependencies and bloat (old project was 563MB in comparison to ~200MB for this Python version - savings of 2/3 of the image size!)
-
-### The Rewrite Decision
-
-I decided to completely rewrite everything from scratch in **Python** to create a better, more maintainable solution.
-
-### What's Better in Version 2.0
-
-- **🐍 Python-powered**: Cleaner, more maintainable codebase
-- **📦 Zero dependencies**: Uses only Python standard library
-- **🏗️ Simplified builds**: Standard Docker builds instead of complex KIWI-NG
-- **🧩 Modular design**: Dedicated Python runtime modules with clear responsibilities
-- **⚡ Same functionality**: All features preserved while improving maintainability
-
-## 📖 Documentation
-
-- **[📋 Setup Guide](SETUP.md)** - Detailed installation, configuration, and administration instructions
-- **[❓ FAQ & Troubleshooting](FAQ.md)** - Common issues, solutions, and troubleshooting steps
-
-## 🛠️ Development
-
-Set up a local development environment with an editable installation so that CLI changes are reflected immediately:
-
-```bash
-git clone https://github.com/JustAmply/ark-survival-ascended-server.git
-cd ark-survival-ascended-server
-python -m pip install -e ".[dev]"
-pytest -q
-python -I scripts/verify_installed_package.py
-```
-
-This registers the `asa-ctrl` command on your PATH while allowing you to modify the source code in-place. The isolated smoke test verifies that the installed distribution contains the CLI's required subpackages instead of accidentally importing them from the repository root.
-
-### Continuous integration
-
-The CI job always reports a status. Documentation-only changes skip Python and
-Docker checks; test-only changes run the Python checks. Runtime, image, project
-metadata, workflow and unrecognised changes run all checks. Tags and the weekly refresh
-always run the full suite. The refresh pulls the base image and rebuilds without
-the layer cache so OS packages stay current.
-
-Images are published after smoke tests pass, including two parallel supervisor
-lifecycle cases. Draft, fork and Dependabot PRs validate the image without
-publishing it; ready PRs from this repository retain their preview tags. Obsolete
-PR runs are cancelled, main/tag runs finish in sequence, and jobs have a
-15-minute AMD64 and 45-minute ARM64 job timeouts. Each ARM64 translation check
-has a separate 15-minute timeout. See [local image validation](SETUP.md#local-image-validation)
-for the equivalent Docker checks.
-
-## 📞 Support
-
-- **🐛 Found a bug?** [Open an issue](https://github.com/JustAmply/ark-survival-ascended-server/issues)
-- **💡 Have a feature request?** [Start a discussion](https://github.com/JustAmply/ark-survival-ascended-server/discussions)
-- **📚 Need help?** Check the [Setup Guide](SETUP.md) or [FAQ](FAQ.md)
-
-## 🙏 Credits
-
-- **mschnitzer** - [Original Ruby implementation of ARK Linux server image](https://github.com/mschnitzer/ark-survival-ascended-linux-container-image)
-- **GloriousEggroll** - [GE-Proton for running Windows ARK binaries on Linux](https://github.com/GloriousEggroll/proton-ge-custom)
-- **cdp1337** - [Linux ARK installation guidance](https://github.com/cdp1337/ARKSurvivalAscended-Linux)
+The first start downloads the server files and compatibility tools. Wait for
+game startup to complete, then look in the **Unofficial** server browser with
+**Show Player Servers** enabled. See the [setup guide](SETUP.md) for network
+configuration, storage and server settings.
+
+## Features
+
+- Automatic game updates on startup, with full validation on the first install.
+- RCON administration and dynamic mod management.
+- Multi-server clusters with shared transfer storage.
+- Scheduled restarts with chat warnings and `saveworld`.
+- Persistent game files, saves and downloaded tools in Docker volumes.
+- ServerAPI plugin loader detection.
+
+Configure the map, ports, player limit and other settings through individual
+`ASA_*` environment variables in Compose. Existing `ASA_START_PARAMS` launch
+strings remain supported, including in combination with those variables;
+precedence is `ASA_EXTRA_*` > named `ASA_*` > `ASA_START_PARAMS` > defaults.
+The [configuration reference](SETUP.md#server-configuration) lists the options.
+After changing Compose settings, use `docker compose up -d -t 300` to apply them
+with time for saving and shutdown.
+
+## Architectures
+
+`ghcr.io/justamply/asa-linux-server:latest` is the stable AMD64 image.
+ARM64 hosts use `ghcr.io/justamply/asa-linux-server:arm64-experimental`.
+
+ARM64 uses FEX to translate SteamCMD and Proton. It remains experimental:
+translation and lifecycle checks do not establish that ARK will start, save and
+run reliably on your host. Follow the [ARM64 setup notes](SETUP.md#arm64-experimental)
+and test the game on the target host before relying on it.
+
+## Documentation
+
+| Document | Purpose |
+| --- | --- |
+| [Setup and administration](SETUP.md) | Installation, configuration, volumes, mods, RCON and restarts |
+| [Troubleshooting](FAQ.md) | Server visibility, connection failures and startup errors |
+| [Development](docs/development.md) | Local tests, installed-package checks, image checks and CI |
+| [Domain model](CONTEXT.md) | Terms and ownership of runtime and configuration contracts |
+| [Configuration decision](docs/adr/0001-discrete-environment-configuration.md) | Why discrete variables overlay the legacy launch line |
+| [ARM64 decision](docs/adr/0002-isolated-arm64-translation.md) | Translation isolation, package policy and shutdown design |
+
+## Support and credits
+
+Report bugs through [GitHub Issues](https://github.com/JustAmply/ark-survival-ascended-server/issues)
+and ask questions in [GitHub Discussions](https://github.com/JustAmply/ark-survival-ascended-server/discussions).
+
+This project rewrites the original Ruby tools in dependency-free Python.
+Thanks to [mschnitzer](https://github.com/mschnitzer/ark-survival-ascended-linux-container-image)
+for the original image, [GloriousEggroll](https://github.com/GloriousEggroll/proton-ge-custom)
+for GE-Proton, and [cdp1337](https://github.com/cdp1337/ARKSurvivalAscended-Linux)
+for Linux installation guidance.

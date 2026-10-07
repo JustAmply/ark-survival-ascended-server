@@ -11,12 +11,19 @@ that ordinary containers do not provide.
 
 ## Decision
 
+### Image and interpreter isolation
+
 Keep the existing AMD64 Python image in its own build stage. Run the application
 on Python 3.14 on both architectures. Build checksum-verified CPython against
 Ubuntu 24.04 in a separate stage for ARM64, then copy its runtime under
 `/usr/local`. Do not overwrite Ubuntu's system Python or copy a newer Debian
 libc-dependent interpreter into Ubuntu. Build tooling and PPA setup helpers
-are absent from the final image. Install the current ARMv8.0 FEX package from
+are absent from the final image. Reserve `python3` for the x86 guest interpreter
+so Proton's shebang stays inside FEX; the application uses `python`/`python3.14`.
+
+### FEX package policy
+
+Install the current ARMv8.0 FEX package from
 its signed official PPA only in the ARM64 stage. The PPA is rolling: a version
 pin can become unresolvable when its superseded package leaves the index.
 Keep the CPU baseline fixed by package name rather than silently selecting a
@@ -26,6 +33,9 @@ image build. The weekly refresh still rebuilds all stages without cache.
 Log the installed version and gate publication on native translation checks;
 the subsequent publication build reuses those tested layers. Deployments that
 need an unchanged FEX build should use the published image digest.
+
+### Guest RootFS
+
 Build the x86 RootFS in a separate AMD64 Ubuntu stage from signed distribution
 packages. Declare the 32-bit SteamCMD and 64-bit Proton library closure and keep
 guest Python, font, Vulkan-loader and X11 libraries for headless Wine. Exclude
@@ -37,6 +47,8 @@ ARM64 CI; the runtime smoke checks execute native ARM64 FEX.
 Stable launch wrappers precede the independent
 application source layers so code edits do not regenerate them.
 Publish ARM64 under separate experimental tags and verify it on native ARM CI.
+
+### Runtime ownership and cleanup
 
 The immutable `ExecutionContext` owns command wrapping. SteamCMD updates,
 Proton asset selection, preflight and server launch receive it explicitly. Runtime settings
@@ -63,13 +75,12 @@ behaviour remains unchanged.
 AMD64 keeps its current OS, package set, environment and restart behavior.
 The extracted RootFS needs more image space but avoids privileged mounts.
 FEX package updates and the guest package set require native smoke verification.
-The FEX runtime stage is refreshed while Python and guest build stages remain
-cacheable on ordinary builds. Source revisions do not pin the rolling PPA's
-resolved FEX version;
-published image digests preserve a verified runtime.
-Python compilation and guest preparation are cached independently of application
-code. CI reports the final image and RootFS sizes to make growth reviewable.
+Source revisions alone do not fix the resolved FEX version. Separate build
+stages keep Python compilation and guest preparation cacheable independently
+of application code. CI reports image and RootFS sizes to make growth reviewable.
 Image checks cannot replace an ARK startup and soak test on the target host.
+See [development verification](../development.md#native-arm64-translation)
+for the commands and their evidence boundary.
 
 To retire the experiment, remove the ARM64 image stage and CI job, translation
 settings and adapter calls, and the translated retry policy. SteamCMD's native
