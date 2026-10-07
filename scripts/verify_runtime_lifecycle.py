@@ -59,7 +59,6 @@ def game(root: Path) -> None:
     configured_password = settings.get_start_param_value("ServerAdminPassword") or settings.get_server_setting("ServerAdminPassword")
     assert configured_password == password, "Game did not receive the expected fixture credential"
     port = int(settings.get_start_param_value("RCONPort"))
-    assert password
     assert "STEAM_COMPAT_DATA_PATH" in os.environ
     assert os.environ["SDL_VIDEODRIVER"] == "dummy"
     assert (Path(os.environ["XDG_RUNTIME_DIR"]).stat().st_mode & 0o777) == 0o700
@@ -268,9 +267,9 @@ def verify_case(case: str) -> None:
                 raise AssertionError("Scheduler remains after shutdown")
             assert not (root / "server.pid").exists()
             assert not (root / "supervisor.pid").exists()
-            if "<redacted>" in log:
-                assert "test-private-password" not in log
-                assert "ServerAdminPassword=changeme" not in log
+            assert "ServerAdminPassword=<redacted>" in log, "Admin password was not redacted"
+            assert "test-private-password" not in log
+            assert "ServerAdminPassword=changeme" not in log
             print(f"PASS {case}: warnings, authenticated RCON, save delay, restart, shutdown and cleanup")
 
 
