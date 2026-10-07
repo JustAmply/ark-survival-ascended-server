@@ -41,6 +41,9 @@ def test_resolved_runner_uses_guest_shell(monkeypatch, runner):
     monkeypatch.setattr(translation.platform, "machine", lambda: "aarch64")
     monkeypatch.setattr(translation.shutil, "which", lambda name: f"/usr/bin/{name}" if name == runner else None)
     result = translation.resolve_execution_context(LOGGER, RuntimeSettings.from_env({}))
+    assert result.architecture == "arm64"
+    assert result.translator_mode == "fex"
+    assert result.probe_timeout == 20
     expected = (f"/usr/bin/{runner}", "-c") if runner == "FEXBash" else (f"/usr/bin/{runner}", "/bin/sh", "-c")
     assert result.runner_prefix == expected
     assert result.wraps_with_shell

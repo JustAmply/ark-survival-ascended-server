@@ -156,6 +156,7 @@ def test_main_preserves_startup_order_and_cleans_up_after_failure(monkeypatch):
 
 
 def test_prepare_start_params_applies_complete_contract(monkeypatch, tmp_path):
+    _clear_launch_env(monkeypatch)
     mods_path = tmp_path / "mods.json"
     mods_path.write_text(
         '[{"mod_id": 1, "enabled": true}, {"mod_id": 2, "enabled": true}]',
@@ -175,6 +176,7 @@ def test_prepare_start_params_applies_complete_contract(monkeypatch, tmp_path):
 
 
 def test_prepare_start_params_uses_default_payload_when_empty(monkeypatch, tmp_path):
+    _clear_launch_env(monkeypatch)
     monkeypatch.delenv("ASA_START_PARAMS", raising=False)
     monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(tmp_path / "mods.json"))
     monkeypatch.setenv("ASA_GAME_USER_SETTINGS_PATH", str(tmp_path / "missing.ini"))
@@ -188,6 +190,7 @@ def test_prepare_start_params_uses_default_payload_when_empty(monkeypatch, tmp_p
 
 
 def test_prepare_start_params_preserves_ini_password_and_nosteam(monkeypatch, tmp_path):
+    _clear_launch_env(monkeypatch)
     ini_path = tmp_path / "GameUserSettings.ini"
     ini_path.write_text("[ServerSettings]\nServerAdminPassword=secret\n", encoding="utf-8")
     monkeypatch.setenv("ASA_GAME_USER_SETTINGS_PATH", str(ini_path))
@@ -202,6 +205,7 @@ def test_prepare_start_params_preserves_ini_password_and_nosteam(monkeypatch, tm
 
 
 def test_prepare_start_params_skips_corrupt_mod_database(monkeypatch, tmp_path, caplog):
+    _clear_launch_env(monkeypatch)
     mods_path = tmp_path / "mods.json"
     mods_path.write_text("not-json", encoding="utf-8")
     monkeypatch.setenv("ASA_MOD_DATABASE_PATH", str(mods_path))
@@ -217,6 +221,7 @@ def test_prepare_start_params_skips_corrupt_mod_database(monkeypatch, tmp_path, 
 
 def test_prepare_start_params_merges_mods_into_an_existing_flag(monkeypatch, tmp_path):
     """A -mods= flag in the start params must not be duplicated by mods.json."""
+    _clear_launch_env(monkeypatch)
     mods_path = tmp_path / "mods.json"
     mods_path.write_text('[{"mod_id": 900, "enabled": true}]', encoding="utf-8")
     monkeypatch.setenv("ASA_START_PARAMS", "Map?listen?ServerAdminPassword=x -mods=100,200")
@@ -345,9 +350,13 @@ def test_verify_sha512_ok(tmp_path):
     assert runtime_proton._verify_sha512(archive, checksum) is True
 
 
-def test_scheduler_contract_exports_env(monkeypatch):
+@pytest.mark.parametrize("warnings", [None, ""])
+def test_scheduler_contract_exports_env(monkeypatch, warnings):
     monkeypatch.setenv("SERVER_RESTART_CRON", "0 4 * * *")
-    monkeypatch.delenv("SERVER_RESTART_WARNINGS", raising=False)
+    if warnings is None:
+        monkeypatch.delenv("SERVER_RESTART_WARNINGS", raising=False)
+    else:
+        monkeypatch.setenv("SERVER_RESTART_WARNINGS", warnings)
     logger = logging.getLogger("test")
     settings = RuntimeSettings.from_env()
     supervisor = ServerSupervisor(settings, logger)
@@ -377,7 +386,7 @@ def test_scheduler_contract_exports_env(monkeypatch):
     assert calls["env"]["ASA_SUPERVISOR_PID_FILE"]
     assert calls["env"]["ASA_SERVER_PID_FILE"]
     assert calls["env"]["SERVER_RESTART_WARNINGS"] == "30,5,1"
-    assert "SERVER_RESTART_WARNINGS" not in os.environ
+    assert os.environ.get("SERVER_RESTART_WARNINGS") == warnings
 
 
 def test_configure_runtime_logging_invalid_level_warns(monkeypatch, caplog):
@@ -804,36 +813,6 @@ def test_verify_sha512_requires_exact_filename_match(tmp_path):
     assert runtime_proton._verify_sha512(archive, checksum) is False
 
 
-def test_scheduler_contract_defaults_warnings_when_empty(monkeypatch):
-    monkeypatch.setenv("SERVER_RESTART_CRON", "0 4 * * *")
-    monkeypatch.setenv("SERVER_RESTART_WARNINGS", "")
-    logger = logging.getLogger("test")
-    settings = RuntimeSettings.from_env()
-    supervisor = ServerSupervisor(settings, logger)
-
-    class DummyProcess:
-        pid = 999
-
-        @staticmethod
-        def poll():
-            return None
-
-    captured = {}
-
-    def fake_popen(command, *args, **kwargs):
-        captured["env"] = kwargs["env"]
-        return DummyProcess()
-
-    monkeypatch.setattr(os.path, "isfile", lambda path: True)
-    monkeypatch.setattr(os, "access", lambda path, mode: True)
-    monkeypatch.setattr("server_runtime.supervisor.ASA_CTRL_BIN", "/usr/local/bin/asa-ctrl")
-    monkeypatch.setattr("server_runtime.supervisor.subprocess.Popen", fake_popen)
-
-    supervisor.start_restart_scheduler()
-
-    assert captured["env"]["SERVER_RESTART_WARNINGS"] == "30,5,1"
-
-
 def test_chown_path_uses_no_symlink_follow(monkeypatch, tmp_path):
     calls = []
 
@@ -1002,68 +981,6 @@ def test_ensure_machine_id_write_error_is_non_fatal(monkeypatch, tmp_path, caplo
 
     assert "Failed to initialize /etc/machine-id" in caplog.text
 
-def test_resolve_execution_context_auto_arm64_uses_fex(monkeypatch):
-    monkeypatch.delenv("ASA_TRANSLATOR_MODE", raising=False)
-    monkeypatch.delenv("ASA_TRANSLATOR_PROBE_TIMEOUT", raising=False)
-    monkeypatch.delenv("ASA_PROTON_PROFILE", raising=False)
-    monkeypatch.setattr(runtime_translation.platform, "machine", lambda: "aarch64")
-    monkeypatch.setattr(
-        runtime_translation.shutil,
-        "which",
-        lambda name: "/usr/bin/FEXBash" if name == "FEXBash" else None,
-    )
-
-    context = runtime_translation.resolve_execution_context(logging.getLogger("test-context"))
-
-    assert context.architecture == "arm64"
-    assert context.translator_mode == "fex"
-    assert context.runner_prefix == ("/usr/bin/FEXBash", "-c")
-    assert context.wraps_with_shell is True
-    assert context.probe_timeout == 20
-
-
-def test_wrap_command_uses_shell_runner():
-    context = runtime_translation.ExecutionContext(
-        architecture="arm64",
-        translator_mode="fex",
-        runner_prefix=("/usr/bin/FEXBash", "-c"),
-        wraps_with_shell=True,
-        probe_timeout=20,
-    )
-
-    wrapped = runtime_translation.wrap_command(context, ["/path/to/tool", "arg one", "--flag"])
-
-    assert wrapped[:2] == ["/usr/bin/FEXBash", "-c"]
-    assert "/path/to/tool" in wrapped[2]
-    assert "arg one" in wrapped[2]
-
-
-def test_run_probe_command_logs_success(monkeypatch):
-    context = runtime_translation.ExecutionContext(
-        architecture="arm64",
-        translator_mode="fex",
-        runner_prefix=("/usr/bin/FEXInterpreter",),
-        wraps_with_shell=False,
-        probe_timeout=20,
-    )
-
-    result = MagicMock(returncode=0)
-    result.__enter__.return_value = result
-    result.communicate.return_value = (None, "")
-    monkeypatch.setattr(runtime_translation.subprocess, "Popen", lambda *args, **kwargs: result)
-
-    logger = Mock()
-    runtime_translation.run_probe_command(
-        context,
-        ["/home/gameserver/steamcmd/linux32/steamcmd", "+quit"],
-        "/home/gameserver/steamcmd",
-        logger,
-        "SteamCMD",
-    )
-
-    logger.info.assert_called_once_with("%s translation probe succeeded.", "SteamCMD")
-
-
 def test_run_probe_command_raises_on_nonzero(monkeypatch):
     context = runtime_translation.ExecutionContext(
         architecture="arm64",
@@ -1086,42 +1003,6 @@ def test_run_probe_command_raises_on_nonzero(monkeypatch):
             logging.getLogger("test-probe"),
             "SteamCMD",
         )
-
-
-def test_update_server_files_wraps_command_for_translator(monkeypatch, tmp_path):
-    steamcmd_dir = tmp_path / "steamcmd"
-    steamcmd_bin = steamcmd_dir / "steamcmd.sh"
-    steamcmd_bin.parent.mkdir(parents=True, exist_ok=True)
-    steamcmd_bin.write_text("", encoding="utf-8")
-
-    monkeypatch.setattr(runtime_steamcmd, "STEAMCMD_DIR", str(steamcmd_dir))
-    monkeypatch.setattr(runtime_steamcmd, "SERVER_FILES_DIR", str(tmp_path / "server"))
-
-    context = runtime_translation.ExecutionContext(
-        architecture="arm64",
-        translator_mode="fex",
-        runner_prefix=("/usr/bin/FEXInterpreter",),
-        wraps_with_shell=False,
-        probe_timeout=20,
-    )
-
-    calls = {}
-
-    def fake_run(command, cwd=None, check=False):
-        calls["command"] = command
-        calls["cwd"] = cwd
-        calls["check"] = check
-
-    monkeypatch.setattr(runtime_steamcmd.subprocess, "run", fake_run)
-
-    runtime_steamcmd.update_server_files(
-        logging.getLogger("test-steamcmd"), RuntimeSettings.from_env({}), execution_context=context
-    )
-
-    assert calls["command"][0] == "/usr/bin/FEXInterpreter"
-    assert str(steamcmd_bin) in calls["command"]
-    assert calls["cwd"] == str(steamcmd_dir)
-    assert calls["check"] is True
 
 
 def test_build_launch_command_wraps_proton_for_translator(monkeypatch, tmp_path):
@@ -1199,9 +1080,13 @@ def test_supervisor_fails_fast_after_early_crash_in_safe_profile(monkeypatch):
 
     monkeypatch.setattr("server_runtime.supervisor.resolve_execution_context", lambda _logger, _settings: context)
     supervisor = ServerSupervisor(settings, logger)
+    launches = []
 
     def fake_launch():
+        launches.append(supervisor.proton_profile)
         supervisor.last_run_duration = 25
+        if len(launches) >= 3:
+            supervisor.supervisor_exit_requested = True
         return 1
 
     monkeypatch.setattr(supervisor, "_launch_server_once", fake_launch)
@@ -1210,6 +1095,7 @@ def test_supervisor_fails_fast_after_early_crash_in_safe_profile(monkeypatch):
     code = supervisor.run()
 
     assert code == 1
+    assert launches == ["safe"]
 
 
 @pytest.mark.parametrize("profile", ["balanced", "safe"])
@@ -1419,6 +1305,7 @@ def test_find_missing_proton_library_can_be_skipped(monkeypatch, tmp_path):
 
 def _stub_proton_install(monkeypatch, missing):
     """Record install calls and answer the preflight with `missing`."""
+    monkeypatch.setenv("PROTON_VERSION", "")
     installed = []
 
     def fake_install(version, _logger, _settings, execution_context=None):
@@ -1471,14 +1358,10 @@ def test_prepare_proton_falls_back_when_detected_build_is_unsupported(monkeypatc
 
 
 def test_prepare_proton_keeps_the_fallback_across_relaunches(monkeypatch):
-    """The supervisor's relaunch loop must not re-probe a build already rejected."""
-    resolved = []
-
-    def fake_resolve(_logger, settings, previous=None, execution_context=None):
-        resolved.append(previous)
-        return previous or ProtonSelection("11-3", runtime_proton.ORIGIN_AUTO)
-
-    monkeypatch.setattr(runtime_proton, "resolve_proton_version", fake_resolve)
+    """A carried fallback selection must not re-probe a build already rejected."""
+    fetch = Mock(return_value={"tag_name": "GE-Proton11-3"})
+    monkeypatch.setattr(runtime_proton, "_fetch_json", fetch)
+    monkeypatch.setattr(runtime_proton, "_asset_exists", lambda _url: True)
     installed = _stub_proton_install(
         monkeypatch,
         lambda name: "libvulkan.so.1" if name == "GE-Proton11-3" else None,
@@ -1493,7 +1376,9 @@ def test_prepare_proton_keeps_the_fallback_across_relaunches(monkeypatch):
     assert second.origin == runtime_proton.ORIGIN_FALLBACK
     # The rejected 11-3 build is installed once, on the first launch only.
     assert installed == ["11-3", runtime_proton.FALLBACK_PROTON_VERSION, runtime_proton.FALLBACK_PROTON_VERSION]
-    assert resolved == [None, first]
+    fetch.assert_called_once_with(
+        f"https://api.github.com/repos/{runtime_proton.PROTON_REPO}/releases/latest"
+    )
 
 
 def test_prepare_proton_does_not_swap_pinned_version(monkeypatch):
