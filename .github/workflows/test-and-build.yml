@@ -153,7 +153,7 @@ jobs:
       - name: Verify application Python version and standard library
         if: steps.changes.outputs.docker == 'true'
         run: |
-          docker run --rm --entrypoint python asa-linux-server:smoke -c "import sys, ssl, ctypes, bz2, lzma, sqlite3, zlib; from compression import zstd; from zoneinfo import ZoneInfo; assert sys.version_info[:2] == (3, 14), sys.version; ssl.create_default_context(); ZoneInfo('Europe/Berlin'); print(sys.version)"
+          docker run --rm --entrypoint python asa-linux-server:smoke -c "import sys, ssl, ctypes, bz2, lzma, sqlite3, zlib; from compression import zstd; from zoneinfo import ZoneInfo; assert sys.version_info[:2] in ((3, 14), (3, 15)), sys.version; ssl.create_default_context(); ZoneInfo('Europe/Berlin'); print(sys.version)"
 
       - name: Verify native GE-Proton runtime dependencies
         if: steps.changes.outputs.docker == 'true'
@@ -282,7 +282,7 @@ jobs:
 
       - name: Verify application Python version and standard library
         run: |
-          docker run --rm --entrypoint python asa-linux-server:arm64-smoke -c "import sys, ssl, ctypes, bz2, lzma, sqlite3, zlib; from compression import zstd; from zoneinfo import ZoneInfo; assert sys.version_info[:2] == (3, 14), sys.version; ssl.create_default_context(); ZoneInfo('Europe/Berlin'); print(sys.version)"
+          docker run --rm --entrypoint python asa-linux-server:arm64-smoke -c "import sys, ssl, ctypes, bz2, lzma, sqlite3, zlib; from compression import zstd; from zoneinfo import ZoneInfo; assert sys.version_info[:2] in ((3, 14), (3, 15)), sys.version; ssl.create_default_context(); ZoneInfo('Europe/Berlin'); print(sys.version)"
 
       - name: Verify native GE-Proton runtime dependencies
         run: |

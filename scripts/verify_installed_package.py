@@ -23,7 +23,7 @@ def main() -> None:
         except ImportError as exc:
             raise SystemExit(
                 f"Installed distribution is incomplete: cannot import {module_name!r}: {exc}. "
-                "Check [tool.setuptools.packages.find] in pyproject.toml and rebuild the package."
+                "Check pyproject.toml build configuration and rebuild the package."
             ) from exc
 
     executable = shutil.which("asa-ctrl")

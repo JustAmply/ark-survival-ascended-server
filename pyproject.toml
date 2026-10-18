@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "asa-ctrl"
@@ -34,7 +34,8 @@ Homepage = "https://github.com/JustAmply/ark-survival-ascended-server"
 Issues = "https://github.com/JustAmply/ark-survival-ascended-server/issues"
 
 [project.scripts]
-"asa-ctrl" = "asa_ctrl.cli:main"
+asa-ctrl = "asa_ctrl.cli:main"
 
-[tool.setuptools.packages.find]
-include = ["asa_ctrl*", "server_runtime*"]
+[tool.hatch.build.targets.wheel]
+packages = ["asa_ctrl", "server_runtime"]
+
