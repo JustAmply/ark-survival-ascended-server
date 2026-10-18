@@ -3,7 +3,7 @@ ARG TARGETARCH
 
 # Build against Ubuntu's libc instead of copying Debian-built Python into FEX's
 # Ubuntu host. Only this stage contains compilers and development headers.
-FROM ubuntu:24.04 AS arm64-python
+FROM ubuntu:26.04 AS arm64-python
 ARG DEBIAN_FRONTEND=noninteractive
 ARG PYTHON_VERSION="3.14.8"
 ARG PYTHON_SHA256="c2215904f02b175596dc49351585104f4bc20341e1c47378b26a2c274360ce73"
@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # A headless x86 guest with both library architectures for Proton and SteamCMD.
 # Build from signed Ubuntu packages; no external FEX RootFS snapshot is needed.
-FROM --platform=linux/amd64 ubuntu:24.04 AS fex-rootfs
+FROM --platform=linux/amd64 ubuntu:26.04 AS fex-rootfs
 ARG DEBIAN_FRONTEND=noninteractive
 RUN dpkg --add-architecture i386 \
     && apt-get update && apt-get install -y --no-install-recommends \
@@ -71,7 +71,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     locale-gen
 
 # Keep all emulation dependencies out of the stable AMD64 image.
-FROM ubuntu:24.04 AS runtime-arm64
+FROM ubuntu:26.04 AS runtime-arm64
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
