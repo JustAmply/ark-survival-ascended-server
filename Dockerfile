@@ -5,8 +5,8 @@ ARG TARGETARCH
 # Ubuntu host. Only this stage contains compilers and development headers.
 FROM ubuntu:26.04 AS arm64-python
 ARG DEBIAN_FRONTEND=noninteractive
-ARG PYTHON_VERSION="3.14.8"
-ARG PYTHON_SHA256="c2215904f02b175596dc49351585104f4bc20341e1c47378b26a2c274360ce73"
+ARG PYTHON_VERSION="3.15.0"
+ARG PYTHON_SHA256="ba4bed1ba346b916890b76d9e320451420aa69f6408997d33c66482eeae3d575"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates wget build-essential libbz2-dev libffi-dev libgdbm-dev \
     libgdbm-compat-dev liblzma-dev libncursesw5-dev libreadline-dev \
@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ./configure --enable-shared --with-lto --with-ensurepip=no \
     && make -j "$(nproc)" LDFLAGS="-Wl,--strip-all" \
     && make altinstall \
-    && ln -s python3.14 /usr/local/bin/python \
+    && ln -s python3.15 /usr/local/bin/python \
     && find /usr/local -depth \( \
         \( -type d \( -name test -o -name tests -o -name idle_test -o -name __pycache__ \) \) \
         -o \( -type f \( -name '*.pyc' -o -name '*.pyo' -o -name 'libpython*.a' \) \) \
@@ -52,7 +52,7 @@ RUN dpkg --add-architecture i386 \
     && find /opt/fex-rootfs/usr -type d -name __pycache__ -prune -exec rm -rf '{}' + \
     && du -sx /opt/fex-rootfs
 
-FROM python:3.14-slim AS runtime-amd64
+FROM python:3.15-slim AS runtime-amd64
 
 # Ensure timezone data is available and default to UTC inside the container
 ENV TZ=UTC

@@ -14,12 +14,12 @@ that ordinary containers do not provide.
 ### Image and interpreter isolation
 
 Keep the existing AMD64 Python image in its own build stage. Run the application
-on Python 3.14 on both architectures. Build checksum-verified CPython against
+on Python 3.15 on both architectures. Build checksum-verified CPython against
 Ubuntu 24.04 in a separate stage for ARM64, then copy its runtime under
 `/usr/local`. Do not overwrite Ubuntu's system Python or copy a newer Debian
 libc-dependent interpreter into Ubuntu. Build tooling and PPA setup helpers
 are absent from the final image. Reserve `python3` for the x86 guest interpreter
-so Proton's shebang stays inside FEX; the application uses `python`/`python3.14`.
+so Proton's shebang stays inside FEX; the application uses `python`/`python3.15`.
 
 ### FEX package policy
 
