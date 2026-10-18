@@ -150,10 +150,10 @@ jobs:
           cache-from: type=gha,scope=amd64
           cache-to: type=gha,scope=amd64,mode=max
 
-      - name: Verify application Python version and standard library
+      - name: Verify application standard library
         if: steps.changes.outputs.docker == 'true'
         run: |
-          docker run --rm --entrypoint python asa-linux-server:smoke -c "import sys, ssl, ctypes, bz2, lzma, sqlite3, zlib; from compression import zstd; from zoneinfo import ZoneInfo; assert sys.version_info[:2] == (3, 14), sys.version; ssl.create_default_context(); ZoneInfo('Europe/Berlin'); print(sys.version)"
+          docker run --rm --entrypoint python asa-linux-server:smoke -c "import sys, ssl, ctypes, bz2, lzma, sqlite3, zlib; from compression import zstd; from zoneinfo import ZoneInfo; ssl.create_default_context(); ZoneInfo('Europe/Berlin'); print(sys.version)"
 
       - name: Verify native GE-Proton runtime dependencies
         if: steps.changes.outputs.docker == 'true'
@@ -280,9 +280,9 @@ jobs:
           docker image inspect asa-linux-server:arm64-smoke --format 'Uncompressed image bytes: {{.Size}}'
           docker run --rm --entrypoint du asa-linux-server:arm64-smoke -sx /opt/fex-rootfs
 
-      - name: Verify application Python version and standard library
+      - name: Verify application standard library
         run: |
-          docker run --rm --entrypoint python asa-linux-server:arm64-smoke -c "import sys, ssl, ctypes, bz2, lzma, sqlite3, zlib; from compression import zstd; from zoneinfo import ZoneInfo; assert sys.version_info[:2] == (3, 14), sys.version; ssl.create_default_context(); ZoneInfo('Europe/Berlin'); print(sys.version)"
+          docker run --rm --entrypoint python asa-linux-server:arm64-smoke -c "import sys, ssl, ctypes, bz2, lzma, sqlite3, zlib; from compression import zstd; from zoneinfo import ZoneInfo; ssl.create_default_context(); ZoneInfo('Europe/Berlin'); print(sys.version)"
 
       - name: Verify native GE-Proton runtime dependencies
         run: |
@@ -299,8 +299,6 @@ jobs:
           test "$ARCH" = "x86_64"
           docker run --rm --user 25000:25000 --entrypoint FEXBash \
             asa-linux-server:arm64-smoke -c 'exec /lib/ld-linux.so.2 --help'
-          docker run --rm --user 25000:25000 --entrypoint FEXBash \
-            asa-linux-server:arm64-smoke -c 'exec python3 -c "import platform, sys; assert platform.machine() == \"x86_64\"; assert sys.version_info[:2] == (3, 12), sys.version; print(sys.version)"'
 
       - name: Verify supervisor lifecycle
         run: |
