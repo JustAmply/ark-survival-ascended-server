@@ -43,7 +43,7 @@ def test_resolved_runner_uses_guest_shell(monkeypatch, runner):
     result = translation.resolve_execution_context(LOGGER, RuntimeSettings.from_env({}))
     assert result.architecture == "arm64"
     assert result.translator_mode == "fex"
-    assert result.probe_timeout == 20
+    assert result.probe_timeout == 120
     expected = (f"/usr/bin/{runner}", "-c") if runner == "FEXBash" else (f"/usr/bin/{runner}", "/bin/sh", "-c")
     assert result.runner_prefix == expected
     assert result.wraps_with_shell
@@ -60,7 +60,7 @@ def test_wrap_command_preserves_argv_and_executes_without_extra_shell():
 def test_nonpositive_probe_timeout_uses_default(monkeypatch, timeout):
     monkeypatch.setattr(translation.platform, "machine", lambda: "x86_64")
     settings = replace(RuntimeSettings.from_env({}), translator_probe_timeout=timeout)
-    assert translation.resolve_execution_context(LOGGER, settings).probe_timeout == 20
+    assert translation.resolve_execution_context(LOGGER, settings).probe_timeout == 120
 
 
 @pytest.mark.parametrize("mode,installed,validate", [("always", True, True), ("never", False, False), ("first", False, True), ("first", True, False)])

@@ -310,7 +310,7 @@ jobs:
         timeout-minutes: 15
         run: |
           timeout --signal=TERM --kill-after=30s 14m \
-            docker run --rm --user 25000:25000 --entrypoint python \
+            docker run --rm --user 25000:25000 -e ASA_TRANSLATOR_PROBE_TIMEOUT=180 --entrypoint python \
             --mount "type=bind,src=${PWD}/scripts/verify_arm64_translation.py,dst=/tmp/verify_arm64_translation.py,readonly" \
             --mount "type=bind,src=${PWD}/scripts/verify_translated_lifecycle.py,dst=/tmp/verify_translated_lifecycle.py,readonly" \
             asa-linux-server:arm64-smoke /tmp/verify_arm64_translation.py
@@ -320,7 +320,7 @@ jobs:
         timeout-minutes: 15
         run: |
           timeout --signal=TERM --kill-after=30s 14m \
-            docker run --rm --user 25000:25000 --entrypoint python \
+            docker run --rm --user 25000:25000 -e ASA_TRANSLATOR_PROBE_TIMEOUT=180 --entrypoint python \
             --mount "type=bind,src=${PWD}/scripts/verify_arm64_translation.py,dst=/tmp/verify_arm64_translation.py,readonly" \
             --mount "type=bind,src=${PWD}/scripts/verify_translated_lifecycle.py,dst=/tmp/verify_translated_lifecycle.py,readonly" \
             asa-linux-server:arm64-smoke /tmp/verify_arm64_translation.py --proton-version auto

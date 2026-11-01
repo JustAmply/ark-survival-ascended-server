@@ -276,7 +276,7 @@ Translation works without privileged mode or a `/dev/fuse` mount.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `ASA_TRANSLATOR_MODE` | `auto` | Select FEX on ARM64; `fex` requires it explicitly, `none` disables translation |
-| `ASA_TRANSLATOR_PROBE_TIMEOUT` | `20` | Seconds allowed for the startup translation probe |
+| `ASA_TRANSLATOR_PROBE_TIMEOUT` | `120` | Seconds allowed for the startup translation probe |
 | `ASA_PROTON_PROFILE` | `balanced` | `safe` disables esync/fsync |
 
 The runtime checks translation before downloading the game. Two consecutive
