@@ -123,6 +123,16 @@ available, and logs the resulting backend.
 
 ## Validation cadence
 
+**Update cadence** (`ASA_UPDATE`) separately controls whether SteamCMD runs:
+every launch, once per supervisor session, or only for missing installations.
+Only a successful update marks the session updated; validation cadence applies
+when an update actually runs.
+
+**Consecutive startup failures** include preparation errors and server runs
+shorter than 120 seconds. Their bounded exponential retry policy is independent
+of the translated server's safe-profile selection. Scheduled restarts and stable
+runs reset the general counter.
+
 How often SteamCMD is asked to checksum the whole installation (`ASA_VALIDATE`,
 `RuntimeSettings.validate_mode`). Validation reads every installed file, so the
 default `first` pays that cost only for the initial install; the [Supervisor](#supervisor)

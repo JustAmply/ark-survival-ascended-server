@@ -39,7 +39,7 @@ from .proton import (
     prepare_proton,
     stop_proton_session,
 )
-from .steamcmd import ensure_steamcmd, probe_steamcmd_translation, update_server_files
+from .steamcmd import ensure_steamcmd, probe_steamcmd_translation, should_update, update_server_files
 from .translation import format_execution_error, resolve_execution_context
 from .wine_sync import configure_wine_sync
 
@@ -68,6 +68,8 @@ class ServerSupervisor:
         self.translator_probe_complete = False
         self.quick_crash_count = 0
         self.last_run_duration = 0.0
+        self.updated_this_session = False
+        self.consecutive_failures = 0
 
     def register_supervisor_pid(self) -> None:
         Path(SUPERVISOR_PID_FILE).write_text(f"{os.getpid()}\n", encoding="utf-8")
@@ -121,8 +123,12 @@ class ServerSupervisor:
         if self.execution_context.translation_enabled and not self.translator_probe_complete:
             probe_steamcmd_translation(self.execution_context, self.logger)
             self.translator_probe_complete = True
-        update_server_files(self.logger, self.settings, execution_context=self.execution_context)
-        self.logger.info("Server file update completed in %.1fs.", time.monotonic() - started)
+        if should_update(self.settings, self.updated_this_session):
+            update_server_files(self.logger, self.settings, execution_context=self.execution_context)
+            self.updated_this_session = True
+            self.logger.info("Server file update completed in %.1fs.", time.monotonic() - started)
+        else:
+            self.logger.info("Skipping installed server update (ASA_UPDATE=%s).", self.settings.update_mode)
         params = prepare_start_params(self.logger)
         started = time.monotonic()
         self.proton = prepare_proton(
@@ -345,6 +351,20 @@ class ServerSupervisor:
         Path(PID_FILE).unlink(missing_ok=True)
         self.server_process = None
 
+    def _restart_delay(self) -> int | None:
+        """Bound consecutive preparation failures and short runs on every architecture."""
+        if self.restart_requested or self.last_run_duration >= EARLY_CRASH_THRESHOLD_SECONDS:
+            self.consecutive_failures = 0
+            return max(self.settings.server_restart_delay, 0)
+        self.consecutive_failures += 1
+        limit = self.settings.restart_max_failures
+        if limit and self.consecutive_failures >= limit:
+            self.logger.error("Stopping after %s consecutive startup failures.", limit)
+            return None
+        base = max(self.settings.server_restart_delay, 1)
+        cap = max(base, self.settings.restart_max_delay)
+        return min(cap, base * 2 ** min(self.consecutive_failures - 1, cap.bit_length()))
+
     def cleanup(self) -> None:
         self._cleanup_server_process()
         self._terminate_process(self.log_streamer_process)
@@ -398,9 +418,15 @@ class ServerSupervisor:
                     self.settings.server_restart_delay,
                 )
 
+            delay = self._restart_delay()
+            if delay is None:
+                return exit_code or 1
+            self.logger.info("Next launch attempt in %ss.", delay)
             self.restart_requested = False
             self.shutdown_in_progress = False
-            time.sleep(max(self.settings.server_restart_delay, 0))
+            time.sleep(delay)
+            if self.supervisor_exit_requested:
+                return 0
 
 
 def main() -> None:

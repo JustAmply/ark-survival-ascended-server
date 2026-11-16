@@ -211,6 +211,21 @@ port in the firewall/router.
 
 ## Restarts and shutdown
 
+`ASA_UPDATE` controls game updates independently of `ASA_VALIDATE`:
+`always` (default) updates on every launch; `startup` updates once per container
+process, including across supervised restarts; `manual` keeps the installed
+version. All modes install missing server files. To update in manual mode,
+change to `startup`, recreate the container during maintenance, then restore
+`manual`. This does not pin or roll back Steam builds or mod versions.
+
+Preparation errors and runs shorter than 120 seconds count as consecutive
+failures. `ASA_RESTART_MAX_FAILURES=5` stops the supervisor after five failures;
+`0` allows unlimited retries. Retry delays grow from `SERVER_RESTART_DELAY` up
+to `ASA_RESTART_MAX_DELAY=300` seconds (never below the base delay). Scheduled
+restarts and runs of at least 120 seconds reset the counter. ARM64's existing
+safe-profile policy can stop earlier. Avoid an unconditional external restart
+policy if you want this limit to require operator intervention.
+
 The supervisor attempts `saveworld` through RCON, waits, then stops the server.
 
 | Variable | Default | Purpose |

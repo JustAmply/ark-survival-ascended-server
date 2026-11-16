@@ -88,6 +88,9 @@ class RuntimeSettings:
     translator_mode: str = DEFAULT_TRANSLATOR_MODE
     translator_probe_timeout: int = DEFAULT_TRANSLATOR_PROBE_TIMEOUT
     proton_profile: str = DEFAULT_PROTON_PROFILE
+    update_mode: str = "always"
+    restart_max_failures: int = 5
+    restart_max_delay: int = 300
 
     @classmethod
     def from_env(cls, environ: Optional[Mapping[str, str]] = None) -> "RuntimeSettings":
@@ -117,6 +120,9 @@ class RuntimeSettings:
                 source.get("ASA_TRANSLATOR_PROBE_TIMEOUT"), DEFAULT_TRANSLATOR_PROBE_TIMEOUT
             ),
             proton_profile=text("ASA_PROTON_PROFILE", DEFAULT_PROTON_PROFILE),
+            update_mode=text("ASA_UPDATE", "always").lower(),
+            restart_max_failures=max(0, coerce_int(source.get("ASA_RESTART_MAX_FAILURES"), 5)),
+            restart_max_delay=max(0, coerce_int(source.get("ASA_RESTART_MAX_DELAY"), 300)),
         )
 
     def restart_warnings_or_default(self) -> str:

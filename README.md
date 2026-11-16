@@ -37,6 +37,7 @@ configuration, storage and server settings.
 ## Features
 
 - Automatic game updates on startup, with full validation on the first install.
+- Configurable update cadence and bounded retries with exponential backoff.
 - RCON administration and dynamic mod management.
 - Multi-server clusters with shared transfer storage.
 - Scheduled restarts with chat warnings and `saveworld`.

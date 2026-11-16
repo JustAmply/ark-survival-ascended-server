@@ -76,6 +76,17 @@ def should_validate(settings: RuntimeSettings, logger: logging.Logger) -> bool:
     return not server_is_installed()
 
 
+def should_update(settings: RuntimeSettings, updated_this_session: bool) -> bool:
+    """Separate update cadence from checksum validation; always install missing files."""
+    if settings.update_mode not in ("always", "startup", "manual"):
+        raise ValueError("ASA_UPDATE must be always, startup or manual.")
+    return (
+        not server_is_installed()
+        or settings.update_mode == "always"
+        or (settings.update_mode == "startup" and not updated_this_session)
+    )
+
+
 def update_server_files(
     logger: logging.Logger,
     settings: Optional[RuntimeSettings] = None,
