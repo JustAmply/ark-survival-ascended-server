@@ -9,16 +9,24 @@ For running a published image, use [SETUP.md](../SETUP.md).
 
 ## Python development
 
-From a repository checkout, create a virtual environment and install the project:
+Python 3.15 is the only supported and tested Python minor version. The package
+requires `>=3.15,<3.16`; `.python-version` selects the same series for local
+version managers and GitHub Actions. Patch releases within 3.15 are supported.
+The application runtime uses Python 3.15 on both image architectures; the FEX
+guest's OS Python is only used to execute Proton's own scripts.
+
+From a repository checkout, create a virtual environment with Python 3.15 and
+install the project:
 
 ```bash
-python -m venv .venv
+python3.15 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
 python -m pytest -q
 ```
 
-On Windows PowerShell, activate with `.venv\Scripts\Activate.ps1` instead.
+On Windows PowerShell, use an installed Python 3.15 executable to create the
+environment and activate with `.venv\Scripts\Activate.ps1` instead.
 Editable installation registers `asa-ctrl` and makes source edits available
 immediately. Start with the tests relevant to the change, then run the complete
 suite. POSIX-only cases skip on Windows; Linux CI exercises them.
@@ -29,7 +37,7 @@ After changing packaging, package layout or console entry points, verify a
 non-editable installation in a separate clean environment. In a fresh shell:
 
 ```bash
-python -m venv .tmp/package-check
+python3.15 -m venv .tmp/package-check
 source .tmp/package-check/bin/activate
 python -m pip install .
 python -I scripts/verify_installed_package.py
@@ -37,8 +45,8 @@ python -I scripts/verify_installed_package.py
 
 On PowerShell, activate with `.tmp\package-check\Scripts\Activate.ps1`.
 Isolated mode prevents imports from the working directory. A clean non-editable
-install checks the distribution's subpackages and console command independently
-of the source-tree tests.
+install checks Python 3.15, the distribution's subpackages and console command
+independently of the source-tree tests.
 
 ## Local image checks
 

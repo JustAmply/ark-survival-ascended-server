@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import shutil
 import subprocess
+import sys
 
 
 REQUIRED_MODULES = (
@@ -17,6 +18,9 @@ REQUIRED_MODULES = (
 
 
 def main() -> None:
+    if sys.version_info[:2] != (3, 15):
+        raise SystemExit("Installed distribution must be verified with Python 3.15.")
+
     for module_name in REQUIRED_MODULES:
         try:
             importlib.import_module(module_name)
