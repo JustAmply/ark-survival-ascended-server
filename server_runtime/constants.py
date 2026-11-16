@@ -91,6 +91,7 @@ class RuntimeSettings:
     update_mode: str = "always"
     restart_max_failures: int = 5
     restart_max_delay: int = 300
+    require_admin_password: bool = False
 
     @classmethod
     def from_env(cls, environ: Optional[Mapping[str, str]] = None) -> "RuntimeSettings":
@@ -123,6 +124,7 @@ class RuntimeSettings:
             update_mode=text("ASA_UPDATE", "always").lower(),
             restart_max_failures=max(0, coerce_int(source.get("ASA_RESTART_MAX_FAILURES"), 5)),
             restart_max_delay=max(0, coerce_int(source.get("ASA_RESTART_MAX_DELAY"), 300)),
+            require_admin_password=coerce_bool(source.get("ASA_REQUIRE_ADMIN_PASSWORD"), False),
         )
 
     def restart_warnings_or_default(self) -> str:

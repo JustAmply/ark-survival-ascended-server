@@ -5,15 +5,17 @@ from __future__ import annotations
 import logging
 
 from asa_ctrl.common.config import AsaSettings
-from asa_ctrl.common.constants import DEFAULT_ADMIN_PASSWORD
-from asa_ctrl.common.errors import CorruptedModsDatabaseError
+from asa_ctrl.common.constants import DEFAULT_ADMIN_PASSWORD, DEFAULT_LAUNCH_BASE
+from asa_ctrl.common.errors import ConfigurationError, CorruptedModsDatabaseError
 from asa_ctrl.common.launch_config import LaunchConfiguration
 from asa_ctrl.core.mods import get_enabled_mod_ids
 
-from .constants import DEFAULT_START_PARAMS
+from .constants import DEFAULT_START_PARAMS, RuntimeSettings
 
 
-def prepare_start_params(logger: logging.Logger) -> str:
+def prepare_start_params(
+    logger: logging.Logger, runtime_settings: RuntimeSettings | None = None
+) -> str:
     """Normalize the complete launch-parameter contract and return the line.
 
     The environment is configuration input only: the resolved line is returned,
@@ -22,15 +24,20 @@ def prepare_start_params(logger: logging.Logger) -> str:
     reads during shutdown.
     """
     settings = AsaSettings()
+    runtime_settings = runtime_settings or RuntimeSettings.from_env()
     config = settings.launch_configuration()
 
-    if config.is_empty():
+    if config.is_empty() and not runtime_settings.require_admin_password:
         logger.warning(
             "No ASA_START_PARAMS provided; using default map payload with ServerAdminPassword."
         )
         config = LaunchConfiguration.parse(DEFAULT_START_PARAMS)
     else:
-        _ensure_admin_password(config, settings, logger)
+        if config.is_empty():
+            config = LaunchConfiguration.parse(DEFAULT_LAUNCH_BASE)
+        _ensure_admin_password(
+            config, settings, logger, require_password=runtime_settings.require_admin_password
+        )
 
     _inject_dynamic_mods(config, settings, logger)
     config.ensure_flag("-nosteam")
@@ -39,7 +46,8 @@ def prepare_start_params(logger: logging.Logger) -> str:
 
 
 def _ensure_admin_password(
-    config: LaunchConfiguration, settings: AsaSettings, logger: logging.Logger
+    config: LaunchConfiguration, settings: AsaSettings, logger: logging.Logger,
+    *, require_password: bool = False,
 ) -> None:
     if config.value("ServerAdminPassword"):
         return
@@ -52,6 +60,12 @@ def _ensure_admin_password(
 
     if password_in_ini:
         return
+
+    if require_password:
+        raise ConfigurationError(
+            "ASA_REQUIRE_ADMIN_PASSWORD is enabled, but no ServerAdminPassword is configured. "
+            "Set ASA_SERVER_ADMIN_PASSWORD, ASA_SERVER_ADMIN_PASSWORD_FILE or an INI password."
+        )
 
     logger.warning(
         "ServerAdminPassword missing in ASA_START_PARAMS/INI; appending default fallback."

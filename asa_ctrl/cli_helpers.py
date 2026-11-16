@@ -5,6 +5,7 @@ from typing import Optional
 
 from asa_ctrl.common.constants import ExitCodes
 from asa_ctrl.common.errors import (
+    ConfigurationError,
     CorruptedModsDatabaseError,
     ModAlreadyEnabledError,
     RconAuthenticationError,
@@ -24,6 +25,8 @@ def exit_with_error(message: str, exit_code: int) -> None:
 
 def map_exception_to_exit_code(exc: Exception) -> Optional[int]:
     """Translate known exceptions to asa-ctrl exit codes."""
+    if isinstance(exc, ConfigurationError):
+        return ExitCodes.CONFIGURATION_ERROR
     if isinstance(exc, RconPasswordNotFoundError):
         return ExitCodes.RCON_PASSWORD_NOT_FOUND
     if isinstance(exc, RconAuthenticationError):

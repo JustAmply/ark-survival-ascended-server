@@ -8,6 +8,8 @@ from .common.config import AsaSettings
 from .common.logging_config import configure_logging, get_logger
 from .common.constants import ExitCodes
 from .cli_commands import COMMANDS
+from .common.errors import ConfigurationError
+from .cli_helpers import exit_with_error
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -57,15 +59,17 @@ def main(args: Optional[List[str]] = None) -> None:
     parsed_args.settings = AsaSettings()
     # Lazy debug output if user enabled verbose logging
     settings = parsed_args.settings
-    if settings.start_params() and logger.isEnabledFor(10):  # DEBUG level
-        logger.debug("Start params: %s", settings.launch_configuration().render_for_logging())
-    
-    # Execute the appropriate command
-    if hasattr(parsed_args, 'func'):
-        parsed_args.func(parsed_args)
-    else:
-        parser.print_help()
-        sys.exit(ExitCodes.OK)
+    try:
+        if settings.start_params() and logger.isEnabledFor(10):  # DEBUG level
+            logger.debug("Start params: %s", settings.launch_configuration().render_for_logging())
+
+        if hasattr(parsed_args, 'func'):
+            parsed_args.func(parsed_args)
+        else:
+            parser.print_help()
+            sys.exit(ExitCodes.OK)
+    except ConfigurationError as exc:
+        exit_with_error(str(exc), ExitCodes.CONFIGURATION_ERROR)
 
 
 if __name__ == '__main__':

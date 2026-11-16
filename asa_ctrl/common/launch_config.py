@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from .constants import DEFAULT_LAUNCH_BASE
+from .errors import ConfigurationError
 
 
 TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
@@ -50,6 +52,12 @@ FLAG_ENV_OVERRIDES: Tuple[Tuple[str, str], ...] = (
     ("ASA_MODS", "mods"),
 )
 
+PASSWORD_ENV_VARS = (
+    "ASA_SERVER_ADMIN_PASSWORD",
+    "ASA_SERVER_PASSWORD",
+    "ASA_SPECTATOR_PASSWORD",
+)
+
 # Every variable that participates in the discrete configuration overlay. When
 # none of these is set the legacy ``ASA_START_PARAMS`` value is passed through
 # untouched.
@@ -57,6 +65,7 @@ LAUNCH_ENV_VARS: Tuple[str, ...] = (
     ("ASA_MAP",)
     + tuple(name for name, _ in QUERY_ENV_OVERRIDES)
     + tuple(name for name, _ in FLAG_ENV_OVERRIDES)
+    + tuple(f"{name}_FILE" for name in PASSWORD_ENV_VARS)
     + ("ASA_BATTLEYE", "ASA_EXTRA_QUERY_PARAMS", "ASA_EXTRA_FLAGS")
 )
 
@@ -195,7 +204,7 @@ class LaunchConfiguration:
         base is returned untouched, so existing stacks keep their exact launch
         line.
         """
-        environ = os.environ if environ is None else environ
+        environ = _resolve_password_files(os.environ if environ is None else environ)
         base = (environ.get("ASA_START_PARAMS") or "").strip()
         overlay_present = any(_is_set(environ, name) for name in LAUNCH_ENV_VARS)
 
@@ -434,6 +443,34 @@ def _value_of(environ: Mapping[str, str], name: str) -> Optional[str]:
 
 def _is_set(environ: Mapping[str, str], name: str) -> bool:
     return _value_of(environ, name) is not None
+
+
+def _resolve_password_files(environ: Mapping[str, str]) -> Mapping[str, str]:
+    """Resolve secret files without mutating the caller's environment."""
+    resolved = dict(environ)
+    for name in PASSWORD_ENV_VARS:
+        file_name = f"{name}_FILE"
+        if file_name not in environ:
+            continue
+        if name in environ:
+            raise ConfigurationError(f"Set either {name} or {file_name}, not both.")
+        path = environ[file_name].strip()
+        if not path:
+            raise ConfigurationError(f"{file_name} must name a readable UTF-8 secret file.")
+        try:
+            password = Path(path).read_text(encoding="utf-8").rstrip("\r\n")
+        except (OSError, UnicodeError):
+            raise ConfigurationError(f"Cannot read the UTF-8 secret file configured by {file_name}.") from None
+        if not password:
+            raise ConfigurationError(f"The secret file configured by {file_name} is empty.")
+        # These characters cannot survive the launch line's query/token grammar.
+        if any(char.isspace() or char in "?\"'\\\x00" for char in password):
+            raise ConfigurationError(
+                f"{file_name} must contain one password without whitespace, query separators, "
+                "quotes, backslashes or NUL characters."
+            )
+        resolved[name] = password
+    return resolved
 
 
 def discrete_env_vars() -> Sequence[str]:

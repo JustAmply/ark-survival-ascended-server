@@ -13,6 +13,7 @@ class ExitCodes:
     RCON_CONNECTION_FAILED = 6
     RCON_PACKET_ERROR = 7
     RCON_TIMEOUT = 8
+    CONFIGURATION_ERROR = 9
 
 
 class RconPacketTypes:

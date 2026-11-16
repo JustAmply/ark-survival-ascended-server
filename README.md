@@ -40,6 +40,7 @@ configuration, storage and server settings.
 - Configurable update cadence and bounded retries with exponential backoff.
 - RCON administration and dynamic mod management.
 - Atomic, process-locked mod storage; invalid mod databases block startup.
+- Password files for Docker secrets and optional required admin credentials.
 - Multi-server clusters with shared transfer storage.
 - Scheduled restarts with chat warnings and `saveworld`.
 - Five-minute Compose stop grace period for saving and graceful shutdown.

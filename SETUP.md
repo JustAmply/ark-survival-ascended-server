@@ -112,6 +112,13 @@ back to INI settings when values are absent.
 
 ## Storage and backups
 
+Use `ASA_SERVER_ADMIN_PASSWORD_FILE`, `ASA_SERVER_PASSWORD_FILE` or
+`ASA_SPECTATOR_PASSWORD_FILE` to read a password from a mounted UTF-8 file.
+Do not also set its direct password variable. `ASA_REQUIRE_ADMIN_PASSWORD=true`
+refuses startup without an explicitly configured admin password; the existing
+fallback remains available by default. See [password files](docs/secrets.md)
+for Compose secrets, precedence and file permissions.
+
 Mod changes use atomic writes and a process-wide file lock. A corrupt or unreadable
 `mods.json` blocks startup instead of silently omitting mods. Restore or repair
 the database before restarting; see [mod storage safety](docs/mod-safety.md).

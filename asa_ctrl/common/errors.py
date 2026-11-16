@@ -8,6 +8,10 @@ class AsaCtrlError(Exception):
     pass
 
 
+class ConfigurationError(AsaCtrlError, ValueError):
+    """Raised when configuration cannot safely produce a server launch."""
+
+
 class ModAlreadyEnabledError(AsaCtrlError):
     """Raised when trying to enable a mod that is already enabled."""
     pass
