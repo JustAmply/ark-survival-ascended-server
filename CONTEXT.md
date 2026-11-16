@@ -74,6 +74,12 @@ current environment), and the `PROTON_VERSION` export described under
 
 ## Supervisor
 
+**Runtime status** is a secret-free atomic snapshot beside the supervisor PID
+file (`.asa-supervisor.status.json`). The supervisor owns lifecycle phases and
+failure counts. `asa-ctrl status` checks its process and, only in the running
+phase, performs a short RCON query to establish **readiness**. A running process
+alone is not a readiness guarantee.
+
 The container-level process owner (`server_runtime.supervisor.ServerSupervisor`).
 It registers PID files, starts the restart scheduler and the log streamer,
 launches the server through Proton, and handles the graceful shutdown sequence

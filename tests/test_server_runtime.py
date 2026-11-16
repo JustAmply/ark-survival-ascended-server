@@ -600,6 +600,7 @@ def test_supervisor_run_restarts_after_launch_exception(monkeypatch, caplog):
 
     monkeypatch.setattr(supervisor, "_launch_server_once", fake_launch)
     monkeypatch.setattr("server_runtime.supervisor.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(supervisor.stop_event, "wait", lambda _seconds: False)
     caplog.set_level(logging.ERROR)
 
     code = supervisor.run()
@@ -1057,6 +1058,7 @@ def test_supervisor_switches_to_safe_profile_after_two_early_crashes(monkeypatch
 
     monkeypatch.setattr(supervisor, "_launch_server_once", fake_launch)
     monkeypatch.setattr("server_runtime.supervisor.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(supervisor.stop_event, "wait", lambda _seconds: False)
 
     code = supervisor.run()
 
@@ -1089,6 +1091,7 @@ def test_supervisor_fails_fast_after_early_crash_in_safe_profile(monkeypatch):
 
     monkeypatch.setattr(supervisor, "_launch_server_once", fake_launch)
     monkeypatch.setattr("server_runtime.supervisor.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(supervisor.stop_event, "wait", lambda _seconds: False)
 
     code = supervisor.run()
 
@@ -1121,6 +1124,7 @@ def test_supervisor_startup_exceptions_do_not_escalate_crash_profile(monkeypatch
 
     monkeypatch.setattr(supervisor, "_launch_server_once", fake_launch)
     monkeypatch.setattr("server_runtime.supervisor.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(supervisor.stop_event, "wait", lambda _seconds: False)
 
     code = supervisor.run()
 

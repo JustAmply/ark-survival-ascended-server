@@ -222,6 +222,18 @@ port in the firewall/router.
 
 ## Restarts and shutdown
 
+Run `docker compose exec asa-server-1 asa-ctrl status --json` to inspect startup,
+retry, shutdown and RCON readiness. Status returns 0 when RCON answers
+`ListPlayers`, otherwise 10. The image healthcheck uses `status --healthcheck`
+(Docker-compatible 0/1 codes), runs every 30 seconds and allows 30 minutes for
+cold-start downloads. Set a longer Compose `healthcheck.start_period` for slower
+hosts; the allowance applies to container startup, not every supervised restart.
+Three failed checks after startup mark the container unhealthy. This reports
+readiness; Docker does not restart unhealthy containers automatically. RCON
+disabled or debug-hold containers cannot pass this check; disable the healthcheck
+explicitly for those deployments. RCON readiness does not prove game-port
+reachability or successful player connections.
+
 `ASA_UPDATE` controls game updates independently of `ASA_VALIDATE`:
 `always` (default) updates on every launch; `startup` updates once per container
 process, including across supervised restarts; `manual` keeps the installed

@@ -182,6 +182,7 @@ def test_translated_supervisor_resets_early_crash_count(monkeypatch, reset_reaso
     monkeypatch.setattr(owner, "_launch_server_once", launch)
     monkeypatch.setattr(owner, "_cleanup_after_run", lambda: None)
     monkeypatch.setattr(supervisor.time, "sleep", lambda _: None)
+    monkeypatch.setattr(owner.stop_event, "wait", lambda _: False)
     assert owner.run() == 2
     assert attempts == ["balanced"] * 4
     assert owner.quick_crash_count == 1
@@ -261,6 +262,7 @@ def test_native_supervisor_retries_short_runs_without_profile_escalation(monkeyp
     monkeypatch.setattr(owner, "_launch_server_once", launch)
     monkeypatch.setattr(owner, "_cleanup_after_run", lambda: None)
     monkeypatch.setattr(runtime.time, "sleep", lambda _: None)
+    monkeypatch.setattr(owner.stop_event, "wait", lambda _: False)
     assert owner.run() == 2
     assert attempts == [profile] * 4
 

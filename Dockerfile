@@ -169,4 +169,6 @@ VOLUME ["/home/gameserver/Steam", \
 WORKDIR /home/gameserver
 
 # Entry point
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30m --retries=3 \
+    CMD ["asa-ctrl", "status", "--healthcheck"]
 ENTRYPOINT ["python", "-m", "server_runtime"]

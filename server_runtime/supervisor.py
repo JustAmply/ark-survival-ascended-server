@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import json
 import os
 import signal
 import subprocess
 import sys
 import time
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -69,10 +71,24 @@ class ServerSupervisor:
         self.quick_crash_count = 0
         self.last_run_duration = 0.0
         self.updated_this_session = False
+        self.update_pending = False
         self.consecutive_failures = 0
+        self.status_registered = False
+        self.stop_event = threading.Event()
 
     def register_supervisor_pid(self) -> None:
         Path(SUPERVISOR_PID_FILE).write_text(f"{os.getpid()}\n", encoding="utf-8")
+        self.status_registered = True
+        self._set_status("starting")
+
+    def _set_status(self, phase: str) -> None:
+        if not self.status_registered:
+            return
+        path = Path(SUPERVISOR_PID_FILE).with_suffix(".status.json")
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"supervisor_pid": os.getpid(), "phase": phase,
+                                         "failures": self.consecutive_failures}), encoding="utf-8")
+        temporary.replace(path)
 
     def start_restart_scheduler(self) -> None:
         cron = self.settings.server_restart_cron
@@ -123,8 +139,10 @@ class ServerSupervisor:
         if self.execution_context.translation_enabled and not self.translator_probe_complete:
             probe_steamcmd_translation(self.execution_context, self.logger)
             self.translator_probe_complete = True
-        if should_update(self.settings, self.updated_this_session):
+        if self.update_pending or should_update(self.settings, self.updated_this_session):
+            self.update_pending = True
             update_server_files(self.logger, self.settings, execution_context=self.execution_context)
+            self.update_pending = False
             self.updated_this_session = True
             self.logger.info("Server file update completed in %.1fs.", time.monotonic() - started)
         else:
@@ -157,6 +175,7 @@ class ServerSupervisor:
         except OSError as exc:
             raise RuntimeError(format_execution_error("Proton launch", exc, self.execution_context)) from exc
         Path(PID_FILE).write_text(f"{self.server_process.pid}\n", encoding="utf-8")
+        self._set_status("running")
         exit_code = self.server_process.wait()
         self.last_run_duration = max(0.0, time.monotonic() - start_time)
         return exit_code
@@ -166,6 +185,7 @@ class ServerSupervisor:
             self.logger.info("Signal %s received but shutdown already in progress.", self._signal_name(sig))
             return
         self.shutdown_in_progress = True
+        self._set_status("stopping")
         self.logger.info(
             "Received signal %s for %s; initiating graceful shutdown.",
             self._signal_name(sig),
@@ -303,6 +323,7 @@ class ServerSupervisor:
 
     def _handle_shutdown_signal(self, sig: int, _frame) -> None:
         self.supervisor_exit_requested = True
+        self.stop_event.set()
         self._perform_shutdown_sequence(sig, "container shutdown")
 
     def _handle_restart_signal(self, sig: int, _frame) -> None:
@@ -366,6 +387,7 @@ class ServerSupervisor:
         return min(cap, base * 2 ** min(self.consecutive_failures - 1, cap.bit_length()))
 
     def cleanup(self) -> None:
+        self._set_status("stopped")
         self._cleanup_server_process()
         self._terminate_process(self.log_streamer_process)
         self._terminate_process(self.restart_scheduler_process)
@@ -381,6 +403,7 @@ class ServerSupervisor:
             signal.signal(signal.SIGUSR1, self._handle_restart_signal)
 
         while True:
+            self._set_status("starting")
             exit_code = 1
             server_ran = False
             try:
@@ -420,11 +443,13 @@ class ServerSupervisor:
 
             delay = self._restart_delay()
             if delay is None:
+                self._set_status("failed")
                 return exit_code or 1
+            self._set_status("retrying" if self.consecutive_failures else "restarting")
             self.logger.info("Next launch attempt in %ss.", delay)
             self.restart_requested = False
             self.shutdown_in_progress = False
-            time.sleep(delay)
+            self.stop_event.wait(delay)
             if self.supervisor_exit_requested:
                 return 0
 
