@@ -42,6 +42,7 @@ configuration, storage and server settings.
 - Atomic, process-locked mod storage; invalid mod databases block startup.
 - Password files for Docker secrets and optional required admin credentials.
 - Runtime status and an RCON readiness healthcheck with a cold-start allowance.
+- Read-only configuration checks, redacted configuration output and diagnostics.
 - Multi-server clusters with shared transfer storage.
 - Scheduled restarts with chat warnings and `saveworld`.
 - Five-minute Compose stop grace period for saving and graceful shutdown.

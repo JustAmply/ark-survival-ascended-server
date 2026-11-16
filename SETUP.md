@@ -222,6 +222,13 @@ port in the firewall/router.
 
 ## Restarts and shutdown
 
+Before starting, use `asa-ctrl config check --json` to validate known settings,
+`asa-ctrl config show` for redacted known launch settings, and `asa-ctrl doctor`
+for local filesystem access checks. Inside a container use
+`docker compose exec --user 25000:25000 asa-server-1 asa-ctrl doctor` so permissions
+are checked as the game user. These commands do not start, stop or change the
+server. See [diagnostics](docs/diagnostics.md) for scope and exit codes.
+
 Run `docker compose exec asa-server-1 asa-ctrl status --json` to inspect startup,
 retry, shutdown and RCON readiness. Status returns 0 when RCON answers
 `ListPlayers`, otherwise 10. The image healthcheck uses `status --healthcheck`
