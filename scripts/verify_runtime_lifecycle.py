@@ -208,6 +208,7 @@ def verify_case(case: str) -> None:
             ASA_LIFECYCLE_CASE=case,
             ASA_GAME_USER_SETTINGS_PATH=str(root / "GameUserSettings.ini"),
             ASA_MOD_DATABASE_PATH=str(root / "mods.json"),
+            ASA_SUPERVISOR_PID_FILE=str(root / "supervisor.pid"),
             SERVER_RESTART_CRON="2 0 * * *",
             SERVER_RESTART_WARNINGS="1",
             SERVER_RESTART_DELAY="0",
@@ -230,6 +231,15 @@ def verify_case(case: str) -> None:
                 current = wait_for(root, process, lambda items: sum(item["kind"] == "started" for item in items) >= 2)
                 assert any(item.get("command", "").startswith("serverchat Server restart in 1 minute") for item in current)
                 assert any(item.get("command", "").startswith("serverchat Server restarting now") for item in current)
+                status = subprocess.run(
+                    [sys.executable, "-m", "asa_ctrl", "status", "--json"],
+                    env=env, capture_output=True, text=True, timeout=10,
+                )
+                assert status.returncode == 0, (status.stdout, status.stderr)
+                assert json.loads(status.stdout)["ready"] is True, status.stdout
+                assert "test-private-password" not in status.stdout + status.stderr
+                assert "changeme" not in status.stdout + status.stderr
+                assert any(item.get("command") == "ListPlayers" for item in events(root))
                 process.terminate()
                 assert process.wait(timeout=10) == 0
             except Exception:
@@ -270,7 +280,7 @@ def verify_case(case: str) -> None:
             assert "ServerAdminPassword=<redacted>" in log, "Admin password was not redacted"
             assert "test-private-password" not in log
             assert "ServerAdminPassword=changeme" not in log
-            print(f"PASS {case}: warnings, authenticated RCON, save delay, restart, shutdown and cleanup")
+            print(f"PASS {case}: readiness, warnings, authenticated RCON, save delay, restart, shutdown and cleanup")
 
 
 if __name__ == "__main__":

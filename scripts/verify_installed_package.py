@@ -13,6 +13,8 @@ REQUIRED_MODULES = (
     "asa_ctrl.cli_commands",
     "asa_ctrl.common",
     "asa_ctrl.core",
+    "asa_ctrl.core.status",
+    "asa_ctrl.core.diagnostics",
     "server_runtime",
 )
 
@@ -37,17 +39,19 @@ def main() -> None:
             "Check [project.scripts] in pyproject.toml and reinstall the package."
         )
 
-    result = subprocess.run(
-        [executable, "--help"],
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip()
-        raise SystemExit(
-            f"Installed 'asa-ctrl --help' failed with exit code {result.returncode}: {detail}"
+    for command in ([], ["status"], ["config", "check"], ["doctor"]):
+        arguments = [executable, *command, "--help"]
+        result = subprocess.run(
+            arguments,
+            capture_output=True,
+            check=False,
+            text=True,
         )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            raise SystemExit(
+                f"Installed {' '.join(arguments[1:])!r} failed with exit code {result.returncode}: {detail}"
+            )
 
     print("Installed distribution smoke test passed.")
 

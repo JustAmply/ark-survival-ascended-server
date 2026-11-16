@@ -172,6 +172,11 @@ jobs:
             --mount "type=bind,src=${PWD}/scripts/verify_runtime_lifecycle.py,dst=/tmp/verify_runtime_lifecycle.py,readonly" \
             asa-linux-server:smoke /tmp/verify_runtime_lifecycle.py
 
+      - name: Verify offline backup and restore lifecycle
+        if: steps.changes.outputs.docker == 'true'
+        run: |
+          python scripts/verify_backup_lifecycle.py --image asa-linux-server:smoke
+
       - name: Verify translated lifecycle policy with native fixtures
         if: steps.changes.outputs.docker == 'true'
         run: |

@@ -85,3 +85,16 @@ the recovered world has been started separately and checked in game.
 Byte verification is a repeatable restore check, not proof that ARK can load a
 particular world. Include an isolated game-server startup in periodic recovery
 drills; do not run the drill against the production cluster volume.
+
+## Test the backup tooling
+
+With Docker running and `python:3.15-slim` already available locally, run:
+
+```bash
+python scripts/verify_backup_lifecycle.py --image python:3.15-slim
+```
+
+This creates uniquely named, labelled fixture containers and volumes, exercises
+backup, maintenance stop/start, verification, recovery and retention, then removes
+only those fixtures. It does not pull images implicitly or touch existing server
+data. CI can explicitly pull the fixture image before invoking the check.

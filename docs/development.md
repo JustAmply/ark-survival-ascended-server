@@ -1,5 +1,16 @@
 # Development and verification
 
+CI checks RCON readiness in the supervisor lifecycle fixture and verifies offline
+backup/restore against uniquely owned disposable Docker containers and volumes:
+
+```bash
+python scripts/verify_backup_lifecycle.py --image asa-linux-server:dev
+```
+
+The image must already exist locally. This test uses no game installation or
+existing data; it checks maintenance stops, restored bytes and retention. The
+installed-package smoke test also checks `status`, `config check` and `doctor`.
+
 The application has no third-party Python runtime dependencies. The Dockerfile
 defines the image's Python and OS versions. Read [AGENTS.md](../AGENTS.md) before
 editing, [CONTEXT.md](../CONTEXT.md) for contract ownership, and the ADRs for
