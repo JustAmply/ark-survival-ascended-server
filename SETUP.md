@@ -146,6 +146,13 @@ backup. Include server-files and cluster-shared data and keep the Compose file
 and private `.env` with the backup. Container recreation keeps named volumes;
 removing volumes or running `docker compose down -v` deletes persistent data.
 
+The stdlib host tool `scripts/backup_server.py` automates offline backups with
+SHA-256 verification, retention and restore into a fresh directory. Its optional
+`--stop` maintenance mode stops selected running servers and restarts them even
+when backup fails; it refuses unselected running consumers of shared storage.
+See [backup and recovery](docs/backups.md) for complete commands, scheduling and
+an isolated restore drill. Test world recovery before relying on a backup plan.
+
 ## Networking
 
 | Default port | Protocol | Purpose |

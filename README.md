@@ -47,6 +47,7 @@ configuration, storage and server settings.
 - Scheduled restarts with chat warnings and `saveworld`.
 - Five-minute Compose stop grace period for saving and graceful shutdown.
 - Persistent game files, saves and downloaded tools in Docker volumes.
+- Offline backups with optional maintenance stops, retention and verified restores.
 - ServerAPI plugin loader detection.
 
 Configure the map, ports, player limit and other settings through individual
