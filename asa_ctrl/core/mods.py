@@ -8,6 +8,9 @@ Handles mod database operations including:
 """
 
 import json
+import os
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from collections.abc import Mapping
@@ -57,8 +60,10 @@ class ModDatabase:
         self.mods: List[ModRecord] = []
         self._lock = RLock()
         self._log = get_logger(__name__)
-        self._ensure_database_exists()
-        self._load_database()
+        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock, self._file_lock():
+            self._ensure_database_exists()
+            self._load_database()
     
     @staticmethod
     def from_settings(settings: Optional[AsaSettings] = None) -> 'ModDatabase':
@@ -73,6 +78,37 @@ class ModDatabase:
             self.database_path.parent.mkdir(parents=True, exist_ok=True)
             self._write_database()
             self._log.debug("Created new mods database at %s", self.database_path)
+
+    @contextmanager
+    def _file_lock(self):
+        # Lock a stable sibling: replacing mods.json must not replace the inode
+        # that other processes are waiting on. Never unlink the lock file.
+        with self.database_path.with_name(self.database_path.name + ".lock").open("a+b") as lock_file:
+            if os.name == "nt":
+                import msvcrt
+
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if os.name == "nt":
+                    lock_file.seek(0)
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+    @contextmanager
+    def _transaction(self):
+        with self._lock, self._file_lock():
+            # Another CLI process may have changed the database since this
+            # instance was constructed. Reload under the same write lock.
+            self._load_database()
+            yield
     
     def _load_database(self) -> None:
         """Load the mod database from the JSON file."""
@@ -91,24 +127,35 @@ class ModDatabase:
                     )
                 try:
                     mods.append(ModRecord.from_dict(dict(mod_data)))
-                except (TypeError, KeyError) as e:
+                except (TypeError, KeyError, ValueError) as e:
                     raise CorruptedModsDatabaseError(
                         f"mods.json entry at index {index} is invalid: {e}."
                     ) from e
             self.mods = mods
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, UnicodeError) as e:
             raise CorruptedModsDatabaseError(
-                "mods.json file is corrupted and cannot be parsed: %s. Please delete this file manually. It can be found in the server files root directory." % e
-            )
-        except FileNotFoundError:
-            self.mods = []
+                "mods.json file is corrupted and cannot be parsed: %s. "
+                "Restore a known-good backup or repair the file before starting the server." % e
+            ) from e
         self._log.debug("Loaded %d mods", len(self.mods))
     
     def _write_database(self) -> None:
-        """Write the mod database to the JSON file."""
+        """Replace the database only after its complete contents reach disk."""
         data = [mod.to_dict() for mod in self.mods]
-        with open(self.database_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=self.database_path.parent,
+                prefix=self.database_path.name + ".", suffix=".tmp", delete=False,
+            ) as f:
+                temporary_path = Path(f.name)
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary_path, self.database_path)
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
         self._log.debug("Persisted %d mods", len(self.mods))
     
     def enable_mod(self, mod_id: int) -> None:
@@ -122,7 +169,7 @@ class ModDatabase:
             ModAlreadyEnabledError: If the mod is already enabled
         """
         # Check if mod already exists
-        with self._lock:
+        with self._transaction():
             for mod in self.mods:
                 if mod.mod_id == mod_id:
                     if mod.enabled:
@@ -146,7 +193,7 @@ class ModDatabase:
         Returns:
             True if mod was found and disabled, False otherwise
         """
-        with self._lock:
+        with self._transaction():
             for mod in self.mods:
                 if mod.mod_id == mod_id:
                     if mod.enabled:
@@ -160,31 +207,36 @@ class ModDatabase:
     
     def get_enabled_mods(self) -> List[ModRecord]:
         """Get a list of all enabled mods."""
-        return [mod for mod in self.mods if mod.enabled]
+        with self._transaction():
+            return [mod for mod in self.mods if mod.enabled]
     
     def get_all_mods(self) -> List[ModRecord]:
         """Get a list of all mods in the database."""
-        return list(self.mods)
+        with self._transaction():
+            return list(self.mods)
     
     def mod_exists(self, mod_id: int) -> bool:
         """Check if a mod exists in the database."""
-        return any(mod.mod_id == mod_id for mod in self.mods)
+        with self._transaction():
+            return any(mod.mod_id == mod_id for mod in self.mods)
     
     def is_mod_enabled(self, mod_id: int) -> bool:
         """Check if a specific mod is enabled."""
-        for mod in self.mods:
-            if mod.mod_id == mod_id:
-                return mod.enabled
-        return False
+        with self._transaction():
+            for mod in self.mods:
+                if mod.mod_id == mod_id:
+                    return mod.enabled
+            return False
 
     def get_mod(self, mod_id: int) -> Optional[ModRecord]:
-        for mod in self.mods:
-            if mod.mod_id == mod_id:
-                return mod
-        return None
+        with self._transaction():
+            for mod in self.mods:
+                if mod.mod_id == mod_id:
+                    return mod
+            return None
 
     def remove_mod(self, mod_id: int) -> bool:
-        with self._lock:
+        with self._transaction():
             before = len(self.mods)
             self.mods = [m for m in self.mods if m.mod_id != mod_id]
             if len(self.mods) != before:

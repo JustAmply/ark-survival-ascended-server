@@ -112,6 +112,10 @@ back to INI settings when values are absent.
 
 ## Storage and backups
 
+Mod changes use atomic writes and a process-wide file lock. A corrupt or unreadable
+`mods.json` blocks startup instead of silently omitting mods. Restore or repair
+the database before restarting; see [mod storage safety](docs/mod-safety.md).
+
 The supplied Compose file uses named volumes:
 
 | Volume | Container path | Contents |

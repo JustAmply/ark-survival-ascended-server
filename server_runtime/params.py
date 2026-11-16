@@ -65,8 +65,12 @@ def _inject_dynamic_mods(
     try:
         mod_ids = get_enabled_mod_ids(settings)
     except (CorruptedModsDatabaseError, OSError, ValueError) as exc:
-        logger.warning("Failed to read dynamic mods; skipping mods injection: %s", exc)
-        return
+        raise CorruptedModsDatabaseError(
+            "Cannot safely launch with the configured mod database. "
+            "Restore mods.json from a known-good backup or repair its contents and "
+            "permissions before restarting; the server has not been launched. "
+            f"Cause: {exc}"
+        ) from exc
 
     if mod_ids:
         config.merge_mods(mod_ids)

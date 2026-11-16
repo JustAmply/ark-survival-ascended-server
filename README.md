@@ -39,6 +39,7 @@ configuration, storage and server settings.
 - Automatic game updates on startup, with full validation on the first install.
 - Configurable update cadence and bounded retries with exponential backoff.
 - RCON administration and dynamic mod management.
+- Atomic, process-locked mod storage; invalid mod databases block startup.
 - Multi-server clusters with shared transfer storage.
 - Scheduled restarts with chat warnings and `saveworld`.
 - Five-minute Compose stop grace period for saving and graceful shutdown.

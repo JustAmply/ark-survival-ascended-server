@@ -204,7 +204,7 @@ def test_prepare_start_params_preserves_ini_password_and_nosteam(monkeypatch, tm
     assert params.count("-nosteam") == 1
 
 
-def test_prepare_start_params_skips_corrupt_mod_database(monkeypatch, tmp_path, caplog):
+def test_prepare_start_params_rejects_corrupt_mod_database(monkeypatch, tmp_path):
     _clear_launch_env(monkeypatch)
     mods_path = tmp_path / "mods.json"
     mods_path.write_text("not-json", encoding="utf-8")
@@ -213,10 +213,8 @@ def test_prepare_start_params_skips_corrupt_mod_database(monkeypatch, tmp_path, 
     monkeypatch.setenv("ASA_START_PARAMS", "Map?listen?ServerAdminPassword=secret")
     logger = logging.getLogger("test")
 
-    params = runtime_params.prepare_start_params(logger)
-
-    assert params == "Map?listen?ServerAdminPassword=secret -nosteam"
-    assert "skipping mods injection" in caplog.text
+    with pytest.raises(runtime_params.CorruptedModsDatabaseError, match="Cannot safely launch"):
+        runtime_params.prepare_start_params(logger)
 
 
 def test_prepare_start_params_merges_mods_into_an_existing_flag(monkeypatch, tmp_path):

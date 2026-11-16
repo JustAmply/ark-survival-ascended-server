@@ -151,6 +151,11 @@ The JSON file at `/home/gameserver/server-files/mods.json` holding
 `ModRecord` entries. Enabled mod ids are merged into the launch line's single
 `-mods=` flag at startup.
 
+Every database operation acquires a stable sibling lock file across processes
+and reloads the current JSON. Mutations replace it atomically with a flushed
+temporary file; the in-process `RLock` also remains in force. An unreadable or
+corrupt database blocks server startup so required mods cannot disappear silently.
+
 ## Execution context
 
 The architecture and optional translation runner used for SteamCMD, Proton
