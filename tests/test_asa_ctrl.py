@@ -485,7 +485,7 @@ def test_cli_help_lists_only_public_commands(capsys):
 
     assert exc.value.code == ExitCodes.OK
     output = capsys.readouterr().out
-    assert "{rcon,mods}" in output
+    assert "{rcon,mods,status,config,doctor}" in output
     assert "mods-string" not in output
     assert "restart-scheduler" not in output
 

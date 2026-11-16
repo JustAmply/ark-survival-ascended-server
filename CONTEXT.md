@@ -66,6 +66,9 @@ Two children need two different slices, which is what earns the seam:
 
 The supervisor keeps the server's launch environment so that RCON discovery
 during shutdown reads the same values the server itself was given.
+Once the resolved launch line is present, named overlays and password-file
+references are removed from that child environment. Rotating a secret cannot
+change shutdown credentials retroactively; the original process input is intact.
 
 Three environment writes remain deliberate and sit outside this module: `TZ`
 (set before any child exists), the privilege-drop marker (`os.execvp` passes the

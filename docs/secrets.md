@@ -52,3 +52,8 @@ secret file or `GameUserSettings.ini` is required before launching. With no
 launch line, the default map still works when an INI password is present.
 The switch defaults to off to preserve existing stacks. It checks that a
 password is configured; it does not enforce password strength.
+
+After rotating a file, recreate the container to apply the new password. The
+supervisor keeps the launched password for shutdown RCON even if the file changes
+or disappears. An external `asa-ctrl status` or RCON invocation reads the current
+file and may fail authentication until the server has restarted with that value.

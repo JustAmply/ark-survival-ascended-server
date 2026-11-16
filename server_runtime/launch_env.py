@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Optional
 
+from asa_ctrl.common.launch_config import discrete_env_vars
+
 from .constants import (
     ASA_COMPAT_DATA,
     DEFAULT_PROTON_PROFILE,
@@ -115,6 +117,10 @@ class LaunchEnvironment:
         for key, value in HEADLESS_DEFAULTS.items():
             env.setdefault(key, value)
         if launch_line:
+            # This line already includes every overlay and secret. Keep shutdown
+            # discovery bound to the launched values even if a secret rotates.
+            for name in discrete_env_vars():
+                env.pop(name, None)
             env["ASA_START_PARAMS"] = launch_line
         profile = resolve_proton_profile(
             self.settings.proton_profile if proton_profile is None else proton_profile,
