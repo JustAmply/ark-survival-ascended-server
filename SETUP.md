@@ -219,10 +219,10 @@ The supervisor attempts `saveworld` through RCON, waits, then stops the server.
 | `ASA_SHUTDOWN_TIMEOUT` | `180` | Graceful shutdown seconds before forced cleanup |
 | `SERVER_RESTART_DELAY` | `15` | Seconds before relaunch |
 
-Docker's stop timeout must allow the runtime to complete saving and shutdown.
-The examples use `-t 300`; increase it if you increase the runtime delays.
-For Compose-managed stops and recreation, you can set `stop_grace_period: 300s`
-on each service rather than specifying `-t` for each command.
+The supplied Compose services set `stop_grace_period: 300s` so ordinary stops
+and recreation allow saving and shutdown to finish. The examples also use
+`-t 300` for existing deployments. Increase both if you increase runtime delays;
+custom Compose files should include the same grace period on every server.
 
 The supplied Compose file schedules a restart at 04:00. Configure the schedule
 with a five-field cron expression in the container's `TZ` timezone:

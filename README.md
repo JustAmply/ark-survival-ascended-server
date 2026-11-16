@@ -40,6 +40,7 @@ configuration, storage and server settings.
 - RCON administration and dynamic mod management.
 - Multi-server clusters with shared transfer storage.
 - Scheduled restarts with chat warnings and `saveworld`.
+- Five-minute Compose stop grace period for saving and graceful shutdown.
 - Persistent game files, saves and downloaded tools in Docker volumes.
 - ServerAPI plugin loader detection.
 

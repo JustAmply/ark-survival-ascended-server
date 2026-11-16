@@ -2,6 +2,7 @@ services:
   asa-server-1:
     container_name: asa-server-1
     image: ghcr.io/justamply/asa-linux-server:latest
+    stop_grace_period: 300s
     environment:
       # One variable per setting. See SETUP.md for the full list.
       ASA_MAP: TheIsland_WP
@@ -52,6 +53,7 @@ services:
 #  asa-server-2:
 #    container_name: asa-server-2
 #    image: ghcr.io/justamply/asa-linux-server:latest
+#    stop_grace_period: 300s
 #    environment:
 #      ASA_MAP: ScorchedEarth_WP
 #      ASA_PORT: "7778"
