@@ -1,114 +1,105 @@
 # Troubleshooting
 
-For installation and ordinary administration, use the [setup guide](SETUP.md).
-Start with `docker compose logs --tail=200 asa-server-1` and check whether the
-failure occurs during download, Proton preparation or game startup.
+From the directory containing your Compose file, check the service and its
+latest logs. The examples use the supplied service name, `asa-server-1`.
+
+```bash
+docker compose ps -a
+docker compose logs --tail=200 asa-server-1
+```
 
 ## Server is not visible
 
-1. Check that game startup has completed. `Starting ASA dedicated server.`
-   marks the launch attempt, not readiness for players.
-2. Select **Unofficial**, enable **Show Player Servers** and clear map/player
-   filters in the game browser.
-3. Search for your configured `ASA_SESSION_NAME`. If you did not set one, use
-   the [setup guide's name lookup](SETUP.md#installation).
-4. Check the [game port mapping and firewall rules](SETUP.md#networking).
+1. If the container has exited or the logs show repeated launch attempts,
+   start with [startup failures](#startup-fails-or-the-server-keeps-crashing).
+   The log entry `Starting ASA dedicated server.` marks a launch attempt.
+   With the default configuration, wait for the container to report `healthy`
+   before looking for it in the game.
+2. In the server browser select **Unofficial**, enable **Show Player Servers**
+   and clear map and player filters. Search for your `ASA_SESSION_NAME`.
+   If you let ARK generate a name, read it once the world has started:
 
-If `GameUserSettings.ini` does not exist yet, inspect startup logs for download
-or launch failures before waiting longer. A missing file alone does not prove
-that the server is still starting normally.
+   ```bash
+   docker compose exec asa-server-1 grep '^SessionName=' /home/gameserver/server-files/ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini
+   ```
+
+   ![Show Player Servers in the Unofficial server browser](assets/show-player-servers.jpg)
+
+3. If players still cannot find the session, try a direct connection as described below.
 
 ## Joining times out or the browser shows the wrong IP
 
-Check the game port's UDP mapping, host/cloud firewall and router forwarding.
-If you changed `ASA_PORT`, update all three. To test direct connection, use
-`open YOUR_IP:7777` in the game console, substituting your actual address and
-configured port.
-
-On hosts with several interfaces, VPNs or NAT layers, verify that inbound
-traffic reaches the Docker host and replies use the expected interface.
-Docker port publishing does not configure the router or cloud security group.
-See [networking](SETUP.md#networking).
+Try `open YOUR_IP:7777` in the ARK console, using the server's address and game
+port. For a home server, test the LAN address from the same network, then have
+a player outside that network test the public address. If only the external
+test fails, check where inbound UDP traffic stops along the path from the router
+or cloud firewall to the Docker host. On a host with a VPN or several
+interfaces, check which interface carries the replies. See [networking](SETUP.md#networking)
+for the port mappings.
 
 ## Startup fails or the server keeps crashing
 
-Read the error immediately before the exit, then inspect host resources:
+Read the first error in the failed launch attempt. The last lines may describe
+the supervisor's retry. Match the symptom to the next check:
 
-```bash
-docker compose logs --tail=200 asa-server-1
-docker stats --no-stream asa-server-1
-```
-
-On a Linux host, `df -h` and `free -h` help check disk and memory. An OOM-killed
-container can be identified with:
-
-```bash
-docker inspect asa-server-1 --format '{{.State.OOMKilled}}'
-```
-
-If game files appear damaged, run once with `ASA_VALIDATE: "always"`, apply
-with `docker compose up -d -t 300`, then return to `first` after repair.
-For high CPU usage, check the logged Wine synchronization backend and
-[resource settings](SETUP.md#resource-tuning-and-debug-mode) before changing the
-host OS. To hold startup for inspection, use [debug mode](SETUP.md#resource-tuning-and-debug-mode).
+| What you see | What to check |
+| --- | --- |
+| SteamCMD reports write failures, or downloads stop | Run `df -h` on the filesystem holding Docker volumes. For permission errors, use the [filesystem diagnostics](docs/diagnostics.md). |
+| The process exits abruptly while loading the world | Check available memory with `free -h` and the running container's usage with `docker stats --no-stream asa-server-1`. A result of `true` from `docker inspect asa-server-1 --format '{{.State.OOMKilled}}'` confirms that Docker recorded an out-of-memory kill. |
+| SteamCMD finishes, but game files appear damaged | For one maintenance launch, set `ASA_VALIDATE: "always"` and ensure `ASA_UPDATE` permits an update. Apply the settings, check the validation log, then restore your usual settings. See [startup and Proton](SETUP.md#startup-and-proton). |
+| Startup stops on a `mods.json` read or parse error | Follow [mod database recovery](docs/mod-safety.md) to preserve the world's enabled mods. |
+| The logs warn about Wine's slow synchronization path | Check the container's descriptor limits in [resource tuning](SETUP.md#resource-tuning-and-debug-mode). |
 
 ## Proton reports a missing library
 
-A message such as `libvulkan.so.1: cannot open shared object file` indicates
-that the selected Proton build cannot load a library from the image. Update
-and recreate the container:
-
-```bash
-docker compose pull
-docker compose up -d -t 300
-```
-
-Automatic Proton selection can fall back after a failed preflight. An
-explicit `PROTON_VERSION` pin stays fixed and fails if it cannot run. Check
-that pin and the logged version; the [Proton reference](SETUP.md#startup-and-proton)
-explains the settings and cached check.
+For an error such as `libvulkan.so.1: cannot open shared object file`, note the
+selected Proton version in the logs. Pull the current container image with
+`docker compose pull` and recreate the service with `docker compose up -d -t 300`.
+If the error persists with an explicit `PROTON_VERSION` pin, check whether you
+still need that build. The [Proton reference](SETUP.md#startup-and-proton)
+explains automatic selection and fallback.
 
 ## ARM64 translation fails
 
-For `Exec format error`, check that the service uses the ARM64 experimental
-image and `ASA_TRANSLATOR_MODE` is `auto` or `fex`. Inspect the translation
-probe's error in the startup logs; an x86 program needs a working FEX runner.
-
-If the logs specifically report a **probe timeout**, increase
-`ASA_TRANSLATOR_PROBE_TIMEOUT` for the host. If translated Proton/server runs
-crash early, try `ASA_PROTON_PROFILE: "safe"`; this disables esync/fsync but
-does not repair a missing translation path. Apply changes with
-`docker compose up -d -t 300`.
-
-ARM64 translation checks do not establish full game compatibility. See
-[ARM64 setup](SETUP.md#arm64-experimental) for its support boundary.
+For `Exec format error`, check the service's image tag and translation mode
+against the [ARM64 settings](SETUP.md#arm64-experimental). Look for the first
+FEX probe error. Increase `ASA_TRANSLATOR_PROBE_TIMEOUT` only if the log reports
+a timeout. If the probe passes and ARK exits during launch, check the logged
+Proton profile and the ARM64 retry behavior in the same guide.
 
 ## RCON commands fail
 
-Check `ASA_RCON_ENABLED`, `ASA_RCON_PORT` and `ASA_SERVER_ADMIN_PASSWORD` in the
-running service's configuration and confirm that the game has started.
-The [launch-setting precedence](SETUP.md#legacy-launch-strings-and-precedence)
-also applies to RCON discovery: changing the INI cannot override a value set in
-the launch configuration. Apply Compose or `.env` changes with
-`docker compose up -d -t 300`.
+While the container is running, check the game's response from inside it:
 
-If RCON works inside the container but not remotely, check the TCP port mapping
-and firewall. See [RCON commands](SETUP.md#rcon) for an in-container example.
+```bash
+docker compose exec asa-server-1 asa-ctrl status --json
+```
+
+- `rcon-disabled` means the running phase was reached with RCON disabled.
+  Check `ASA_RCON_ENABLED` if you intended to use remote administration.
+- For `not-ready`, check whether the world is still loading. If this persists,
+  inspect the configured port and password source with the
+  [configuration diagnostics](docs/diagnostics.md). A launch-line setting
+  takes precedence over the corresponding INI setting.
+- For `ready`, the in-container connection succeeded. If only an external
+  client fails, check its credentials, TCP port mapping and firewall access.
 
 ## Configuration or mod changes have no effect
 
-`docker compose restart` preserves the container's configured environment.
-After editing Compose or `.env`, run `docker compose up -d -t 300`.
-Changes made through `asa-ctrl mods` need a server restart. A mod still present
-in `ASA_MODS` remains enabled after removing its database entry. See
-[mod management](SETUP.md#mods-and-custom-maps).
+If you edited Compose or `.env`, recreate the container using the command in
+[server configuration](SETUP.md#server-configuration). If a setting still has
+an unexpected value, check the [order of overrides](SETUP.md#legacy-launch-strings-and-precedence).
+
+If you changed a mod through `asa-ctrl mods`, restart the game to load the new
+selection. For a mod that keeps returning, check both `ASA_MODS` and the list of
+enabled database entries. See [mod management](SETUP.md#mods-and-custom-maps).
 
 ## Reporting an unresolved problem
 
-Search [GitHub Issues](https://github.com/JustAmply/ark-survival-ascended-server/issues)
-for the error first. In a new report, include host OS/architecture, Docker
-version, image tag or digest, relevant logs and what changed before the failure.
-Include Compose configuration with passwords and other secrets removed.
-Use [GitHub Discussions](https://github.com/JustAmply/ark-survival-ascended-server/discussions)
-for general setup questions. Preserve persistent volumes while investigating;
-[storage and backups](SETUP.md#storage-and-backups) explains what they contain.
+Include the host OS and CPU architecture, Docker version, image tag or digest,
+what changed, and the log excerpt around the first failure. Remove passwords
+and other secrets from any logs or configuration you share. For unexpected
+settings, include the redacted output of `asa-ctrl config show`.
+
+[Search or report an issue](https://github.com/JustAmply/ark-survival-ascended-server/issues)
+or [ask a setup question](https://github.com/JustAmply/ark-survival-ascended-server/discussions).
