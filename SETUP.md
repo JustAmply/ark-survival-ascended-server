@@ -199,8 +199,17 @@ docker compose exec asa-server-1 asa-ctrl rcon --exec 'saveworld'
 docker compose exec asa-server-1 asa-ctrl rcon --exec 'serverchat Hello players!'
 ```
 
-The tool reads the port and admin password from the launch configuration, then
-checks `GameUserSettings.ini` for missing values.
+Local commands and the readiness check use the effective launch settings,
+including password files, and consult `GameUserSettings.ini` for missing
+values. Percent signs in INI passwords are literal. With no launch settings,
+the legacy default launch line supplies both port and password. Strict mode
+requires a configured password.
+
+For commands with long output, the client combines packets with the same
+request ID until the server closes the connection or pauses for 50 ms between
+packets. A longer gap can shorten the displayed output. An incomplete frame
+or a mismatched response ID is reported as an error.
+
 See [RCON troubleshooting](FAQ.md#rcon-commands-fail) for connection failures.
 
 ## Multi-server clusters
@@ -217,12 +226,16 @@ port in the firewall/router.
 
 ## Restarts and shutdown
 
-The supervisor attempts `saveworld` through RCON, waits, then stops the server.
+The supervisor allows up to 15 seconds for the RCON save request. If the
+request was confirmed or may have reached the game, the supervisor then waits
+the full save delay before stopping the process. A failure before command
+transmission skips that delay. Each restart chat announcement has a separate
+five-second RCON budget.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `ASA_SHUTDOWN_SAVEWORLD_DELAY` | `15` | Seconds after saving before shutdown |
-| `ASA_SHUTDOWN_TIMEOUT` | `180` | Graceful shutdown seconds before forced cleanup |
+| `ASA_SHUTDOWN_SAVEWORLD_DELAY` | `15` | Seconds allowed for saving after the RCON attempt |
+| `ASA_SHUTDOWN_TIMEOUT` | `180` | Seconds after signalling the server process before forced cleanup |
 | `SERVER_RESTART_DELAY` | `15` | Seconds before relaunch |
 
 The supplied Compose services set `stop_grace_period: 300s` so ordinary stops

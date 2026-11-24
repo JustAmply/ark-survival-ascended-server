@@ -69,6 +69,11 @@ Proton profile and the ARM64 retry behavior in the same guide.
 
 ## RCON commands fail
 
+`Command delivery unconfirmed` means the client started sending the command
+and could not verify its complete reply. Check the game state before repeating
+an action such as a chat announcement. The client only retries while opening
+and authenticating the connection.
+
 While the container is running, check the game's response from inside it:
 
 ```bash

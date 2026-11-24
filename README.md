@@ -11,7 +11,9 @@ launch and checks for game updates on subsequent launches by default.
 
 - **Restarts while people are playing.** The built-in scheduler can warn players
   in chat before a planned restart. On shutdown the supervisor asks ARK to save
-  the world through RCON. The supplied configuration schedules a daily restart.
+  the world through RCON. If ARK receives the request but its reply is lost,
+  the supervisor still allows time for the save. The supplied configuration
+  schedules a daily restart.
 - **Maps and mods in one place.** Pick a world by name and add CurseForge mod
   IDs in Compose. For a group that plays across maps, the included second-server
   example shows how to share character and creature transfers between worlds.
