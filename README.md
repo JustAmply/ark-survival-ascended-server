@@ -22,7 +22,10 @@ vi .env
 ```
 
 Set a unique `ASA_SERVER_ADMIN_PASSWORD` in `.env` and keep that file private.
-The supplied Compose file requires a non-empty password.
+Before starting, open `docker-compose.yml`. Under the `asa-server-1` service's
+`environment`, add `ASA_SESSION_NAME: "My ARK Server"` with the name players
+should search for. Keep `ASA_MAP: TheIsland_WP` for The Island, or choose a
+different world from the [map list](SETUP.md#choose-a-map).
 
 ```bash
 docker compose up -d
@@ -32,7 +35,8 @@ docker compose logs -f asa-server-1
 The first start downloads the server files and compatibility tools. Wait for
 game startup to complete, then look in the **Unofficial** server browser with
 **Show Player Servers** enabled. See the [setup guide](SETUP.md) for network
-configuration, storage and server settings.
+configuration, storage and server settings. For players connecting over the
+internet, follow the [networking instructions](SETUP.md#networking).
 
 ## Features
 

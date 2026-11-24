@@ -5,6 +5,7 @@ image builds, use the [development guide](docs/development.md).
 
 - [Installation](#installation)
 - [Server configuration](#server-configuration)
+  - [Choose a map](#choose-a-map)
 - [Storage and backups](#storage-and-backups)
 - [Networking](#networking)
 - [Server management](#server-management)
@@ -57,6 +58,31 @@ environment:
 Run `docker compose up -d -t 300` after changing Compose settings or `.env` so the
 container is recreated with the new environment. `docker compose restart`
 only restarts the existing container with its existing settings.
+
+### Choose a map
+
+Each server runs one world. To host Ragnarok, for example, change the existing
+`ASA_MAP` line under `asa-server-1` to `ASA_MAP: Ragnarok_WP`. For a new
+server, start it with `docker compose up -d`. For an existing server, back up
+the current save first, then apply the change with `docker compose up -d -t 300`.
+Switching maps loads that map's own world save.
+
+| Official map | What to expect | `ASA_MAP` |
+| --- | --- | --- |
+| The Island | The original island, from tropical beaches to snowy peaks | `TheIsland_WP` |
+| Scorched Earth | Desert survival with extreme heat and sandstorms | `ScorchedEarth_WP` |
+| The Center | Ocean exploration, floating islands and underground caverns | `TheCenter_WP` |
+| Aberration | Underground survival with climbing, gliding and radiation | `Aberration_WP` |
+| Extinction | A ruined city surrounded by wasteland and biome domes | `Extinction_WP` |
+| Ragnarok | A large world with Viking ruins, highlands and a desert | `Ragnarok_WP` |
+| Valguero | White cliffs, broad valleys and an underground Aberration biome | `Valguero_WP` |
+| Genesis Part 1 | Mission-based progression across five simulated biomes | `Genesis_WP` |
+| Astraeos (paid DLC) | Greek mythology, islands and coastal exploration | `Astraeos_WP` |
+| Lost Colony (paid DLC) | A frozen world centered on the city of Arat Prime | `LostColony_WP` |
+
+Official maps use the level name alone. For a [custom map](#mods-and-custom-maps),
+also enable the author's mod ID. To keep two worlds online at once, follow the
+[multi-server cluster setup](#multi-server-clusters).
 
 ### Launch settings
 
