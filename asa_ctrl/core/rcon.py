@@ -70,6 +70,11 @@ class RconPacketCodec:
         return packet_data + body_bytes + b'\x00\x00'
 
     def decode(self, data: bytes) -> RconPacket:
+        size, response_id, response_type, body = self.unpack(data)
+        return RconPacket(size, response_id, response_type, body.decode("utf-8", errors="replace"))
+
+    def unpack(self, data: bytes) -> tuple[int, int, int, bytes]:
+        """Keep fragment bytes intact until the complete response can be decoded."""
         self.validate_packet_data(data)
         if len(data) < 12:
             raise RconPacketError(f"Response too short: {len(data)} bytes")
@@ -88,12 +93,7 @@ class RconPacketCodec:
         if null_pos >= 0:
             body_data = body_data[:null_pos]
 
-        try:
-            body = body_data.decode('utf-8', errors='replace')
-        except UnicodeDecodeError:
-            body = body_data.decode('utf-8', errors='ignore')
-
-        return RconPacket(size, response_id, response_type, body)
+        return size, response_id, response_type, body_data
 
 
 class RconClient:
@@ -103,6 +103,8 @@ class RconClient:
     MAX_PACKET_SIZE = 4096  # Maximum value of the size field, excluding the field itself
     MIN_PACKET_SIZE = 12    # Minimum packet size (header only)
     MAX_COMMAND_LENGTH = RCON_MAX_COMMAND_LENGTH
+    FRAGMENT_IDLE_TIMEOUT = 0.05
+    MAX_RESPONSE_BYTES = 4 * 1024 * 1024
     DEFAULT_RETRY_COUNT = 3
     DEFAULT_RETRY_DELAY = 1.0
     
@@ -269,8 +271,8 @@ class RconClient:
             data.extend(chunk)
         return bytes(data)
 
-    def _receive_full_packet(self, deadline: Optional[float]) -> bytes:
-        header = self._receive_exact(4, deadline)
+    def _receive_full_packet(self, deadline: Optional[float], header: bytes = b"") -> bytes:
+        header += self._receive_exact(4 - len(header), deadline)
         size, = struct.unpack("<I", header)
         if size < 10:
             raise RconPacketError(f"Invalid packet size: {size}")
@@ -280,6 +282,33 @@ class RconClient:
 
     def _receive_response(self, deadline: Optional[float]) -> RconPacket:
         return self._codec.decode(self._receive_full_packet(deadline))
+
+    def _command_reply(self, packet_id: int, deadline: Optional[float]) -> str:
+        deadline = time.monotonic() + self._remaining(self.read_timeout, deadline)
+        result = bytearray()
+        wire_bytes = 0
+        header = b""
+        while True:
+            frame = self._receive_full_packet(deadline, header)
+            _, reply_id, kind, body = self._codec.unpack(frame)
+            if (reply_id, kind) != (packet_id, RconPacketTypes.RESPONSE_VALUE):
+                raise RconPacketError("Unexpected RCON command response ID or type")
+            wire_bytes += len(frame)
+            if wire_bytes > self.MAX_RESPONSE_BYTES:
+                raise RconPacketError("RCON response exceeds aggregate size limit")
+            result.extend(body)
+            # ASA has no reliable end-of-response marker. Only an idle gap
+            # between complete frames can finish a reply. Once a header starts,
+            # the remainder must arrive before the overall deadline.
+            self.socket.settimeout(self._remaining(self.FRAGMENT_IDLE_TIMEOUT, deadline))
+            try:
+                header = self.socket.recv(4)
+            except socket.timeout:
+                break
+            if not header:
+                self.close()
+                break
+        return result.decode("utf-8", errors="replace")
 
     def _authenticate(self, deadline: Optional[float]) -> None:
         packet_id, request = self._request(RconPacketTypes.AUTH, self.password)
@@ -335,10 +364,7 @@ class RconClient:
         # Once sendall starts, even an exception cannot establish how much arrived.
         try:
             self.socket.sendall(request)
-            response = self._receive_response(deadline)
-            if (response.id, response.type) != (packet_id, RconPacketTypes.RESPONSE_VALUE):
-                raise RconPacketError("Unexpected RCON command response ID or type")
-            return response.body
+            return self._command_reply(packet_id, deadline)
         except (socket.timeout, RconTimeoutError) as exc:
             self.close()
             raise RconUnconfirmedTimeoutError(f"Command delivery unconfirmed: {exc}") from exc

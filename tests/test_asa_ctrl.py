@@ -381,7 +381,12 @@ def test_rcon_auth_variants_and_successive_commands(prefix, monkeypatch):
     codec = RconPacketCodec(4100, 12)
     packets = [codec.encode(1, 0, "")] if prefix else []
     packets.extend([codec.encode(1, 2, ""), codec.encode(2, 0, "first"), codec.encode(3, 0, "second")])
-    transport.recv.side_effect = [part for packet in packets for part in (packet[:4], packet[4:])]
+    reads = []
+    for packet in packets:
+        reads.extend((packet[:4], packet[4:]))
+        if codec.decode(packet).body:
+            reads.append(socket.timeout())
+    transport.recv.side_effect = reads
     monkeypatch.setattr(socket, "socket", lambda *_: transport)
     with RconClient(port=27020, password="secret") as client:
         assert client.execute_command("ListPlayers") == "first"
