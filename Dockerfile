@@ -83,9 +83,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libvulkan1 \
     libbz2-1.0 libffi8 libgdbm6t64 libgdbm-compat4t64 liblzma5 \
     libncursesw6 libreadline8t64 libsqlite3-0 libssl3t64 libzstd1 libuuid1 zlib1g \
-    && add-apt-repository -y ppa:fex-emu/fex \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends fex-emu-armv8.0 \
+    && add-apt-repository -y --no-update ppa:fex-emu/fex \
+    && apt-get -o Acquire::Retries=5 update --error-on=any \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends fex-emu-armv8.0 \
     && dpkg-query --show fex-emu-armv8.0 \
     && apt-get purge -y --auto-remove software-properties-common gnupg \
     && rm -rf /var/lib/apt/lists/* \
