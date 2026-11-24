@@ -101,11 +101,17 @@ def game(root: Path) -> None:
                         body = payload[8:-2].decode()
                         if packet_type == 3:
                             authenticated = body == password
+                            if not discrete:
+                                prefix = struct.pack("<Iii2x", 10, packet_id, 0)
+                                connection.sendall(prefix)
                             response_id = packet_id if authenticated else -1
                             response_type = 2
                         else:
                             assert authenticated, "Command received without valid RCON authentication"
                             record(root, "rcon", command=body, pid=os.getpid())
+                            if not discrete and body == "saveworld":
+                                # ARK received the save request, but its reply was lost.
+                                break
                             response_id, response_type = packet_id, 0
                         response = struct.pack("<ii", response_id, response_type) + b"ok\0\0"
                         connection.sendall(struct.pack("<I", len(response)) + response)
@@ -259,7 +265,9 @@ def verify_case(case: str) -> None:
             assert all(item["uid"] == 25000 for item in launches)
             assert sum(item["kind"] == "proton_selection" for item in current) == 1
             for launch in launches:
-                saved = next(item for item in current if item.get("command") == "saveworld" and item["pid"] == launch["pid"])
+                saves = [item for item in current if item.get("command") == "saveworld" and item["pid"] == launch["pid"]]
+                assert len(saves) == 1, "Each shutdown must send exactly one save request"
+                saved = saves[0]
                 stopped = next(item for item in current if item["kind"] == "terminated" and item["pid"] == launch["pid"])
                 assert stopped["time"] - saved["time"] >= 0.9, "Save delay was skipped"
                 try:
