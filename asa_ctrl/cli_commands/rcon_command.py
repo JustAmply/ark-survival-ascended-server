@@ -6,6 +6,7 @@ from asa_ctrl.common.errors import (
     ConfigurationError,
     RconAuthenticationError,
     RconConnectionError,
+    RconDeliveryUnknownError,
     RconPacketError,
     RconPasswordNotFoundError,
     RconPortNotFoundError,
@@ -47,6 +48,8 @@ class RconCommand:
                     "Could not find RCON port. Make sure it is properly configured in start parameters "
                     "or GameUserSettings.ini"
                 )
+            elif isinstance(exc, RconDeliveryUnknownError):
+                message = str(exc)
             elif isinstance(exc, RconConnectionError):
                 message = f"Failed to connect to RCON server: {exc}"
             elif isinstance(exc, RconTimeoutError):

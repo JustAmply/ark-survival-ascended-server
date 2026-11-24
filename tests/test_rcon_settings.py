@@ -3,7 +3,7 @@ import pytest
 from asa_ctrl.cli import main
 from asa_ctrl.common.config import AsaSettings
 from asa_ctrl.common.constants import ExitCodes
-from asa_ctrl.common.errors import RconPasswordNotFoundError, RconPortNotFoundError
+from asa_ctrl.common.errors import RconPasswordNotFoundError, RconPortNotFoundError, RconUnconfirmedConnectionError
 
 
 def test_ini_password_is_literal(tmp_path):
@@ -11,6 +11,17 @@ def test_ini_password_is_literal(tmp_path):
     path.write_text("[ServerSettings]\nServerAdminPassword=test%value%%%(abc)s\n")
     settings = AsaSettings({"ASA_GAME_USER_SETTINGS_PATH": str(path)})
     assert settings.get_server_setting("ServerAdminPassword") == "test%value%%%(abc)s"
+
+
+def test_cli_reports_uncertain_delivery_without_claiming_connection_failed(monkeypatch, capsys):
+    def lost_reply(command):
+        raise RconUnconfirmedConnectionError("Command delivery unconfirmed: lost reply")
+
+    monkeypatch.setattr("asa_ctrl.cli_commands.rcon_command.execute_rcon_command", lost_reply)
+    with pytest.raises(SystemExit) as exc:
+        main(["rcon", "--exec", "saveworld"])
+    assert exc.value.code == ExitCodes.RCON_CONNECTION_FAILED
+    assert capsys.readouterr().err.strip() == "Error: Command delivery unconfirmed: lost reply"
 
 
 def test_invalid_password_sources_report_configuration_error(monkeypatch, capsys):
