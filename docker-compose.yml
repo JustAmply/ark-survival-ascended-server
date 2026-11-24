@@ -43,8 +43,6 @@ services:
     ports:
       # Game port for player connections through the server browser
       - 7777:7777/udp
-      # RCON port for remote server administration
-      - 27020:27020/tcp
     volumes:
       - steam-1:/home/gameserver/Steam:rw
       - steamcmd-1:/home/gameserver/steamcmd:rw
@@ -73,8 +71,6 @@ services:
 #    ports:
 #      # Game port for player connections through the server browser
 #      - 7778:7778/udp
-#      # RCON port for remote server administration
-#      - 27021:27021/tcp
 #    volumes:
 #      - steam-2:/home/gameserver/Steam:rw
 #      - steamcmd-2:/home/gameserver/steamcmd:rw

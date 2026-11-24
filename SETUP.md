@@ -126,13 +126,36 @@ retention and verified restores, follow [backup and recovery](docs/backups.md).
 | `7777` | UDP | Player connections |
 | `27020` | TCP | RCON administration |
 
-Compose publishes these ports on the host. Allow the game port through the
-host firewall and any cloud firewall/security group. Behind a home router,
-forward it to the Docker host. Expose RCON only where remote administration
-is needed; `docker compose exec ... asa-ctrl rcon` runs inside the container.
+Compose publishes only the UDP game port. Allow it through the host and cloud
+firewalls and, behind a home router, forward it to the Docker host. If you
+change `ASA_PORT`, adjust the UDP mapping and those rules accordingly.
 
-When changing `ASA_PORT` or `ASA_RCON_PORT`, update the corresponding Compose
-port mapping and firewall/router rules as well.
+RCON stays enabled inside the container network. Health checks, shutdown saves
+and commands such as the following work without a published TCP port:
+
+```sh
+docker compose exec asa-server-1 asa-ctrl rcon --exec 'listplayers'
+```
+
+RCON sends the admin password and commands without encryption. To use a
+desktop RCON client remotely, add the following entry under the service's
+existing `ports` list, alongside the UDP entry:
+
+```yaml
+- "127.0.0.1:27020:27020/tcp"
+```
+
+If you changed `ASA_RCON_PORT`, use that value as the container port (the
+rightmost number). Apply the change with `docker compose up -d` during a
+maintenance window because Compose recreates the service. On your workstation,
+open a tunnel to the Docker host using your SSH login:
+
+```sh
+ssh -N -L 127.0.0.1:27020:127.0.0.1:27020 user@docker-host
+```
+
+Keep the SSH session open and connect the client to `127.0.0.1:27020` with
+the server admin password. Only SSH needs to be reachable for this connection.
 
 ## Server management
 

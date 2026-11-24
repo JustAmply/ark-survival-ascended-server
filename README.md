@@ -68,10 +68,9 @@ the log view while the server keeps running. Run `docker compose ps` to check
 its health. With the supplied settings, `healthy` means ARK answers RCON.
 
 For players connecting over the internet, allow **UDP 7777** through the host
-firewall and, behind a home router, forward that port to the Docker host. The
-example also publishes TCP 27020 for remote administration. Restrict access to
-trusted administrators or remove that port mapping if you administer the game
-through Compose. [Networking details](SETUP.md#networking)
+firewall and, behind a home router, forward that port to the Docker host. RCON stays inside
+the container network by default. For an external admin client, see the
+[SSH tunnel setup](SETUP.md#networking).
 
 In ARK, open **Unofficial**, enable **Show Player Servers** and search for
 your session name. If it doesn't appear, start with the

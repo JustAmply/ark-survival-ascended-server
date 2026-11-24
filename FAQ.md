@@ -75,6 +75,10 @@ While the container is running, check the game's response from inside it:
 docker compose exec asa-server-1 asa-ctrl status --json
 ```
 
+If the internal check succeeds but your desktop RCON client cannot connect,
+the default Compose setup publishes only the game port. Follow the
+[SSH tunnel setup](SETUP.md#networking) for remote access.
+
 - `rcon-disabled` means the running phase was reached with RCON disabled.
   Check `ASA_RCON_ENABLED` if you intended to use remote administration.
 - For `not-ready`, check whether the world is still loading. If this persists,
