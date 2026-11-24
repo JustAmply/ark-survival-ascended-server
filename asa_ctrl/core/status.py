@@ -6,9 +6,6 @@ import os
 from pathlib import Path
 
 from asa_ctrl.common.config import AsaSettings
-from asa_ctrl.common.constants import DEFAULT_ADMIN_PASSWORD
-from asa_ctrl.common.constants import DEFAULT_LAUNCH_BASE, DEFAULT_START_PARAMS
-from asa_ctrl.common.launch_config import LaunchConfiguration, coerce_bool
 from asa_ctrl.common.errors import AsaCtrlError
 from asa_ctrl.core.rcon import RconClient
 
@@ -48,17 +45,12 @@ def server_status(settings: AsaSettings) -> dict:
     if state["phase"] != "running":
         return result
     try:
-        config = settings.launch_configuration()
-        if config.is_empty():
-            strict = coerce_bool(settings.get("ASA_REQUIRE_ADMIN_PASSWORD"), False)
-            config = LaunchConfiguration.parse(DEFAULT_LAUNCH_BASE if strict else DEFAULT_START_PARAMS)
+        config = settings.rcon_launch_configuration()
         enabled = config.value("RCONEnabled") or settings.get_server_setting("RCONEnabled", "True")
         if enabled.lower() not in {"true", "1", "yes", "on"}:
             result["state"] = "rcon-disabled"
             return result
-        password = (config.value("ServerAdminPassword")
-                    or settings.get_server_setting("ServerAdminPassword") or DEFAULT_ADMIN_PASSWORD)
-        port = int(config.value("RCONPort") or settings.get_server_setting("RCONPort") or "27020")
+        port, password = settings.rcon_endpoint(config)
         with RconClient(port=port, password=password, connect_timeout=2,
                         read_timeout=2, retry_count=0, settings=settings) as client:
             client.execute_command("ListPlayers")

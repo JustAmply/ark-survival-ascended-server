@@ -16,12 +16,16 @@ from pathlib import Path
 from typing import Optional, Dict, Mapping
 
 from .constants import (
+    DEFAULT_ADMIN_PASSWORD,
     DEFAULT_ASA_CTRL_BIN,
+    DEFAULT_LAUNCH_BASE,
     DEFAULT_MOD_DATABASE_PATH,
+    DEFAULT_START_PARAMS,
     GAME_INI_PATH as DEFAULT_GAME_INI_PATH,
     GAME_USER_SETTINGS_PATH as DEFAULT_GAME_USER_SETTINGS_PATH,
 )
-from .launch_config import LaunchConfiguration
+from .errors import RconPasswordNotFoundError, RconPortNotFoundError
+from .launch_config import LaunchConfiguration, coerce_bool
 
 
 def parse_ini(file_path: str) -> Optional[configparser.ConfigParser]:
@@ -99,6 +103,32 @@ class AsaSettings:
 
     def get_start_param_value(self, key: str) -> Optional[str]:
         return self.launch_configuration().value(key)
+
+    def rcon_launch_configuration(self) -> LaunchConfiguration:
+        """Match the launch payload selected by the runtime for empty input."""
+        config = self.launch_configuration()
+        if config.is_empty():
+            strict = coerce_bool(self.get("ASA_REQUIRE_ADMIN_PASSWORD"), False)
+            return LaunchConfiguration.parse(DEFAULT_LAUNCH_BASE if strict else DEFAULT_START_PARAMS)
+        return config
+
+    def rcon_endpoint(self, config: Optional[LaunchConfiguration] = None) -> tuple[int, str]:
+        """Resolve the managed server's port and password for local RCON calls."""
+        if config is None:
+            config = self.rcon_launch_configuration()
+        raw_port = config.value("RCONPort") or self.get_server_setting("RCONPort") or "27020"
+        try:
+            port = int(raw_port)
+        except ValueError:
+            raise RconPortNotFoundError("RCONPort must be an integer from 1 to 65535.") from None
+        if not 1 <= port <= 65535:
+            raise RconPortNotFoundError("RCONPort must be an integer from 1 to 65535.")
+        password = config.value("ServerAdminPassword") or self.get_server_setting("ServerAdminPassword")
+        if not password:
+            if coerce_bool(self.get("ASA_REQUIRE_ADMIN_PASSWORD"), False):
+                raise RconPasswordNotFoundError("No server admin password configured in strict mode.")
+            password = DEFAULT_ADMIN_PASSWORD
+        return port, password
 
     def parse_start_params(self) -> Dict[str, str]:
         return self.launch_configuration().as_mapping()
