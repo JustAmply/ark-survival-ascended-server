@@ -47,6 +47,22 @@ class RconTimeoutError(AsaCtrlError):
     pass
 
 
+class RconDeliveryUnknownError(AsaCtrlError):
+    """The command may have reached the server but no reply confirmed it."""
+
+
+class RconUnconfirmedTimeoutError(RconTimeoutError, RconDeliveryUnknownError):
+    """Timed out after beginning command delivery."""
+
+
+class RconUnconfirmedConnectionError(RconConnectionError, RconDeliveryUnknownError):
+    """Lost the connection after beginning command delivery."""
+
+
+class RconUnconfirmedPacketError(RconPacketError, RconDeliveryUnknownError):
+    """Could not match a valid reply to the command."""
+
+
 class CorruptedModsDatabaseError(AsaCtrlError):
     """Raised when the mods database JSON file is corrupted."""
     pass

@@ -31,6 +31,7 @@ from asa_ctrl.common.errors import (  # noqa: E402
     RconPortNotFoundError,
     RconPasswordNotFoundError,
     RconConnectionError,
+    RconDeliveryUnknownError,
     RconPacketError,
     RconTimeoutError,
     RconAuthenticationError,
@@ -250,14 +251,13 @@ def test_rcon_connect_propagates_auth_failure(monkeypatch):
         bytes.fromhex('ffffffff020000000000'),
     ]
     monkeypatch.setattr('asa_ctrl.core.rcon.socket.socket', lambda *_args: transport)
-    monkeypatch.setattr(time, 'time', lambda: 123)
 
     with pytest.raises(RconAuthenticationError, match="-1 response ID"):
         client.connect()
 
     assert not client.is_connected()
     transport.sendall.assert_called_once_with(
-        bytes.fromhex('100000007b000000030000007365637265740000')
+        bytes.fromhex('1000000001000000030000007365637265740000')
     )
 
 
@@ -359,7 +359,7 @@ def test_rcon_connect_retries_after_timeout(monkeypatch):
     failed_transport, retry_transport = Mock(), Mock()
     failed_transport.connect.side_effect = socket.timeout("no response")
     retry_transport.recv.side_effect = [
-        bytes.fromhex('0a000000'), bytes.fromhex('7b000000020000000000'),
+        bytes.fromhex('0a000000'), bytes.fromhex('01000000020000000000'),
     ]
     monkeypatch.setattr('asa_ctrl.core.rcon.socket.socket', Mock(side_effect=[failed_transport, retry_transport]))
     sleeps = []
@@ -375,11 +375,79 @@ def test_rcon_connect_retries_after_timeout(monkeypatch):
     assert not client.is_connected()
 
 
+@pytest.mark.parametrize("prefix", [True, False])
+def test_rcon_auth_variants_and_successive_commands(prefix, monkeypatch):
+    transport = Mock()
+    codec = RconPacketCodec(4100, 12)
+    packets = [codec.encode(1, 0, "")] if prefix else []
+    packets.extend([codec.encode(1, 2, ""), codec.encode(2, 0, "first"), codec.encode(3, 0, "second")])
+    transport.recv.side_effect = [part for packet in packets for part in (packet[:4], packet[4:])]
+    monkeypatch.setattr(socket, "socket", lambda *_: transport)
+    with RconClient(port=27020, password="secret") as client:
+        assert client.execute_command("ListPlayers") == "first"
+        assert client.execute_command("GetGameLog") == "second"
+    assert [codec.decode(call.args[0]).id for call in transport.sendall.call_args_list] == [1, 2, 3]
+
+
+@pytest.mark.parametrize("response", [(3, 2, ""), (1, 0, "wrong type")])
+def test_rcon_rejects_unmatched_auth_reply(response, monkeypatch):
+    transport = Mock()
+    packet = RconPacketCodec(4100, 12).encode(*response)
+    transport.recv.side_effect = [packet[:4], packet[4:]]
+    monkeypatch.setattr(socket, "socket", lambda *_: transport)
+    with pytest.raises(RconPacketError, match="authentication response"):
+        RconClient(port=27020, password="secret").execute_command("saveworld")
+    transport.sendall.assert_called_once()
+    transport.close.assert_called_once()
+
+
+@pytest.mark.parametrize("failure,category", [
+    (b"", RconConnectionError), (socket.timeout(), RconTimeoutError), ("stale", RconPacketError)
+])
+def test_rcon_lost_or_stale_reply_never_replays_command(failure, category, monkeypatch):
+    transport = Mock()
+    codec = RconPacketCodec(4100, 12)
+    auth = codec.encode(1, 2, "")
+    stale = codec.encode(1, 0, "stale")
+    reply = [stale[:4], stale[4:]] if failure == "stale" else [failure]
+    transport.recv.side_effect = [auth[:4], auth[4:], *reply]
+    monkeypatch.setattr(socket, "socket", lambda *_: transport)
+    client = RconClient(port=27020, password="secret")
+    with pytest.raises(RconDeliveryUnknownError) as exc:
+        client.execute_command("saveworld")
+    assert isinstance(exc.value, category)
+    assert [codec.decode(call.args[0]).body for call in transport.sendall.call_args_list] == ["secret", "saveworld"]
+    assert not client.is_connected()
+    transport.close.assert_called_once()
+
+
+def test_rcon_command_budget_includes_authentication(monkeypatch):
+    clock = [0.0]
+    transport = Mock()
+    codec = RconPacketCodec(4100, 12)
+    auth = codec.encode(1, 2, "")
+    parts = iter((auth[:4], auth[4:]))
+    def recv(_):
+        clock[0] += 0.6
+        return next(parts)
+    transport.recv.side_effect = recv
+    monkeypatch.setattr(socket, "socket", lambda *_: transport)
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    client = RconClient(port=27020, password="secret")
+    try:
+        with pytest.raises(RconTimeoutError, match="deadline") as exc:
+            client.execute_command("saveworld", operation_timeout=1.0)
+        assert not isinstance(exc.value, RconDeliveryUnknownError)
+        assert [codec.decode(call.args[0]).body for call in transport.sendall.call_args_list] == ["secret"]
+    finally:
+        client.close()
+
+
 @pytest.mark.parametrize(
     ("chunks", "error"),
     [
         ([struct.pack("<I", 9)], "Invalid packet size"),
-        ([struct.pack("<I", 4093)], "Packet size too large"),
+        ([struct.pack("<I", 4097)], "Packet size too large"),
         ([struct.pack("<I", 10), b"short", b""], "Connection closed"),
         ([b"ab", b""], "Connection closed"),
     ],
@@ -414,13 +482,10 @@ def test_execute_rcon_command_uses_client(monkeypatch):
             captured["server_ip"] = server_ip
             captured["settings"] = settings
 
-        def __enter__(self):
-            return self
+        def close(self):
+            pass
 
-        def __exit__(self, *_exc):
-            return False
-
-        def execute_command(self, command):
+        def execute_command(self, command, *, operation_timeout):
             responses.append(command)
             return "ok"
 

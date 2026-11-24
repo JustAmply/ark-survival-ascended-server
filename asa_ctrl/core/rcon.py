@@ -7,12 +7,15 @@ Handles communication with the ARK server via RCON protocol.
 import socket
 import struct
 import time
+from contextlib import closing
 from typing import NamedTuple, Optional
 
 from asa_ctrl.common.constants import RconPacketTypes
 from asa_ctrl.common.config import AsaSettings
 from asa_ctrl.common.errors import (
-    AsaCtrlError,
+    RconUnconfirmedConnectionError,
+    RconUnconfirmedPacketError,
+    RconUnconfirmedTimeoutError,
     RconPasswordNotFoundError,
     RconPortNotFoundError,
     RconAuthenticationError,
@@ -97,7 +100,7 @@ class RconClient:
     """RCON client for communicating with ARK server."""
     
     # Configuration constants
-    MAX_PACKET_SIZE = 4096  # Maximum RCON packet size
+    MAX_PACKET_SIZE = 4096  # Maximum value of the size field, excluding the field itself
     MIN_PACKET_SIZE = 12    # Minimum packet size (header only)
     MAX_COMMAND_LENGTH = RCON_MAX_COMMAND_LENGTH
     DEFAULT_RETRY_COUNT = 3
@@ -128,15 +131,11 @@ class RconClient:
         self.retry_count = max(0, retry_count)
         self.retry_delay = max(0.1, retry_delay)
         self.socket = None
-        self._codec = RconPacketCodec(self.MAX_PACKET_SIZE, self.MIN_PACKET_SIZE)
+        self._codec = RconPacketCodec(self.MAX_PACKET_SIZE + 4, self.MIN_PACKET_SIZE)
+        self._packet_id = 0
         self._connected = False
         self._authenticated = False
 
-    def _get_codec(self) -> RconPacketCodec:
-        if not hasattr(self, "_codec") or self._codec is None:
-            self._codec = RconPacketCodec(self.MAX_PACKET_SIZE, self.MIN_PACKET_SIZE)
-        return self._codec
-    
     def _validate_ip(self, ip: str) -> str:
         """
         Validate IP address format.
@@ -191,59 +190,6 @@ class RconClient:
             ValueError: If command is invalid
         """
         return _validate_command(command, self.MAX_COMMAND_LENGTH)
-    
-    def _validate_packet_data(self, data: bytes, expected_min_size: int = MIN_PACKET_SIZE) -> None:
-        """
-        Validate received packet data.
-        
-        Args:
-            data: Raw packet data
-            expected_min_size: Minimum expected packet size
-            
-        Raises:
-            RconPacketError: If packet is invalid
-        """
-        self._get_codec().validate_packet_data(data, expected_min_size)
-    
-    def _with_retry(self, operation, *args, **kwargs):
-        """
-        Execute operation with retry logic.
-        
-        Args:
-            operation: Function to execute
-            *args: Positional arguments for operation
-            **kwargs: Keyword arguments for operation
-            
-        Returns:
-            Operation result
-            
-        Raises:
-            Exception: Last exception if all retries fail
-        """
-        last_exception = None
-        
-        for attempt in range(self.retry_count + 1):
-            try:
-                return operation(*args, **kwargs)
-            except (socket.timeout, socket.error, RconPacketError, RconConnectionError, RconTimeoutError) as e:
-                last_exception = e
-                if attempt < self.retry_count:
-                    delay = self.retry_delay * (2 ** attempt)  # Exponential backoff
-                    time.sleep(delay)
-                    # Reset connection state for retry
-                    self._connected = False
-                    self._authenticated = False
-                    if self.socket:
-                        try:
-                            self.socket.close()
-                        except Exception:
-                            pass
-                        self.socket = None
-                else:
-                    break
-        
-        if last_exception:
-            raise last_exception
     
     def _identify_password(self) -> str:
         """
@@ -300,229 +246,109 @@ class RconClient:
         except (TypeError, ValueError) as exc:
             raise RconPortNotFoundError(f"Invalid port in {source}: {port_str}") from exc
     
-    def _send_packet(self, data: str, packet_type: int) -> RconPacket:
-        """
-        Send an RCON packet and receive response.
-        
-        Args:
-            data: The data to send
-            packet_type: The packet type
-            
-        Returns:
-            The response packet
-            
-        Raises:
-            RconPacketError: If packet is malformed
-            RconTimeoutError: If operation times out
-            RconConnectionError: If connection fails
-        """
-        if not self.socket or not self._connected:
-            raise RconConnectionError("Socket not connected")
-        
-        # Validate and encode data
-        data = self._validate_command(data) if packet_type == RconPacketTypes.EXEC_COMMAND else data
-        packet_id = int(time.time()) % 2**31  # Use timestamp as packet ID for uniqueness
-        
-        # Pack the packet: size, id, type, body (null-terminated), extra null byte.
-        # IDs and types must be encoded as signed integers because the RCON
-        # protocol uses -1 as the authentication failure sentinel.
-        packet_data = self._get_codec().encode(packet_id, packet_type, data)
-        
-        try:
-            # Send with timeout
-            self.socket.settimeout(self.read_timeout)
-            self.socket.sendall(packet_data)
-            
-            # Receive response with proper buffer management
-            response_data = self._receive_full_packet()
-            
-            # Validate response
-            self._validate_packet_data(response_data)
-            
-            return self._get_codec().decode(response_data)
-            
-        except socket.timeout as e:
-            raise RconTimeoutError(f"Packet operation timed out after {self.read_timeout}s") from e
-        except socket.error as e:
-            self._connected = False
-            raise RconConnectionError(f"Socket error during packet operation: {e}") from e
-    
-    def _receive_full_packet(self) -> bytes:
-        """
-        Receive a complete RCON packet, handling partial reads.
-        
-        Returns:
-            Complete packet data
-            
-        Raises:
-            RconPacketError: If packet is invalid
-            RconTimeoutError: If operation times out
-        """
-        # First, read the size field (4 bytes)
-        try:
-            size_data = self._receive_exact(4)
-            packet_size = struct.unpack('<I', size_data)[0]
-            
-            # Validate size
-            if packet_size < 10:
-                raise RconPacketError(f"Invalid packet size: {packet_size}")
-            if packet_size > self.MAX_PACKET_SIZE - 4:
-                raise RconPacketError(f"Packet size too large: {packet_size}")
-            
-            # Read the rest of the packet
-            remaining_data = self._receive_exact(packet_size)
-            
-            return size_data + remaining_data
-            
-        except socket.timeout as e:
-            raise RconTimeoutError("Timeout receiving packet") from e
-        except socket.error as e:
-            self._connected = False
-            raise RconConnectionError(f"Connection error receiving packet: {e}") from e
-    
-    def _receive_exact(self, num_bytes: int) -> bytes:
-        """
-        Receive exactly num_bytes from socket.
-        
-        Args:
-            num_bytes: Number of bytes to receive
-            
-        Returns:
-            Received data
-            
-        Raises:
-            RconConnectionError: If connection is lost
-            RconPacketError: If not enough data received
-        """
-        if self.socket is None:
-            raise RconConnectionError("Socket not connected")
-        data = b''
-        try:
-            while len(data) < num_bytes:
-                chunk = self.socket.recv(num_bytes - len(data))
-                if not chunk:
-                    raise RconConnectionError("Connection closed by remote host")
-                data += chunk
-        except socket.timeout as e:
-            # Normalize socket timeout to RconTimeoutError
-            raise RconTimeoutError("Timeout while receiving data") from e
-        except socket.error as e:
-            # Mark as disconnected and raise a connection error
-            self._connected = False
-            raise RconConnectionError(f"Connection error while receiving data: {e}") from e
-        return data
-    
-    def _authenticate(self) -> bool:
-        """
-        Authenticate with the RCON server.
-        
-        Returns:
-            True if authentication successful, False otherwise
-            
-        Raises:
-            RconPacketError: If authentication packet is malformed
-            RconTimeoutError: If authentication times out
-        """
-        try:
-            response = self._send_packet(self.password, RconPacketTypes.AUTH)
-        except (RconPacketError, RconTimeoutError, RconConnectionError):
-            self._authenticated = False
-            raise
+    @staticmethod
+    def _remaining(limit: float, deadline: Optional[float]) -> float:
+        if deadline is None:
+            return limit
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RconTimeoutError("RCON operation deadline expired")
+        return min(limit, remaining)
 
+    def _request(self, packet_type: int, body: str) -> tuple[int, bytes]:
+        self._packet_id = self._packet_id % 0x7fffffff + 1
+        return self._packet_id, self._codec.encode(self._packet_id, packet_type, body)
+
+    def _receive_exact(self, num_bytes: int, deadline: Optional[float]) -> bytes:
+        data = bytearray()
+        while len(data) < num_bytes:
+            self.socket.settimeout(self._remaining(self.read_timeout, deadline))
+            chunk = self.socket.recv(num_bytes - len(data))
+            if not chunk:
+                raise RconConnectionError("Connection closed by remote host")
+            data.extend(chunk)
+        return bytes(data)
+
+    def _receive_full_packet(self, deadline: Optional[float]) -> bytes:
+        header = self._receive_exact(4, deadline)
+        size, = struct.unpack("<I", header)
+        if size < 10:
+            raise RconPacketError(f"Invalid packet size: {size}")
+        if size > self.MAX_PACKET_SIZE:
+            raise RconPacketError(f"Packet size too large: {size}")
+        return header + self._receive_exact(size, deadline)
+
+    def _receive_response(self, deadline: Optional[float]) -> RconPacket:
+        return self._codec.decode(self._receive_full_packet(deadline))
+
+    def _authenticate(self, deadline: Optional[float]) -> None:
+        packet_id, request = self._request(RconPacketTypes.AUTH, self.password)
+        self.socket.settimeout(self._remaining(self.read_timeout, deadline))
+        self.socket.sendall(request)
+        response = self._receive_response(deadline)
+        # Some servers precede AUTH_RESPONSE with one empty RESPONSE_VALUE.
+        if (response.id, response.type, response.body) == (
+            packet_id, RconPacketTypes.RESPONSE_VALUE, ""
+        ):
+            response = self._receive_response(deadline)
         if response.id == -1:
-            self._authenticated = False
             raise RconAuthenticationError("RCON authentication failed: server returned -1 response ID")
-
+        if (response.id, response.type) != (packet_id, RconPacketTypes.AUTH_RESPONSE):
+            raise RconPacketError("Unexpected RCON authentication response")
         self._authenticated = True
-        return True
-    
+
     def connect(self, timeout: Optional[float] = None) -> None:
-        """
-        Connect to the RCON server and authenticate.
+        """Open and authenticate a session; timeout limits each TCP connection attempt."""
+        self._connect(self.connect_timeout if timeout is None else timeout, None)
 
-        Args:
-            timeout: Timeout in seconds for establishing the connection (uses instance default if None)
-
-        Raises:
-            RconConnectionError: If connection fails
-            RconAuthenticationError: If authentication fails
-            RconTimeoutError: If connection times out
-        """
-        if self._connected and self._authenticated:
-            return  # Already connected and authenticated
-        
-        connect_timeout = timeout if timeout is not None else self.connect_timeout
-        
-        def _connect_once():
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.settimeout(connect_timeout)
-            
+    def _connect(self, timeout: float, deadline: Optional[float]) -> None:
+        if self.is_connected():
+            return
+        for attempt in range(self.retry_count + 1):
             try:
+                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.socket.settimeout(self._remaining(timeout, deadline))
                 self.socket.connect((self.server_ip, self.port))
                 self._connected = True
-                
-                if not self._authenticate():
-                    raise RconAuthenticationError("RCON authentication failed")
-                    
-            except socket.timeout as exc:
+                self._authenticate(deadline)
+                return
+            except (RconAuthenticationError, RconPacketError):
                 self.close()
-                raise RconTimeoutError(
-                    f"Timed out connecting to RCON server at {self.server_ip}:{self.port} "
-                    f"after {connect_timeout}s"
-                ) from exc
-            except socket.gaierror as exc:
+                raise
+            except (OSError, RconConnectionError, RconTimeoutError) as exc:
                 self.close()
-                raise RconConnectionError(
-                    f"Failed to resolve hostname {self.server_ip}: {exc}"
-                ) from exc
-            except socket.error as exc:
-                self.close()
-                raise RconConnectionError(
-                    f"Failed to connect to RCON server at {self.server_ip}:{self.port}: {exc}"
-                ) from exc
-        
-        # Use retry logic for connection
-        self._with_retry(_connect_once)
-    
-    def execute_command(self, command: str) -> str:
-        """
-        Execute an RCON command.
-        
-        Args:
-            command: The command to execute
-            
-        Returns:
-            The command response
-            
-        Raises:
-            RconConnectionError: If not connected or connection fails
-            RconPacketError: If packet is malformed
-            RconTimeoutError: If command times out
-            ValueError: If command is invalid
-        """
-        if not command or not isinstance(command, str):
-            raise ValueError("Command must be a non-empty string")
-        
-        # Ensure we're connected and authenticated
-        if not self._connected or not self._authenticated:
-            self.connect()
-        
-        def _execute_once():
-            response = self._send_packet(command, RconPacketTypes.EXEC_COMMAND)
-            
-            if response.type == RconPacketTypes.RESPONSE_VALUE:
-                return response.body
-            else:
-                raise RconPacketError(f"Unexpected response type: {response.type}, expected {RconPacketTypes.RESPONSE_VALUE}")
-        
-        # Use retry logic for command execution
-        result = self._with_retry(_execute_once)
-        if result is None:
-            raise RconPacketError("Empty response from RCON command")
-        if not isinstance(result, str):
-            result = str(result)
-        return result
-    
+                if attempt == self.retry_count:
+                    if isinstance(exc, socket.timeout):
+                        raise RconTimeoutError("RCON connection or authentication timed out") from exc
+                    if isinstance(exc, OSError):
+                        raise RconConnectionError(f"RCON connection failed: {exc}") from exc
+                    raise
+            time.sleep(self._remaining(self.retry_delay * 2**attempt, deadline))
+
+    def execute_command(self, command: str, *, operation_timeout: Optional[float] = None) -> str:
+        """Send once. An optional total budget covers connection, retries and the reply."""
+        command = self._validate_command(command)
+        deadline = None if operation_timeout is None else time.monotonic() + operation_timeout
+        self._connect(self.connect_timeout, deadline)
+        packet_id, request = self._request(RconPacketTypes.EXEC_COMMAND, command)
+        self.socket.settimeout(self._remaining(self.read_timeout, deadline))
+        # Once sendall starts, even an exception cannot establish how much arrived.
+        try:
+            self.socket.sendall(request)
+            response = self._receive_response(deadline)
+            if (response.id, response.type) != (packet_id, RconPacketTypes.RESPONSE_VALUE):
+                raise RconPacketError("Unexpected RCON command response ID or type")
+            return response.body
+        except (socket.timeout, RconTimeoutError) as exc:
+            self.close()
+            raise RconUnconfirmedTimeoutError(f"Command delivery unconfirmed: {exc}") from exc
+        except (OSError, RconConnectionError) as exc:
+            self.close()
+            raise RconUnconfirmedConnectionError(f"Command delivery unconfirmed: {exc}") from exc
+        except RconPacketError as exc:
+            self.close()
+            raise RconUnconfirmedPacketError(f"Command delivery unconfirmed: {exc}") from exc
+
     def close(self) -> None:
         """Close the RCON connection and clean up resources."""
         self._connected = False
@@ -559,6 +385,7 @@ def execute_rcon_command(
     server_ip: str = '127.0.0.1',
     *,
     settings: Optional[AsaSettings] = None,
+    operation_timeout: Optional[float] = None,
 ) -> str:
     """
     Execute a single RCON command (convenience function).
@@ -572,8 +399,14 @@ def execute_rcon_command(
         The command response
     """
     normalized_command = _validate_command(command, RCON_MAX_COMMAND_LENGTH)
-    with RconClient(server_ip, settings=settings) as client:
-        return client.execute_command(normalized_command)
+    settings = settings or AsaSettings()
+    if server_ip == '127.0.0.1':
+        port, password = settings.rcon_endpoint()
+        client = RconClient(server_ip, port=port, password=password, settings=settings)
+    else:
+        client = RconClient(server_ip, settings=settings)
+    with closing(client):
+        return client.execute_command(normalized_command, operation_timeout=operation_timeout)
 
 
 def _validate_command(command: str, max_length: int) -> str:
