@@ -4,84 +4,91 @@
 
 # ARK: Survival Ascended Linux Server
 
-Run an ARK: Survival Ascended dedicated server on Linux with Docker Compose.
-The image handles game updates, GE-Proton setup and server supervision. The
-included `asa-ctrl` tool provides RCON, mod management and scheduled restarts
-using only the Python standard library.
+Host a dedicated **ARK: Survival Ascended** world on your Linux machine so your
+group can play even when you're offline. Docker Compose runs the Windows game
+server through GE-Proton. The image installs the game and Proton on first
+launch and checks for game updates on subsequent launches by default.
+
+- **Restarts while people are playing.** The built-in scheduler can warn players
+  in chat before a planned restart. On shutdown the supervisor asks ARK to save
+  the world through RCON. The supplied configuration schedules a daily restart.
+- **Maps and mods in one place.** Pick a world by name and add CurseForge mod
+  IDs in Compose. For a group that plays across maps, the included second-server
+  example shows how to share character and creature transfers between worlds.
+- **Administration from the host.** The bundled `asa-ctrl` tool can send chat
+  messages, save the world and check whether ARK answers RCON. It reads the
+  admin credentials from the server configuration.
 
 ## Quick start
 
-Install Docker with Compose, then run:
+### 1. Prepare the host
+
+Use a Linux x86-64 (Intel or AMD) host with Docker and the Compose plugin.
+Budget roughly 13 GB of RAM and 31 GB of disk for one server as a starting
+estimate. Allow extra space for updates, mods and backups. On ARM64, follow
+the [experimental setup](SETUP.md#arm64-experimental) to select the correct image.
+
+Run these commands on the host to get the configuration for the published image:
 
 ```bash
 mkdir asa-server && cd asa-server
 wget https://raw.githubusercontent.com/JustAmply/ark-survival-ascended-server/main/docker-compose.yml
 wget https://raw.githubusercontent.com/JustAmply/ark-survival-ascended-server/main/.env.example
 cp .env.example .env
-vi .env
 ```
 
-Set a unique `ASA_SERVER_ADMIN_PASSWORD` in `.env` and keep that file private.
-Before starting, open `docker-compose.yml`. Under the `asa-server-1` service's
-`environment`, add `ASA_SESSION_NAME: "My ARK Server"` with the name players
-should search for. Keep `ASA_MAP: TheIsland_WP` for The Island, or choose a
-different world from the [map list](SETUP.md#choose-a-map).
+### 2. Set the password and choose your world
+
+In `.env`, set `ASA_SERVER_ADMIN_PASSWORD` to a unique password and keep it
+private. To require a password for players to join, also set
+`ASA_SERVER_PASSWORD` in the service's Compose environment.
+
+In `docker-compose.yml`, find `services → asa-server-1 → environment`.
+Add `ASA_SESSION_NAME` so friends can find the server. Keep the existing
+`ASA_MAP` for The Island or replace its value using the [map list](SETUP.md#choose-a-map).
+
+```yaml
+      ASA_SESSION_NAME: "Our Weekend ARK"
+      ASA_MAP: TheIsland_WP
+```
+
+The example restarts the game at **04:00 Europe/Berlin**. Adjust
+`SERVER_RESTART_CRON` and `TZ` for your group, or remove `SERVER_RESTART_CRON`
+to disable scheduled restarts.
+
+### 3. Start the server and join
 
 ```bash
 docker compose up -d
 docker compose logs -f asa-server-1
 ```
 
-The first start downloads the server files and compatibility tools. Wait for
-game startup to complete, then look in the **Unofficial** server browser with
-**Show Player Servers** enabled. See the [setup guide](SETUP.md) for network
-configuration, storage and server settings. For players connecting over the
-internet, follow the [networking instructions](SETUP.md#networking).
+The first launch downloads the game and loads the world. Press Ctrl+C to leave
+the log view while the server keeps running. Run `docker compose ps` to check
+its health. With the supplied settings, `healthy` means ARK answers RCON.
 
-## Features
+For players connecting over the internet, allow **UDP 7777** through the host
+firewall and, behind a home router, forward that port to the Docker host. The
+example also publishes TCP 27020 for remote administration. Restrict access to
+trusted administrators or remove that port mapping if you administer the game
+through Compose. [Networking details](SETUP.md#networking)
 
-- Automatic game updates on startup, with full validation on the first install.
-- Configurable update cadence and bounded retries with exponential backoff.
-- RCON administration and dynamic mod management.
-- Atomic, process-locked mod storage; invalid mod databases block startup.
-- Password files for Docker secrets and optional required admin credentials.
-- Runtime status and an RCON readiness healthcheck with a cold-start allowance.
-- Read-only configuration checks, redacted configuration output and diagnostics.
-- Multi-server clusters with shared transfer storage.
-- Scheduled restarts with chat warnings and `saveworld`.
-- Five-minute Compose stop grace period for saving and graceful shutdown.
-- Persistent game files, saves and downloaded tools in Docker volumes.
-- Offline backups with optional maintenance stops, retention and verified restores.
-- ServerAPI plugin loader detection.
+In ARK, open **Unofficial**, enable **Show Player Servers** and search for
+your session name. If it doesn't appear, start with the
+[server visibility checks](FAQ.md#server-is-not-visible).
 
-Configure the map, ports, player limit and other settings through individual
-`ASA_*` environment variables in Compose. Existing `ASA_START_PARAMS` launch
-strings remain supported, including in combination with those variables;
-precedence is `ASA_EXTRA_*` > named `ASA_*` > `ASA_START_PARAMS` > defaults.
-The [configuration reference](SETUP.md#server-configuration) lists the options.
-After changing Compose settings, use `docker compose up -d -t 300` to apply them
-with time for saving and shutdown.
+## After your first session
 
-## Architectures
-
-`ghcr.io/justamply/asa-linux-server:latest` is the stable AMD64 image.
-ARM64 hosts use `ghcr.io/justamply/asa-linux-server:arm64-experimental`.
-
-ARM64 uses FEX to translate SteamCMD and Proton. It remains experimental:
-translation and lifecycle checks do not establish that ARK will start, save and
-run reliably on your host. Follow the [ARM64 setup notes](SETUP.md#arm64-experimental)
-and test the game on the target host before relying on it.
-
-## Documentation
-
-| Document | Purpose |
+| What you want to do | How |
 | --- | --- |
-| [Setup and administration](SETUP.md) | Installation, configuration, volumes, mods, RCON and restarts |
-| [Troubleshooting](FAQ.md) | Server visibility, connection failures and startup errors |
-| [Development](docs/development.md) | Local tests, installed-package checks, image checks and CI |
-| [Domain model](CONTEXT.md) | Terms and ownership of runtime and configuration contracts |
-| [Configuration decision](docs/adr/0001-discrete-environment-configuration.md) | Why discrete variables overlay the legacy launch line |
-| [ARM64 decision](docs/adr/0002-isolated-arm64-translation.md) | Translation isolation, package policy and shutdown design |
+| Stop the server for the night | Run `docker compose stop -t 300` to allow time for saving. Use `docker compose start` to bring it back. |
+| Apply a map, password or settings change | Edit the configuration and run `docker compose up -d -t 300`. See the [settings reference](SETUP.md#server-configuration). |
+| Update the container image | Run `docker compose pull`, then `docker compose up -d -t 300`. The image handles game updates separately. |
+| Back up your world | Saves live in Docker volumes and survive container recreation. Follow [backup and recovery](docs/backups.md) before switching worlds or removing volumes. |
+| Add mods or a second world | Follow [mods and custom maps](SETUP.md#mods-and-custom-maps) or the [multi-server cluster guide](SETUP.md#multi-server-clusters). |
+
+For more, see the [administration guide](SETUP.md), [troubleshooting](FAQ.md)
+or the [development guide](docs/development.md).
 
 ## Support and credits
 
