@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from asa_ctrl.common.config import AsaSettings
-from asa_ctrl.common.errors import AsaCtrlError
+from asa_ctrl.common.errors import AsaCtrlError, RconDeliveryUnknownError
 from asa_ctrl.common.launch_config import LaunchConfiguration
 from asa_ctrl.core.rcon import execute_rcon_command
 
@@ -44,6 +44,9 @@ from .proton import (
 from .steamcmd import ensure_steamcmd, probe_steamcmd_translation, should_update, update_server_files
 from .translation import format_execution_error, resolve_execution_context
 from .wine_sync import configure_wine_sync
+
+
+SAVEWORLD_TIMEOUT_SECONDS = 15
 
 
 class ServerSupervisor:
@@ -200,8 +203,7 @@ class ServerSupervisor:
             self.logger.info("Shutdown requested before launch or after stop; no server process to stop.")
             return
 
-        saveworld_sent = self._send_saveworld()
-        if saveworld_sent:
+        if self._send_saveworld():
             time.sleep(max(self.settings.shutdown_saveworld_delay, 0))
         if owns_wine_session:
             try:
@@ -223,18 +225,20 @@ class ServerSupervisor:
         return AsaSettings(self.server_env)
 
     def _send_saveworld(self) -> bool:
+        """Return whether the server needs time to finish a possible save."""
         try:
-            execute_rcon_command("saveworld", settings=self._rcon_settings())
-            ok = True
+            execute_rcon_command(
+                "saveworld", settings=self._rcon_settings(), operation_timeout=SAVEWORLD_TIMEOUT_SECONDS
+            )
+        except RconDeliveryUnknownError:
+            self.logger.warning("SaveWorld delivery is unconfirmed; allowing time for a possible save.")
+            return True
         except (AsaCtrlError, ValueError) as exc:
             self.logger.debug("saveworld RCON failure: %s", exc)
-            ok = False
-
-        if ok:
-            self.logger.info("saveworld command sent successfully.")
-        else:
             self.logger.warning("Failed to execute saveworld command via RCON.")
-        return ok
+            return False
+        self.logger.info("saveworld command sent successfully.")
+        return True
 
     def _stop_server_process(self, process: Optional[subprocess.Popen]) -> None:
         if process is None or not self._server_is_running(process):

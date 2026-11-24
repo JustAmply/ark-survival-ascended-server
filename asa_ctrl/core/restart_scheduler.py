@@ -17,6 +17,7 @@ from asa_ctrl.core.rcon import execute_rcon_command
 
 MAX_SLEEP_INTERVAL_SECONDS = 30
 POST_RESTART_DELAY_SECONDS = 10
+ANNOUNCEMENT_TIMEOUT_SECONDS = 5
 
 
 _MONTH_NAMES: Dict[str, int] = {
@@ -228,7 +229,7 @@ def _is_process_alive(pid: Optional[int]) -> bool:
 
 def _run_rcon_command(command: str, logger, settings: AsaSettings) -> bool:
     try:
-        execute_rcon_command(command, settings=settings)
+        execute_rcon_command(command, settings=settings, operation_timeout=ANNOUNCEMENT_TIMEOUT_SECONDS)
     except (AsaCtrlError, ValueError) as exc:
         logger.warning("Failed to execute RCON command '%s': %s", command, exc)
         return False

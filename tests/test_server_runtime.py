@@ -441,7 +441,7 @@ def test_shutdown_sequence_skips_delay_when_saveworld_fails(monkeypatch):
 
     monkeypatch.setattr(
         "server_runtime.supervisor.execute_rcon_command",
-        lambda _command, settings=None: (_ for _ in ()).throw(
+        lambda _command, *, settings, operation_timeout: (_ for _ in ()).throw(
             runtime_supervisor.AsaCtrlError("offline")
         ),
     )
@@ -453,7 +453,8 @@ def test_shutdown_sequence_skips_delay_when_saveworld_fails(monkeypatch):
     assert process.terminated is True
 
 
-def test_shutdown_sequence_saves_waits_then_terminates(monkeypatch):
+@pytest.mark.parametrize("reply_lost", [False, True])
+def test_shutdown_sequence_saves_waits_then_terminates(monkeypatch, reply_lost):
     events = []
     supervisor = ServerSupervisor(
         RuntimeSettings.from_env({"ASA_SHUTDOWN_SAVEWORLD_DELAY": "3"}),
@@ -463,7 +464,13 @@ def test_shutdown_sequence_saves_waits_then_terminates(monkeypatch):
     process.poll.return_value = None
     supervisor.server_process = process
 
-    monkeypatch.setattr(runtime_supervisor, "execute_rcon_command", lambda command, settings=None: events.append(command))
+    def saveworld(command, *, settings, operation_timeout):
+        assert operation_timeout == 15
+        events.append(command)
+        if reply_lost:
+            raise runtime_supervisor.RconDeliveryUnknownError("connection closed after send")
+
+    monkeypatch.setattr(runtime_supervisor, "execute_rcon_command", saveworld)
     monkeypatch.setattr(runtime_supervisor.time, "sleep", lambda seconds: events.append(("sleep", seconds)))
     monkeypatch.setattr(supervisor, "_stop_server_process", lambda current: events.append(("stop", current)))
 
@@ -901,7 +908,7 @@ def test_saveworld_discovers_rcon_from_the_launched_environment(monkeypatch):
 
     captured = {}
 
-    def fake_rcon(command, settings=None):
+    def fake_rcon(command, *, settings, operation_timeout):
         captured["command"] = command
         captured["password"] = settings.get_start_param_value("ServerAdminPassword")
         captured["port"] = settings.get_start_param_value("RCONPort")

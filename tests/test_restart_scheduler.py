@@ -139,7 +139,8 @@ def test_run_scheduler_orders_notifications_and_guards_restart(
     })
     events = []
 
-    def fake_execute(command, *, settings):
+    def fake_execute(command, *, settings, operation_timeout):
+        assert operation_timeout == 5
         assert settings is configured_settings
         events.append(("rcon", command))
         if rcon_fails:
