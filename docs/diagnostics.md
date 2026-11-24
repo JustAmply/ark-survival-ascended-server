@@ -2,44 +2,34 @@
 
 ## Is the world ready?
 
-Run `docker compose ps` for the container health summary. For the current
-startup or shutdown phase, consecutive failure count (when available) and RCON
-readiness, use:
-
 ```bash
+docker compose ps
 docker compose exec asa-server-1 asa-ctrl status --json
 ```
 
-`ready` means the running server answered `ListPlayers` over RCON. If players
-still cannot connect, check the [game port and server browser](../FAQ.md#server-is-not-visible).
-For automation, `status` exits with 0 when ready and 10 otherwise.
-`status --healthcheck` uses Docker's 0/1 exit codes.
+`status` shows the runtime phase and RCON readiness. **Ready** means ARK answered `ListPlayers`. If players still cannot join, check [server visibility and networking](../FAQ.md#server-is-not-visible).
 
-The image checks every 30 seconds. Docker allows 30 minutes for initial
-downloads and marks the container unhealthy after three consecutive failed
-checks outside the startup allowance. Increase `healthcheck.start_period` in
-Compose for slower hosts. The allowance applies to container startup. A health
-change alone does not restart the server. If you deliberately disable RCON or
-use debug hold, set `healthcheck: { disable: true }` on that service to turn
-off the RCON-based probe.
+<details>
+<summary>Healthcheck timing and exit codes</summary>
+
+Docker probes every 30 seconds and marks the container unhealthy after three consecutive failures outside the initial 30-minute startup allowance. Extend `healthcheck.start_period` for slow downloads. An unhealthy status alone leaves the container running.
+
+For debug hold or disabled RCON, set `healthcheck: { disable: true }` on the service. For automation, `status` returns 0 when ready and 10 otherwise. `status --healthcheck` returns 0 or 1.
+
+</details>
 
 ## Are my settings valid?
 
-Run these read-only checks against a running container. Use the game user's
-UID and GID so access checks reflect the server's permissions.
+Run checks in the container as the game user. Replace `doctor` with either configuration command below.
 
 ```bash
-docker compose exec --user 25000:25000 asa-server-1 asa-ctrl config check
-docker compose exec --user 25000:25000 asa-server-1 asa-ctrl config show
 docker compose exec --user 25000:25000 asa-server-1 asa-ctrl doctor
 ```
 
-| Command | What it tells you |
+| Command | What it checks or shows |
 | --- | --- |
-| `config check` | Validates known ports, player limits, switches, timings, update modes and restart schedules. Warnings include disabled RCON and a missing or default admin password. Unknown launch options pass through. |
-| `config show` | Shows known launch inputs as JSON before the runtime merges dynamic mods. Passwords are redacted and arbitrary extra values are omitted. |
-| `doctor` | Adds checks that the game user can access the initialized volumes and existing configuration files. It leaves files untouched. |
+| `config check` | Known settings, including ports, player limits, update modes, restart schedules and password warnings. Unknown launch options pass through. |
+| `config show` | Launch settings before dynamic mods are merged. JSON output redacts passwords and omits arbitrary extra values. |
+| `doctor` | Configuration plus read-only access checks on initialized volumes and existing configuration files. |
 
-For machine-readable check results, add `--json` to `config check` or `doctor`.
-Both report `ok`, `errors` and `warnings`. Exit code 9 indicates a configuration
-error. Warnings alone return 0.
+For scripts, `config check --json` and `doctor --json` report `ok`, `errors` and `warnings`. Errors return exit code 9. Warnings alone return 0.

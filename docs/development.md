@@ -1,22 +1,13 @@
 # Development and verification
 
-The application has no third-party Python runtime dependencies. The Dockerfile
-defines the image's Python and OS versions. Read [AGENTS.md](../AGENTS.md) before
-editing, [CONTEXT.md](../CONTEXT.md) for contract ownership, and the ADRs for
-[launch configuration](adr/0001-discrete-environment-configuration.md) and
-[ARM64 translation](adr/0002-isolated-arm64-translation.md).
-For running a published image, use [SETUP.md](../SETUP.md).
+Read [AGENTS.md](../AGENTS.md) before editing. Keep Python runtime code
+dependency-free. For terminology and design decisions, see the [domain model](../CONTEXT.md),
+[launch configuration ADR](adr/0001-discrete-environment-configuration.md) and
+[ARM64 ADR](adr/0002-isolated-arm64-translation.md).
 
 ## Python development
 
-Python 3.15 is the only supported and tested Python minor version. The package
-requires `>=3.15,<3.16`; `.python-version` selects the same series for local
-version managers and GitHub Actions. Patch releases within 3.15 are supported.
-The application runtime uses Python 3.15 on both image architectures; the FEX
-guest's OS Python is only used to execute Proton's own scripts.
-
-From a repository checkout, create a virtual environment with Python 3.15 and
-install the project:
+Use Python **3.15.x**. From the repository root:
 
 ```bash
 python3.15 -m venv .venv
@@ -25,16 +16,13 @@ python -m pip install -e ".[dev]"
 python -m pytest -q
 ```
 
-On Windows PowerShell, use an installed Python 3.15 executable to create the
-environment and activate with `.venv\Scripts\Activate.ps1` instead.
-Editable installation registers `asa-ctrl` and makes source edits available
-immediately. Start with the tests relevant to the change, then run the complete
-suite. POSIX-only cases skip on Windows; Linux CI exercises them.
+On PowerShell, use your Python 3.15 executable and activate with
+`.venv\Scripts\Activate.ps1`. Linux CI covers POSIX-only tests.
 
 ### Installed distribution
 
-After changing packaging, package layout or console entry points, verify a
-non-editable installation in a separate clean environment. In a fresh shell:
+After changing packaging, layout or entry points, check a clean non-editable
+install in a fresh shell:
 
 ```bash
 python3.15 -m venv .tmp/package-check
@@ -44,16 +32,11 @@ python -I scripts/verify_installed_package.py
 ```
 
 On PowerShell, activate with `.tmp\package-check\Scripts\Activate.ps1`.
-Isolated mode prevents imports from the working directory. A clean non-editable
-install checks Python 3.15, the distribution's subpackages and console command
-independently of the source-tree tests. The smoke test also exercises
-`status`, `config check` and `doctor`.
 
 ## Local image checks
 
-The following commands use a Bash shell from the repository root. They use
-disposable containers and do not mount an existing server's data. Rebuild after
-source changes; the Compose files do not overlay Python source into the image.
+Rebuild after source changes. Run these checks from the repository root in Bash
+using disposable containers:
 
 ```bash
 docker build -t asa-linux-server:smoke .
@@ -69,28 +52,22 @@ docker run --rm --user 25000:25000 --entrypoint python \
   asa-linux-server:smoke /tmp/verify_translated_lifecycle.py --native-fixture
 ```
 
-The runtime lifecycle check exercises RCON, scheduler warnings, restart, save
-delay and shutdown for discrete settings and the legacy launch string. It
-replaces SteamCMD, Proton and ARK at their external interfaces. The native
-fixture check verifies translated process-group cleanup using Linux Python
-children; it does not establish FEX or Proton compatibility.
+The lifecycle fixture substitutes SteamCMD, Proton and ARK to test RCON,
+restart and shutdown. The native fixture checks child-process cleanup.
 
-Use the same local image to check offline backups and restores:
+To check maintenance stops, restored backup data and retention using disposable
+volumes, run:
 
 ```bash
 python scripts/verify_backup_lifecycle.py --image asa-linux-server:smoke
 ```
 
-The fixture creates disposable containers and volumes and checks maintenance
-stops, restored bytes and retention. For backups of a running deployment,
-follow [Backup and recovery](backups.md).
+For backups of a deployment, see [backup and recovery](backups.md).
 
 ### Native ARM64 translation
 
-On a native ARM64 host, use a Docker builder with AMD64 emulation (QEMU/binfmt)
-for the x86 guest RootFS stage; CI configures this through `setup-qemu`.
-The acceptance checks themselves must run through native ARM64 FEX, without
-QEMU handling x86 binaries at runtime. Build and run:
+Build on ARM64 with QEMU/binfmt for the x86 guest RootFS stage. Run the
+acceptance check using native ARM64 FEX without QEMU handling x86 binaries.
 
 ```bash
 docker build --platform linux/arm64 -t asa-linux-server:arm64-smoke .
@@ -100,30 +77,17 @@ docker run --rm --user 25000:25000 --entrypoint python \
   asa-linux-server:arm64-smoke /tmp/verify_arm64_translation.py
 ```
 
-This downloads SteamCMD and checksum-verified Proton, checks real Windows
-execution through FEX, and tests translated restart/shutdown with descendant
-cleanup. It uses a pinned Proton baseline; add `--proton-version auto` after
-the script path to test default release selection and its preflight fallback.
-These checks do not install ARK or prove game saving and sustained operation.
-An emulated image build also does not prove native ARM64 runtime behavior.
+This checks SteamCMD, Windows execution through Proton and translated process
+cleanup. Append `--proton-version auto` to test release selection and fallback.
+Actual ARK startup and saves require a separate game test.
 
 ## Continuous integration
 
-[The workflow](../.github/workflows/test-and-build.yml) selects checks through
-[ci_changes.py](../scripts/ci_changes.py): documentation-only changes skip Python
-and Docker; test-only changes run Python checks; runtime, image, metadata,
-workflow and unrecognized changes run all checks. Release tags and the weekly
-refresh always run all checks. The main job reports a status even when checks
-are skipped.
+The [change classifier](../scripts/ci_changes.py) skips Python and Docker for
+documentation-only changes and runs Python for test-only changes. Runtime
+changes, release tags and weekly refreshes run the full checks.
 
-Image publication follows successful smoke checks. ARM64 runs on a native
-runner, with QEMU used only to build its x86 guest RootFS. Its weekly check also
-tests automatic Proton selection. Ordinary ARM64 builds refresh the FEX runtime
-stage; the weekly refresh pulls base images and rebuilds all stages without
-cache. See [ADR 0002](adr/0002-isolated-arm64-translation.md) for the rolling
-package policy and reproducibility tradeoff.
-
-Draft, fork and Dependabot PRs validate without publishing images. Ready PRs
-from this repository publish preview tags. Obsolete PR runs are cancelled;
-main and tag runs finish in sequence. The workflow is the source of truth for
-job limits, tags and individual smoke-check steps.
+The [workflow](../.github/workflows/test-and-build.yml) publishes preview images
+for ready PRs from this repository after smoke checks pass. Fork, draft and
+Dependabot PRs validate without publishing. The weekly ARM64 build also
+refreshes base images, bypasses the build cache and tests automatic Proton selection.
