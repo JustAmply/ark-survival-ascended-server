@@ -3,6 +3,7 @@
 from asa_ctrl.cli_helpers import exit_with_error, map_exception_to_exit_code
 from asa_ctrl.common.constants import ExitCodes
 from asa_ctrl.common.errors import (
+    ConfigurationError,
     RconAuthenticationError,
     RconConnectionError,
     RconPacketError,
@@ -52,6 +53,8 @@ class RconCommand:
                 message = f"RCON operation timed out: {exc}"
             elif isinstance(exc, RconPacketError):
                 message = f"RCON packet error: {exc}"
+            elif isinstance(exc, ConfigurationError):
+                message = f"Invalid server configuration: {exc}"
             elif isinstance(exc, ValueError):
                 message = f"Invalid command: {exc}"
                 exit_code = ExitCodes.RCON_COMMAND_EXECUTION_FAILED

@@ -39,7 +39,7 @@ def parse_ini(file_path: str) -> Optional[configparser.ConfigParser]:
     if not Path(file_path).exists():
         return None
 
-    config = configparser.ConfigParser(strict=False)
+    config = configparser.ConfigParser(strict=False, interpolation=None)
     try:
         config.read(file_path)
     except (OSError, configparser.Error):
