@@ -1,6 +1,7 @@
 # Password files and strict startup
 
-The runtime and `asa-ctrl` accept UTF-8 password files through:
+Use a mounted file when you want to keep a password out of the Compose
+environment. The runtime and `asa-ctrl` accept these UTF-8 file settings:
 
 - `ASA_SERVER_ADMIN_PASSWORD_FILE`
 - `ASA_SERVER_PASSWORD_FILE`
@@ -17,9 +18,7 @@ as a password in the current launch-line query/token grammar. Error messages
 never include the contents or path of a secret file. Launch-line diagnostics
 redact the resolved password using the same rules as direct settings.
 
-File values have the same precedence as named environment variables: they
-override the legacy launch line; `ASA_EXTRA_QUERY_PARAMS` and `ASA_EXTRA_FLAGS`
-retain their existing precedence. The original environment is not modified.
+File values follow the same [precedence as named launch variables](../SETUP.md#legacy-launch-strings-and-precedence).
 
 ## Docker Compose
 
@@ -53,7 +52,8 @@ launch line, the default map still works when an INI password is present.
 The switch defaults to off to preserve existing stacks. It checks that a
 password is configured; it does not enforce password strength.
 
-After rotating a file, recreate the container to apply the new password. The
-supervisor keeps the launched password for shutdown RCON even if the file changes
-or disappears. An external `asa-ctrl status` or RCON invocation reads the current
+After rotating a file, run `docker compose up -d --force-recreate -t 300 asa-server-1`
+to remount it and apply the new password, including when only the file contents
+changed. The supervisor keeps the launched password for shutdown RCON even if
+the file changes or disappears. An external `asa-ctrl status` or RCON invocation reads the current
 file and may fail authentication until the server has restarted with that value.
