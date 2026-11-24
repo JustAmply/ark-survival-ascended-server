@@ -1,16 +1,5 @@
 # Development and verification
 
-CI checks RCON readiness in the supervisor lifecycle fixture and verifies offline
-backup/restore against uniquely owned disposable Docker containers and volumes:
-
-```bash
-python scripts/verify_backup_lifecycle.py --image asa-linux-server:dev
-```
-
-The image must already exist locally. This test uses no game installation or
-existing data; it checks maintenance stops, restored bytes and retention. The
-installed-package smoke test also checks `status`, `config check` and `doctor`.
-
 The application has no third-party Python runtime dependencies. The Dockerfile
 defines the image's Python and OS versions. Read [AGENTS.md](../AGENTS.md) before
 editing, [CONTEXT.md](../CONTEXT.md) for contract ownership, and the ADRs for
@@ -57,7 +46,8 @@ python -I scripts/verify_installed_package.py
 On PowerShell, activate with `.tmp\package-check\Scripts\Activate.ps1`.
 Isolated mode prevents imports from the working directory. A clean non-editable
 install checks Python 3.15, the distribution's subpackages and console command
-independently of the source-tree tests.
+independently of the source-tree tests. The smoke test also exercises
+`status`, `config check` and `doctor`.
 
 ## Local image checks
 
@@ -84,6 +74,16 @@ delay and shutdown for discrete settings and the legacy launch string. It
 replaces SteamCMD, Proton and ARK at their external interfaces. The native
 fixture check verifies translated process-group cleanup using Linux Python
 children; it does not establish FEX or Proton compatibility.
+
+Use the same local image to check offline backups and restores:
+
+```bash
+python scripts/verify_backup_lifecycle.py --image asa-linux-server:smoke
+```
+
+The fixture creates disposable containers and volumes and checks maintenance
+stops, restored bytes and retention. For backups of a running deployment,
+follow [Backup and recovery](backups.md).
 
 ### Native ARM64 translation
 

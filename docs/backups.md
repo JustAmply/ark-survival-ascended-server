@@ -1,43 +1,40 @@
-# Offline backups and recovery
+# Back up and recover a world
 
-Run `scripts/backup_server.py` on a host with Python 3.15 and Docker CLI access.
-It has no third-party Python dependencies. It copies existing stopped containers
-using `docker cp`; no helper image or direct Docker-volume filesystem access is
-required. The containers must have completed at least one successful startup:
-`ShooterGame/Saved` and `mods.json` must exist. A missing or unreadable source
-aborts the backup instead of silently omitting data.
+Run the backup on the Docker host using Python 3.15 and an account with Docker
+CLI access. If you installed from the README, download the standalone
+[backup script](../scripts/backup_server.py) into your Compose directory first:
+
+```bash
+mkdir -p scripts
+wget -O scripts/backup_server.py https://raw.githubusercontent.com/JustAmply/ark-survival-ascended-server/main/scripts/backup_server.py
+```
+
+The script copies each selected server's `ShooterGame/Saved` tree (worlds and
+INI files), `mods.json`, shared cluster transfer data and any host files named
+with `--include`. Game binaries, SteamCMD and Proton can be downloaded again.
+The script expects the [standard volume mounts](../SETUP.md#storage-and-backups)
+and an initialized server with both `Saved` and `mods.json` present.
 
 ## Create and schedule a backup
 
-Stop every server sharing the cluster first, allowing its save/shutdown sequence
-to finish. Keep deployments, manual starts and other writers disabled throughout
-the backup window. The script checks for running containers sharing the selected
-mounts both before and after copying, but cannot lock out an external operator.
-Use `stop`, not `down`: the stopped containers are the copy source.
+From the directory containing `docker-compose.yml` and `.env`, run:
 
 ```bash
-docker compose stop -t 300
-python scripts/backup_server.py backup \
-  --container asa-server-1 --container asa-server-2 \
-  --directory /srv/asa-backups --keep 7 \
+python3.15 scripts/backup_server.py backup --stop \
+  --container asa-server-1 --directory /srv/asa-backups --keep 7 \
   --include docker-compose.yml --include .env
-docker compose start
 ```
 
-Select every server whose world belongs in the backup; a shared cluster is copied
-once. Remove `--container asa-server-2` for a single-server deployment. The script
-expects the standard server-files and cluster-shared mount destinations. It
-includes the entire `ShooterGame/Saved` tree (worlds and INI configuration),
-`mods.json`, cluster transfer data and explicitly included host configuration.
-Downloadable game binaries, SteamCMD and Proton are excluded.
+This stops the server for the copy, verifies the archive and restarts any
+selected container that was previously running, including after a copy or
+verification error. Stopped containers stay stopped. The default stop timeout
+is 300 seconds. Increase `--stop-timeout` if your shutdown needs more time.
 
-For unattended operation, add `--stop`. This first checks that no unselected
-running container shares the data, stops only selected containers that were
-running, then restarts those containers in a `finally` block even if copying or
-verification fails. Already stopped containers remain stopped. The default stop
-timeout is 300 seconds; increase `--stop-timeout` when your save/shutdown settings
-require longer. A Docker daemon failure or forced termination of the backup
-process can prevent the restart, so monitor the scheduled job's exit status.
+For a cluster, repeat `--container` for each member. Shared transfer data is
+copied once. A running unselected container using the same data blocks the
+backup. To manage downtime yourself, stop the containers with
+`docker compose stop -t 300`, omit `--stop`, then start them after the backup.
+The tool copies from existing containers, so keep them in place.
 
 For example, a host cron job can run daily at 03:00 in the host's timezone:
 
@@ -47,8 +44,8 @@ For example, a host cron job can run daily at 03:00 in the host's timezone:
 
 Adapt paths and add every intended cluster member with another `--container`.
 Run under an account authorized to use Docker, keep other writers out, and
-configure the scheduler to prevent overlapping runs. No scheduling daemon is
-added to the game image.
+prevent overlapping runs. Monitor the job's exit status, including whether Docker
+could restart the servers.
 
 Archives contain a manifest and SHA-256 digest for every file. A newly written
 archive is fully verified before it receives its final name and retention runs.
@@ -62,8 +59,8 @@ not malicious replacement of both files and their manifest.
 ## Verify and perform a recovery drill
 
 ```bash
-python scripts/backup_server.py verify /srv/asa-backups/asa-backup-EXAMPLE.zip
-python scripts/backup_server.py restore /srv/asa-backups/asa-backup-EXAMPLE.zip \
+python3.15 scripts/backup_server.py verify /srv/asa-backups/asa-backup-EXAMPLE.zip
+python3.15 scripts/backup_server.py restore /srv/asa-backups/asa-backup-EXAMPLE.zip \
   --destination /srv/asa-recovery-drill
 ```
 
@@ -85,16 +82,3 @@ the recovered world has been started separately and checked in game.
 Byte verification is a repeatable restore check, not proof that ARK can load a
 particular world. Include an isolated game-server startup in periodic recovery
 drills; do not run the drill against the production cluster volume.
-
-## Test the backup tooling
-
-With Docker running and `python:3.15-slim` already available locally, run:
-
-```bash
-python scripts/verify_backup_lifecycle.py --image python:3.15-slim
-```
-
-This creates uniquely named, labelled fixture containers and volumes, exercises
-backup, maintenance stop/start, verification, recovery and retention, then removes
-only those fixtures. It does not pull images implicitly or touch existing server
-data. CI can explicitly pull the fixture image before invoking the check.
