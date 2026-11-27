@@ -5,8 +5,8 @@ ARG TARGETARCH
 # Ubuntu host. Only this stage contains compilers and development headers.
 FROM ubuntu:26.04 AS arm64-python
 ARG DEBIAN_FRONTEND=noninteractive
-ARG PYTHON_VERSION="3.15.0"
-ARG PYTHON_SHA256="ba4bed1ba346b916890b76d9e320451420aa69f6408997d33c66482eeae3d575"
+ARG PYTHON_VERSION="3.15.2"
+ARG PYTHON_SHA256="8b5536d280142ecf6cdfe15d12a21ba1c65e300bbf7b28a8d0cdb849575797de"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates wget build-essential libbz2-dev libffi-dev libgdbm-dev \
     libgdbm-compat-dev liblzma-dev libncursesw5-dev libreadline-dev \
